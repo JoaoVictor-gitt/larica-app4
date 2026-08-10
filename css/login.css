@@ -1,0 +1,36 @@
+/*
+ * login.css
+ * Ajustes específicos do formulário de login sobre o layout .tela-inicial
+ * (mesmo fundo/logo de index.html, já definidos em css/style.css).
+ */
+
+.cartao-login {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-md);
+}
+
+.cartao-login-titulo {
+  margin: 0;
+  text-align: center;
+}
+
+.cartao-login-botao {
+  width: 100%;
+  margin-top: var(--espaco-xs);
+}
+
+/* Mensagem de erro do formulário (mesmo padrão de css/pedido.css) */
+.campo-erro {
+  display: block;
+  min-height: 1em;
+  color: var(--cor-status-vermelho);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+
+#erro-login:empty {
+  display: none;
+}

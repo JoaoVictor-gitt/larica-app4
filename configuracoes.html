@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    (function () {
+      try {
+        var config = JSON.parse(localStorage.getItem('caju_configuracoes') || '{}');
+        document.documentElement.setAttribute('data-tema', config.tema === 'claro' ? 'claro' : 'escuro');
+      } catch (erro) {}
+    })();
+  </script>
+  <title>Configurações | Larica Food Truck</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body data-pagina="configuracoes" data-area="admin">
+  <div id="layout-shell"></div>
+  <main class="conteudo-pagina">
+    <div class="pagina-titulo">
+      <h1>Configurações</h1>
+    </div>
+
+    <div class="card" style="max-width:520px;">
+      <div class="linha-toggle">
+        <div class="linha-toggle-texto">
+          <label for="campo-modo-escuro">Modo escuro</label>
+          <span>Muda a aparência do sistema imediatamente</span>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="campo-modo-escuro" />
+          <span class="toggle-switch-trilho"></span>
+        </label>
+      </div>
+
+      <form id="form-configuracoes">
+        <div class="form-grupo">
+          <label for="campo-nome-foodtruck">Nome do Food Truck</label>
+          <input type="text" id="campo-nome-foodtruck" class="input" required />
+        </div>
+
+        <div class="form-grupo">
+          <label for="campo-moeda">Moeda</label>
+          <select id="campo-moeda" class="input">
+            <option value="EUR">Euro (€)</option>
+            <option value="BRL">Real brasileiro (R$)</option>
+            <option value="USD">Dólar americano ($)</option>
+            <option value="GBP">Libra esterlina (£)</option>
+          </select>
+        </div>
+
+        <div class="form-grupo">
+          <label for="campo-taxa-entrega">Taxa de entrega</label>
+          <input type="number" id="campo-taxa-entrega" class="input" min="0" step="0.01" />
+        </div>
+
+        <button type="submit" class="btn btn-primario">Salvar Configurações</button>
+      </form>
+    </div>
+  </main>
+
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/configuracoes.js"></script>
+</body>
+</html>

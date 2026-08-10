@@ -1,0 +1,93 @@
+/*
+ * responsive.css
+ * Ajustes de layout por tamanho de tela. Carregado por último em cada
+ * página, depois de style.css e do CSS específico da tela, para poder
+ * sobrescrever regras sem precisar de !important.
+ *
+ * Breakpoints usados (custom properties não funcionam dentro de @media,
+ * por isso ficam só documentados aqui em vez de em variáveis):
+ *   até 480px   -> celular
+ *   até 768px   -> tablet / conteúdo compacto
+ *   até 1023px  -> sidebar em modo "drawer" (menu hambúrguer)
+ *   1024px+     -> desktop, sidebar fixa
+ */
+
+html, body { overflow-x: hidden; }
+
+/* ---------------------------------------------------------------------- */
+/* Sidebar em drawer abaixo de 1024px                                      */
+/* ---------------------------------------------------------------------- */
+@media (max-width: 1023px) {
+  .botao-menu-mobile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: translateX(-100%);
+    transition: transform var(--transicao-padrao);
+    z-index: 30;
+  }
+
+  .sidebar.sidebar-aberta { transform: translateX(0); }
+}
+
+.overlay-mobile.overlay-visivel { display: block; }
+
+/* ---------------------------------------------------------------------- */
+/* Tablet (~768px): layout mais compacto, grades de filtro em coluna única */
+/* ---------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  :root { --largura-sidebar: 220px; }
+
+  .conteudo-pagina { padding: var(--espaco-md); }
+
+  .filtros-produtos,
+  .filtros-estoque,
+  .filtros-historico {
+    grid-template-columns: 1fr;
+  }
+
+  .layout-carrinho { grid-template-columns: 1fr; }
+  .resumo-carrinho { position: static; }
+
+  .cartoes-resumo-estoque { grid-template-columns: repeat(2, 1fr); }
+
+  .modal-corpo { grid-template-columns: 1fr; }
+  .coluna-foto { max-width: 200px; margin: 0 auto; }
+
+  .grade-graficos-dashboard { grid-template-columns: 1fr; }
+
+  /* Empilha mais cedo para não apertar os 220px mínimos das duas colunas */
+  .opcoes-area-inicial { grid-template-columns: 1fr; max-width: 320px; }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Celular (~480px): coluna única, títulos e ações empilhados               */
+/* ---------------------------------------------------------------------- */
+@media (max-width: 480px) {
+  .pagina-titulo {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-titulo { font-size: 0.95rem; }
+
+  .cartoes-resumo-estoque { grid-template-columns: 1fr; }
+  .grade-cartoes-dashboard { grid-template-columns: 1fr; }
+
+  .grade-cardapio { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+
+  .card-produto-acao { flex-direction: column; align-items: stretch; }
+  .seletor-quantidade { width: 100%; }
+
+  .tela-inicial-marca h1 { font-size: 1.6rem; }
+
+  .modal { max-width: 100% !important; }
+
+  .linha-barra-horizontal { grid-template-columns: 90px 1fr 32px; }
+}

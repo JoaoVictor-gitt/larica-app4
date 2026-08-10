@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    // Aplica o tema salvo antes da primeira renderização, para não piscar claro→escuro
+    (function () {
+      try {
+        var config = JSON.parse(localStorage.getItem('caju_configuracoes') || '{}');
+        document.documentElement.setAttribute('data-tema', config.tema === 'claro' ? 'claro' : 'escuro');
+      } catch (erro) {}
+    })();
+  </script>
+  <title>Larica Food Truck</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body class="tela-inicial-body">
+  <main class="tela-inicial">
+    <div class="tela-inicial-marca">
+      <h1 class="logo-larica tela-inicial-logo">LAR<span class="logo-chama">🔥</span>CA</h1>
+      <p class="tagline-larica">Food Truck</p>
+    </div>
+
+    <div class="opcoes-area-inicial">
+      <a class="card opcao-area" href="pedido.html">
+        <span class="opcao-area-icone">🧾</span>
+        <h2>Fazer Pedido</h2>
+        <p>Veja nosso cardápio e faça seu pedido</p>
+      </a>
+      <a class="card opcao-area" href="dashboard.html">
+        <span class="opcao-area-icone">📊</span>
+        <h2>Painel Administrativo</h2>
+        <p>Gerenciar produtos, estoque, histórico e configurações</p>
+      </a>
+    </div>
+  </main>
+
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script>
+    // Garante que o localStorage já esteja inicializado antes de entrar em qualquer área
+    inicializarStorage();
+  </script>
+</body>
+</html>

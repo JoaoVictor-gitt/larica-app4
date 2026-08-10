@@ -1,0 +1,102 @@
+/*
+ * historico.css
+ * Estilos específicos da tela de Histórico: a seção nova de "Pedidos
+ * finalizados" (tabela com checkbox/ações, separada da tabela de vendas de
+ * balcão/estoque que já existia) e o modal "Ver detalhes" do pedido.
+ * Reaproveita os tokens/componentes genéricos de css/style.css.
+ */
+
+.secao-pedidos-finalizados {
+  margin-bottom: var(--espaco-xl);
+}
+
+.acoes-pedidos-finalizados {
+  display: flex;
+  gap: var(--espaco-sm);
+  flex-wrap: wrap;
+}
+
+.tabela-pedidos-finalizados-wrap {
+  padding: 0;
+  overflow-x: auto;
+}
+
+.tabela-pedidos-finalizados-wrap .tabela {
+  min-width: 560px;
+}
+
+.titulo-secao-historico {
+  font-size: 1rem;
+  color: var(--cor-texto-secundario);
+  margin: 0 0 var(--espaco-md);
+  padding-top: var(--espaco-sm);
+  border-top: 1px solid var(--cor-borda);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Modal de detalhes do pedido (mesmo padrão visual do "Ver pedido" em    */
+/* Painel > Pedidos, com sua própria cópia das classes — páginas diferentes) */
+/* ---------------------------------------------------------------------- */
+
+.modal-pedido {
+  max-width: 560px;
+}
+
+.detalhe-pedido-secao {
+  margin-bottom: var(--espaco-lg);
+}
+
+.detalhe-pedido-titulo {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cor-texto-secundario);
+  margin-bottom: var(--espaco-xs);
+}
+
+.detalhe-combo-pedido {
+  margin-bottom: var(--espaco-md);
+  padding-bottom: var(--espaco-md);
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+.detalhe-combo-pedido:last-child {
+  border-bottom: none;
+}
+
+.detalhe-combo-pedido-cabecalho {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--espaco-xs);
+}
+
+.detalhe-combo-pedido-grupo {
+  font-size: 0.88rem;
+  margin-bottom: var(--espaco-xs);
+}
+
+.detalhe-combo-pedido-rotulo {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cor-texto-secundario);
+}
+
+.detalhe-combo-pedido-grupo ul {
+  margin: 2px 0 0;
+  padding-left: var(--espaco-lg);
+}
+
+.aviso-troco {
+  margin: var(--espaco-xs) 0 0;
+  padding: var(--espaco-xs) var(--espaco-sm);
+  border-radius: var(--raio-sm);
+  background: rgba(224, 185, 78, 0.15);
+  border: 1px solid var(--cor-status-amarelo);
+  color: var(--cor-status-amarelo);
+  font-size: 0.85rem;
+  font-weight: 600;
+}

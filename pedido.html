@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    // Aplica o tema salvo antes da primeira renderização, para não piscar claro→escuro
+    (function () {
+      try {
+        var config = JSON.parse(localStorage.getItem('caju_configuracoes') || '{}');
+        document.documentElement.setAttribute('data-tema', config.tema === 'claro' ? 'claro' : 'escuro');
+      } catch (erro) {}
+    })();
+  </script>
+  <title>Fazer Pedido | Larica Food Truck</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/cardapio.css" />
+  <link rel="stylesheet" href="css/pedido.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body data-pagina="pedido" data-area="pedido">
+  <div id="layout-shell"></div>
+  <main class="conteudo-pagina conteudo-pedido">
+    <div class="pagina-titulo">
+      <h1>Fazer Pedido</h1>
+    </div>
+
+    <div class="indicador-etapa-pedido" id="indicador-etapa-pedido"></div>
+
+    <!-- Etapa 1: Cardápio -->
+    <section class="etapa-pedido etapa-ativa" data-etapa="cardapio">
+      <div class="filtro-categorias" id="filtro-categorias-pedido"></div>
+      <div class="estado-vazio" id="estado-carregando-pedido">Carregando produtos...</div>
+      <div class="estado-vazio" id="estado-erro-pedido" style="display:none;">Não foi possível carregar os produtos.</div>
+      <div class="grade-cardapio" id="grade-pedido"></div>
+      <div class="estado-vazio" id="estado-vazio-pedido" style="display:none;">Nenhum produto encontrado.</div>
+    </section>
+
+    <!-- Etapa 2: Carrinho -->
+    <section class="etapa-pedido" data-etapa="carrinho">
+      <div class="layout-carrinho">
+        <div class="card tabela-carrinho-wrap" style="padding:0;">
+          <table class="tabela" id="tabela-pedido-carrinho">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Produto</th>
+                <th>Preço unit.</th>
+                <th>Quantidade</th>
+                <th>Subtotal</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="corpo-tabela-pedido-carrinho"></tbody>
+          </table>
+          <div class="estado-vazio" id="estado-vazio-pedido-carrinho" style="display:none;">
+            Seu carrinho está vazio. Volte ao cardápio para adicionar produtos.
+          </div>
+        </div>
+
+        <div class="card resumo-carrinho">
+          <h2 style="margin-top:0;">Resumo do Pedido</h2>
+          <div class="linha-resumo">
+            <span>Subtotal</span>
+            <span id="pedido-valor-subtotal">—</span>
+          </div>
+          <div class="linha-resumo">
+            <span>Taxa de entrega</span>
+            <span id="pedido-valor-taxa">A definir</span>
+          </div>
+          <div class="linha-resumo linha-resumo-total">
+            <span>Total (sem taxa de entrega)</span>
+            <span id="pedido-valor-total">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="etapa-pedido-acoes">
+        <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar ao cardápio</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-carrinho">Continuar</button>
+      </div>
+    </section>
+
+    <!-- Etapa 3: Retirada ou Entrega -->
+    <section class="etapa-pedido" data-etapa="recebimento">
+      <h2>Como você quer receber seu pedido?</h2>
+      <div class="opcoes-recebimento">
+        <button type="button" class="opcao-pagamento opcao-grande" data-fulfilment="retirada">
+          <span class="icone-pagamento">🏠</span>
+          <span>
+            <strong>Retirada</strong>
+            <small>Buscar o pedido no food truck</small>
+          </span>
+        </button>
+        <button type="button" class="opcao-pagamento opcao-grande" data-fulfilment="entrega">
+          <span class="icone-pagamento">🛵</span>
+          <span>
+            <strong>Entrega</strong>
+            <small>Receber no endereço informado</small>
+          </span>
+        </button>
+      </div>
+      <div class="etapa-pedido-acoes">
+        <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-recebimento" disabled>Continuar</button>
+      </div>
+    </section>
+
+    <!-- Etapa 4a: Dados para retirada -->
+    <section class="etapa-pedido" data-etapa="dados-retirada">
+      <h2>Dados para retirada</h2>
+      <div class="card">
+        <div class="form-grupo">
+          <label for="retirada-nome">Nome do cliente</label>
+          <input type="text" class="input" id="retirada-nome" placeholder="Seu nome completo" />
+          <span class="campo-erro" id="erro-retirada-nome"></span>
+        </div>
+        <div class="form-grupo">
+          <label for="retirada-telefone">Número de telefone</label>
+          <input type="tel" class="input" id="retirada-telefone" placeholder="08X XXX XXXX" maxlength="17" />
+          <span class="campo-erro" id="erro-retirada-telefone"></span>
+        </div>
+        <div class="form-grupo">
+          <label for="retirada-horario">Horário aproximado para retirada</label>
+          <select class="input" id="retirada-horario">
+            <option value="Assim que possível">Assim que possível</option>
+            <option value="Em 15 minutos">Em 15 minutos</option>
+            <option value="Em 30 minutos">Em 30 minutos</option>
+            <option value="Em 1 hora">Em 1 hora</option>
+          </select>
+        </div>
+        <div class="aviso-info" id="endereco-estabelecimento">
+          Retirada no Larica Food Truck — endereço informado no local, Dublin.
+        </div>
+      </div>
+      <div class="etapa-pedido-acoes">
+        <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-retirada">Continuar para pagamento</button>
+      </div>
+    </section>
+
+    <!-- Etapa 4b: Dados para entrega -->
+    <section class="etapa-pedido" data-etapa="dados-entrega">
+      <h2>Dados do cliente</h2>
+      <div class="card">
+        <div class="form-grupo">
+          <label for="entrega-nome">Nome completo</label>
+          <input type="text" class="input" id="entrega-nome" placeholder="Seu nome completo" />
+          <span class="campo-erro" id="erro-entrega-nome"></span>
+        </div>
+        <div class="form-grupo">
+          <label for="entrega-telefone">Número de telefone</label>
+          <input type="tel" class="input" id="entrega-telefone" placeholder="08X XXX XXXX" maxlength="17" />
+          <span class="campo-erro" id="erro-entrega-telefone"></span>
+        </div>
+      </div>
+
+      <h2>Endereço de entrega</h2>
+      <div class="aviso-info">Entrega disponível apenas em Dublin no momento.</div>
+      <div class="card">
+        <div class="form-grupo">
+          <label for="entrega-eircode">Eircode</label>
+          <input type="text" class="input" id="entrega-eircode" placeholder="Ex.: D03 FX92" maxlength="8" />
+          <span class="campo-erro" id="erro-entrega-eircode"></span>
+        </div>
+        <div class="form-grupo">
+          <label for="entrega-linha1">Endereço (linha 1)</label>
+          <input type="text" class="input" id="entrega-linha1" placeholder="Rua, número" />
+          <span class="campo-erro" id="erro-entrega-linha1"></span>
+        </div>
+        <div class="form-grupo">
+          <label for="entrega-linha2">Endereço (linha 2) — opcional</label>
+          <input type="text" class="input" id="entrega-linha2" placeholder="Apartamento, bloco, etc." />
+        </div>
+        <div class="form-grupo">
+          <label for="entrega-area">Área / bairro — opcional</label>
+          <input type="text" class="input" id="entrega-area" placeholder="Ex.: Rathmines" />
+        </div>
+        <div class="form-grupo">
+          <label for="entrega-distrito">Distrito postal de Dublin — opcional</label>
+          <input type="text" class="input" id="entrega-distrito" placeholder="Ex.: Dublin 6" />
+        </div>
+        <div class="form-grupo">
+          <label for="entrega-instrucoes">Instruções adicionais — opcional</label>
+          <textarea class="input" id="entrega-instrucoes" rows="3" placeholder="Número do apartamento, código do portão, ponto de referência, etc."></textarea>
+        </div>
+      </div>
+
+      <div class="etapa-pedido-acoes">
+        <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-entrega">Continuar para pagamento</button>
+      </div>
+    </section>
+
+    <!-- Etapa 5: Forma de pagamento -->
+    <section class="etapa-pedido" data-etapa="pagamento">
+      <h2>Forma de pagamento</h2>
+      <div class="opcoes-pagamento" id="opcoes-pagamento-pedido">
+        <button type="button" class="opcao-pagamento" data-forma="cartao">
+          <span class="icone-pagamento">💳</span> Cartão
+        </button>
+        <button type="button" class="opcao-pagamento" data-forma="dinheiro">
+          <span class="icone-pagamento">💶</span> Dinheiro
+        </button>
+
+        <div class="secao-troco" id="secao-troco-dinheiro" style="display:none;">
+          <p class="pergunta-troco">Precisa de troco?</p>
+          <div class="opcoes-troco-sim-nao">
+            <button type="button" class="opcao-pagamento opcao-troco" data-troco="nao">Não</button>
+            <button type="button" class="opcao-pagamento opcao-troco" data-troco="sim">Sim</button>
+          </div>
+          <div class="form-grupo" id="grupo-valor-troco" style="display:none;">
+            <label for="campo-valor-pago">Troco para quanto?</label>
+            <input type="number" class="input" id="campo-valor-pago" min="0" step="0.01" inputmode="decimal" placeholder="€ 0,00" />
+            <span class="campo-erro" id="erro-valor-pago"></span>
+            <p class="troco-estimado" id="troco-estimado" style="display:none;"></p>
+          </div>
+        </div>
+
+        <button type="button" class="opcao-pagamento" data-forma="revolut">
+          <span class="icone-pagamento">🔵</span> Revolut
+        </button>
+        <button type="button" class="opcao-pagamento" data-forma="retirada" id="opcao-pagar-na-retirada">
+          <span class="icone-pagamento">🏪</span> Pagar na retirada
+        </button>
+      </div>
+      <div class="etapa-pedido-acoes">
+        <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-pagamento" disabled>Continuar</button>
+      </div>
+    </section>
+
+    <!-- Etapa 6: Revisão do pedido -->
+    <section class="etapa-pedido" data-etapa="revisao">
+      <h2>Revisar pedido</h2>
+      <div id="conteudo-revisao"></div>
+      <div class="etapa-pedido-acoes">
+        <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
+        <button type="button" class="btn btn-primario" id="botao-confirmar-pedido">Confirmar pedido</button>
+      </div>
+    </section>
+
+    <!-- Etapa 7: Confirmação -->
+    <section class="etapa-pedido" data-etapa="confirmacao">
+      <div class="tela-confirmacao">
+        <div class="icone-confirmacao">✅</div>
+        <h2>Pedido recebido!</h2>
+        <p>Obrigado! Seu pedido foi criado com sucesso.</p>
+        <div class="numero-pedido" id="numero-pedido-confirmado"></div>
+        <div id="resumo-confirmacao" class="card"></div>
+        <button type="button" class="btn btn-primario" id="botao-novo-pedido">Voltar ao cardápio</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="barra-carrinho-fixa" id="barra-carrinho-fixa" style="display:none;">
+    <button type="button" id="botao-ver-carrinho"></button>
+  </div>
+
+  <!-- Modal de personalização de combo (montar/editar escolhas) -->
+  <div class="modal-overlay" id="modal-overlay-combo">
+    <div class="modal modal-combo">
+      <div class="modal-cabecalho">
+        <h2 id="combo-modal-nome">Personalizar combo</h2>
+        <button class="btn-icone" id="botao-fechar-modal-combo" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-corpo modal-corpo-combo-personalizacao">
+        <p class="combo-descricao" id="combo-modal-descricao"></p>
+
+        <div class="secao-combo">
+          <div class="secao-combo-cabecalho">
+            <h3 id="combo-titulo-espetos">Escolha seu espeto</h3>
+            <span class="contador-escolha" id="combo-contador-espetos">0 de 0 selecionados</span>
+          </div>
+          <div id="combo-lista-espetos"></div>
+        </div>
+
+        <div class="secao-combo" id="combo-secao-acompanhamentos">
+          <div class="secao-combo-cabecalho">
+            <h3 id="combo-titulo-acompanhamentos">Escolha os acompanhamentos</h3>
+            <span class="contador-escolha" id="combo-contador-acompanhamentos">0 de 0 selecionados</span>
+          </div>
+          <div id="combo-lista-acompanhamentos"></div>
+        </div>
+
+        <div class="secao-combo" id="combo-secao-inclusos" style="display:none;">
+          <h3>Incluso no combo</h3>
+          <ul class="lista-inclusos-combo" id="combo-lista-inclusos"></ul>
+        </div>
+
+        <p class="aviso-card-combo" id="combo-aviso-inclusos-indisponiveis" style="display:none;">
+          Alguns itens inclusos deste combo estão temporariamente indisponíveis.
+        </p>
+
+        <div class="card resumo-carrinho combo-resumo-total">
+          <div class="linha-resumo"><span id="combo-rotulo-base">Combo</span><span id="combo-valor-base">—</span></div>
+          <div id="combo-linhas-extras"></div>
+          <div class="linha-resumo linha-resumo-total"><span>Total</span><span id="combo-valor-total">—</span></div>
+        </div>
+      </div>
+      <div class="modal-rodape">
+        <button type="button" class="btn btn-secundario" id="botao-cancelar-combo">Cancelar</button>
+        <button type="button" class="btn btn-primario" id="botao-adicionar-combo" disabled>Adicionar ao carrinho</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/services/products-service.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/pedido.js"></script>
+</body>
+</html>

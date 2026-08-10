@@ -1,0 +1,709 @@
+/*
+ * style.css
+ * Design system global (tokens + componentes reutilizáveis). Todas as páginas
+ * carregam este arquivo; CSS específico de cada tela fica em css/<pagina>.css.
+ */
+
+/* ---------------------------------------------------------------------- */
+/* Reset básico                                                            */
+/* ---------------------------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+ul { list-style: none; margin: 0; padding: 0; }
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; font-size: inherit; }
+img { max-width: 100%; display: block; }
+a { color: inherit; text-decoration: none; }
+
+/* ---------------------------------------------------------------------- */
+/* Tokens de design                                                        */
+/* ---------------------------------------------------------------------- */
+:root {
+  /* Paleta "fogo" da marca Larica — usada em fundo, acentos e texto principal
+     nos dois temas. #1A0D00, #8B1E1E, #FF4D00, #FFB300, #FFF2CC e #FFFFFF
+     são as 6 cores oficiais; bordas/hover sutis são tons derivados delas,
+     já que a paleta de marca não define neutros de UI.
+     Escuro é o tema PADRÃO do sistema (ver referência visual da marca);
+     [data-tema="claro"] abaixo é o override para quem preferir o claro. */
+  --cor-fundo: #1A0D00;
+  --cor-terracota: #FF4D00;
+  --cor-terracota-escura: #FFB300; /* clareia no hover, convenção de UI escura */
+  --cor-carvao: #1A0D00; /* cor fixa da sidebar/toast — igual nos dois temas */
+  --cor-sobre-acento: #FFFFFF; /* texto/ícone sobre fundos coloridos ou escuros (botões, badges, toasts) — sempre branco, nos dois temas */
+  --cor-branco: #241610;
+  --cor-cinza-claro: #2E1D10;
+  --cor-texto: #FFF2CC;
+  --cor-texto-secundario: #B39B7A;
+  --cor-borda: #4A3420;
+
+  /* Status de estoque — semânticos (verde/amarelo/vermelho = bom/atenção/crítico),
+     mantidos fora da paleta de marca para não colidir com o significado dos acentos */
+  --cor-status-verde: #4CA875;
+  --cor-status-amarelo: #E0B94E;
+  --cor-status-vermelho: #D46262;
+  --cor-status-cinza: #857E72;
+
+  /* Espaçamento */
+  --espaco-xs: 4px;
+  --espaco-sm: 8px;
+  --espaco-md: 16px;
+  --espaco-lg: 24px;
+  --espaco-xl: 32px;
+  --espaco-2xl: 48px;
+
+  /* Raios de borda */
+  --raio-sm: 6px;
+  --raio-md: 12px;
+  --raio-lg: 20px;
+  --raio-pill: 999px;
+
+  /* Sombras */
+  --sombra-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --sombra-md: 0 4px 14px rgba(0, 0, 0, 0.4);
+  --sombra-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+
+  /* Transições */
+  --transicao-rapida: 150ms ease;
+  --transicao-padrao: 250ms ease;
+
+  /* Layout */
+  --largura-sidebar: 240px;
+  --altura-header: 64px;
+}
+
+/* Tema claro — ativado via <html data-tema="claro">, alternado em Configurações */
+:root[data-tema="claro"] {
+  --cor-fundo: #FFF2CC;
+  --cor-terracota: #FF4D00;
+  --cor-terracota-escura: #8B1E1E;
+  --cor-branco: #FFFFFF;
+  --cor-cinza-claro: #FFE6A8;
+  --cor-texto: #1A0D00;
+  --cor-texto-secundario: #7A6A52;
+  --cor-borda: #F0DBA8;
+
+  --cor-status-verde: #3E8E5C;
+  --cor-status-amarelo: #D9A93A;
+  --cor-status-vermelho: #C24343;
+  --cor-status-cinza: #9B968E;
+
+  --sombra-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --sombra-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --sombra-lg: 0 12px 32px rgba(0, 0, 0, 0.14);
+}
+
+body {
+  background: var(--cor-fundo);
+  color: var(--cor-texto);
+  font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif;
+  line-height: 1.5;
+  transition: background var(--transicao-padrao), color var(--transicao-padrao);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Layout do shell (sidebar + header), injetado por app.js                 */
+/* ---------------------------------------------------------------------- */
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: var(--largura-sidebar);
+  flex-shrink: 0;
+  background: var(--cor-carvao);
+  color: var(--cor-sobre-acento);
+  display: flex;
+  flex-direction: column;
+  padding: var(--espaco-lg) 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  z-index: 20;
+}
+
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  padding: 0 var(--espaco-lg) 2px;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.sidebar-logo .emoji-logo { font-size: 1.6rem; }
+
+/* Wordmark "LAR🔥CA" com gradiente laranja→âmbar (usado na sidebar e na tela inicial) */
+.logo-larica {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--cor-terracota); /* fallback caso background-clip: text não seja suportado */
+  background: linear-gradient(135deg, var(--cor-terracota) 0%, #FFB300 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.logo-chama {
+  -webkit-text-fill-color: initial;
+  background: none;
+}
+
+.tagline-larica {
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  color: var(--cor-terracota);
+}
+
+.sidebar-subtitulo {
+  padding: 0 var(--espaco-lg) var(--espaco-lg);
+  margin-bottom: var(--espaco-md);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 700;
+}
+
+.sidebar-nav { flex: 1; }
+
+.sidebar-link-inicio {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding-top: var(--espaco-md);
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  padding: var(--espaco-sm) var(--espaco-lg);
+  margin: 2px var(--espaco-sm);
+  border-radius: var(--raio-md);
+  color: rgba(255, 255, 255, 0.78);
+  font-weight: 500;
+  transition: background var(--transicao-rapida), color var(--transicao-rapida);
+}
+
+.sidebar-link:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #FFFFFF;
+}
+
+.sidebar-link .badge-contador {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--raio-pill);
+  background: var(--cor-terracota);
+  color: var(--cor-sobre-acento);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.sidebar-link.ativo {
+  background: linear-gradient(90deg, var(--cor-terracota), var(--cor-terracota-escura));
+  color: #FFFFFF;
+}
+
+.sidebar-rodape {
+  padding: var(--espaco-md) var(--espaco-lg) 0;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.55);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.header {
+  height: var(--altura-header);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--espaco-lg);
+  background: var(--cor-branco);
+  border-bottom: 1px solid var(--cor-borda);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.header-titulo { font-size: 1.1rem; font-weight: 600; }
+
+.header-acoes { display: flex; align-items: center; gap: var(--espaco-md); }
+
+.botao-menu-mobile {
+  display: none;
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  color: var(--cor-texto);
+}
+
+.carrinho-contador {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--raio-pill);
+  background: var(--cor-cinza-claro);
+  font-size: 1.2rem;
+}
+
+.carrinho-contador .badge-contador {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--cor-terracota);
+  color: var(--cor-sobre-acento);
+  font-size: 0.65rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: var(--raio-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+.app-principal {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.conteudo-pagina {
+  padding: var(--espaco-lg);
+  flex: 1;
+}
+
+.overlay-mobile {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 15;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Componentes genéricos                                                   */
+/* ---------------------------------------------------------------------- */
+
+.card {
+  background: var(--cor-branco);
+  border-radius: var(--raio-md);
+  box-shadow: var(--sombra-sm);
+  padding: var(--espaco-lg);
+  transition: box-shadow var(--transicao-padrao), transform var(--transicao-padrao);
+}
+
+.card:hover { box-shadow: var(--sombra-md); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--espaco-xs);
+  padding: var(--espaco-sm) var(--espaco-lg);
+  border: none;
+  border-radius: var(--raio-pill);
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: background var(--transicao-rapida), transform var(--transicao-rapida), opacity var(--transicao-rapida);
+}
+
+.btn:active { transform: scale(0.97); }
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-primario { background: var(--cor-terracota); color: var(--cor-sobre-acento); }
+.btn-primario:hover:not(:disabled) { background: var(--cor-terracota-escura); }
+
+.btn-secundario { background: var(--cor-cinza-claro); color: var(--cor-texto); }
+.btn-secundario:hover:not(:disabled) { background: #FFD778; }
+
+.btn-perigo { background: var(--cor-status-vermelho); color: var(--cor-sobre-acento); }
+.btn-perigo:hover:not(:disabled) { background: #6E1717; }
+
+.btn-icone {
+  background: none;
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-xs) var(--espaco-sm);
+  color: var(--cor-texto-secundario);
+}
+.btn-icone:hover { background: var(--cor-cinza-claro); color: var(--cor-texto); }
+
+.form-grupo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-xs);
+  margin-bottom: var(--espaco-md);
+}
+
+.form-grupo label { font-size: 0.85rem; font-weight: 600; color: var(--cor-texto-secundario); }
+
+.input, select.input, textarea.input {
+  padding: var(--espaco-sm) var(--espaco-md);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-sm);
+  background: var(--cor-branco);
+  color: var(--cor-texto);
+  transition: border-color var(--transicao-rapida);
+}
+
+.input:focus, select.input:focus, textarea.input:focus {
+  outline: none;
+  border-color: var(--cor-terracota);
+}
+
+/* Toggle switch (usado no modo escuro em Configurações) */
+.linha-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-lg);
+}
+
+.linha-toggle-texto label { font-size: 0.95rem; font-weight: 600; display: block; }
+.linha-toggle-texto span { font-size: 0.8rem; color: var(--cor-texto-secundario); }
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-switch-trilho {
+  position: absolute;
+  inset: 0;
+  background: var(--cor-cinza-claro);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-pill);
+  cursor: pointer;
+  transition: background var(--transicao-rapida);
+}
+
+.toggle-switch-trilho::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 3px;
+  background: var(--cor-branco);
+  border-radius: 50%;
+  box-shadow: var(--sombra-sm);
+  transition: transform var(--transicao-rapida);
+}
+
+.toggle-switch input:checked + .toggle-switch-trilho { background: var(--cor-terracota); border-color: var(--cor-terracota); }
+.toggle-switch input:checked + .toggle-switch-trilho::before { transform: translateX(20px); }
+
+.tabela { width: 100%; border-collapse: collapse; background: var(--cor-branco); }
+.tabela th, .tabela td { padding: var(--espaco-sm) var(--espaco-md); text-align: left; border-bottom: 1px solid var(--cor-borda); }
+.tabela th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--cor-texto-secundario); }
+.tabela tbody tr { transition: background var(--transicao-rapida); }
+.tabela tbody tr:hover { background: var(--cor-cinza-claro); }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--espaco-xs);
+  padding: 2px var(--espaco-sm);
+  border-radius: var(--raio-pill);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--cor-sobre-acento);
+}
+
+.badge-verde { background: var(--cor-status-verde); }
+.badge-amarelo { background: var(--cor-status-amarelo); }
+.badge-vermelho { background: var(--cor-status-vermelho); }
+.badge-cinza { background: var(--cor-status-cinza); }
+
+.badge-ativo { background: var(--cor-status-verde); }
+.badge-inativo { background: var(--cor-texto-secundario); }
+
+#toast-container {
+  position: fixed;
+  bottom: var(--espaco-lg);
+  right: var(--espaco-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-sm);
+  z-index: 100;
+}
+
+.toast {
+  background: var(--cor-carvao);
+  color: var(--cor-sobre-acento);
+  padding: var(--espaco-sm) var(--espaco-lg);
+  border-radius: var(--raio-md);
+  box-shadow: var(--sombra-lg);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity var(--transicao-padrao), transform var(--transicao-padrao);
+}
+
+.toast-visivel { opacity: 1; transform: translateY(0); }
+.toast-erro { background: var(--cor-status-vermelho); }
+.toast-sucesso { background: var(--cor-status-verde); }
+
+.pagina-titulo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--espaco-lg);
+  flex-wrap: wrap;
+  gap: var(--espaco-md);
+}
+
+.pagina-titulo h1 { margin: 0; font-size: 1.4rem; }
+
+.estado-vazio {
+  text-align: center;
+  padding: var(--espaco-2xl);
+  color: var(--cor-texto-secundario);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Carrinho (não tem CSS próprio — usa os componentes genéricos daqui)    */
+/* ---------------------------------------------------------------------- */
+.layout-carrinho {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: var(--espaco-lg);
+  align-items: start;
+}
+
+.tabela-carrinho-wrap { overflow-x: auto; }
+.tabela-carrinho-wrap .tabela { min-width: 520px; }
+
+.miniatura-carrinho {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--raio-sm);
+  object-fit: cover;
+  background: var(--cor-cinza-claro);
+}
+
+.miniatura-carrinho-vazia {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--raio-sm);
+  background: var(--cor-cinza-claro);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+}
+
+.quantidade-carrinho {
+  width: 64px;
+  padding: 6px;
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-sm);
+  text-align: center;
+}
+
+.resumo-carrinho { position: sticky; top: calc(var(--altura-header) + var(--espaco-lg)); }
+
+.linha-resumo {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--espaco-sm) 0;
+  border-bottom: 1px solid var(--cor-borda);
+  color: var(--cor-texto-secundario);
+}
+
+.linha-resumo-total {
+  border-bottom: none;
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--cor-texto);
+  padding-top: var(--espaco-md);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Modal genérico (usado por Produtos e pelo modal de pagamento do        */
+/* Carrinho — cada página adiciona seu próprio conteúdo dentro dele)       */
+/* ---------------------------------------------------------------------- */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(42, 38, 34, 0.5);
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: var(--espaco-md);
+}
+
+.modal-overlay.modal-visivel { display: flex; }
+
+.modal {
+  background: var(--cor-branco);
+  border-radius: var(--raio-lg);
+  box-shadow: var(--sombra-lg);
+  width: 100%;
+  max-width: 640px;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: modal-entrar var(--transicao-padrao);
+}
+
+@keyframes modal-entrar {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.modal-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--espaco-lg);
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+.modal-cabecalho h2 { margin: 0; font-size: 1.15rem; }
+
+.modal-corpo { padding: var(--espaco-lg); }
+
+.modal-rodape {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--espaco-sm);
+  padding: var(--espaco-lg);
+  border-top: 1px solid var(--cor-borda);
+}
+
+/* Modal de forma de pagamento (Carrinho) */
+.opcoes-pagamento {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-sm);
+}
+
+.opcao-pagamento {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  padding: var(--espaco-md);
+  border: 2px solid var(--cor-borda);
+  border-radius: var(--raio-md);
+  background: var(--cor-branco);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-align: left;
+  transition: border-color var(--transicao-rapida), background var(--transicao-rapida);
+}
+
+.opcao-pagamento:hover { border-color: var(--cor-terracota); }
+
+.opcao-pagamento.selecionada {
+  border-color: var(--cor-terracota);
+  background: rgba(255, 77, 0, 0.08);
+}
+
+.opcao-pagamento .icone-pagamento { font-size: 1.3rem; }
+
+/* ---------------------------------------------------------------------- */
+/* Proteção de rota do Painel Administrativo — evita "piscar" o conteúdo   */
+/* antes da checagem assíncrona de sessão (requireStaffAuth, js/app.js)    */
+/* terminar e adicionar .autenticado ao body                              */
+/* ---------------------------------------------------------------------- */
+body[data-area="admin"]:not(.autenticado) {
+  visibility: hidden;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Tela inicial (index.html) — escolha entre Loja e Painel Administrativo  */
+/* ---------------------------------------------------------------------- */
+.tela-inicial-body {
+  /* Fundo sólido "carvão", como na referência da marca — evita texto claro
+     acabando sobre um fundo claro no meio de um degradê */
+  background: var(--cor-carvao);
+  min-height: 100vh;
+}
+
+.tela-inicial {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--espaco-2xl);
+  padding: var(--espaco-xl) var(--espaco-lg);
+}
+
+.tela-inicial-marca { text-align: center; }
+.tela-inicial-logo { margin: 0; font-size: 3rem; line-height: 1; }
+.tela-inicial-marca .tagline-larica { margin-top: var(--espaco-xs); font-size: 0.95rem; color: #FFF2CC; }
+
+.opcoes-area-inicial {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 260px));
+  justify-content: center;
+  gap: var(--espaco-lg);
+  width: 100%;
+  max-width: 860px;
+}
+
+.opcao-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--espaco-xs);
+  padding: var(--espaco-xl) var(--espaco-lg);
+  transition: transform var(--transicao-padrao), box-shadow var(--transicao-padrao);
+}
+
+.opcao-area:hover { transform: translateY(-4px); box-shadow: var(--sombra-lg); }
+.opcao-area-icone { font-size: 2.2rem; }
+.opcao-area h2 { margin: var(--espaco-xs) 0 0; font-size: 1.05rem; }
+.opcao-area p { margin: 0; font-size: 0.85rem; color: var(--cor-texto-secundario); }
+
+/* ---------------------------------------------------------------------- */
+/* Histórico (não tem CSS próprio — usa os componentes genéricos daqui)   */
+/* ---------------------------------------------------------------------- */
+.filtros-historico {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-lg);
+}
+
+.tabela-historico-wrap { padding: 0; overflow-x: auto; }
+.tabela-historico-wrap .tabela { min-width: 760px; }
+
+.lista-itens-historico { margin: 0; padding: 0; list-style: none; font-size: 0.85rem; }
+.lista-itens-historico li { white-space: nowrap; }
+
+.badge-tipo-venda { background: var(--cor-status-verde); }
+.badge-tipo-entrada { background: var(--cor-status-amarelo); }
+.badge-tipo-saida { background: var(--cor-status-vermelho); }
+.badge-tipo-ajuste { background: var(--cor-status-cinza); }

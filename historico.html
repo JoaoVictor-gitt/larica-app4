@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    (function () {
+      try {
+        var config = JSON.parse(localStorage.getItem('caju_configuracoes') || '{}');
+        document.documentElement.setAttribute('data-tema', config.tema === 'claro' ? 'claro' : 'escuro');
+      } catch (erro) {}
+    })();
+  </script>
+  <title>Histórico | Larica Food Truck</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/historico.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body data-pagina="historico" data-area="admin">
+  <div id="layout-shell"></div>
+  <main class="conteudo-pagina">
+    <div class="pagina-titulo">
+      <h1>Histórico</h1>
+    </div>
+
+    <!-- Pedidos finalizados (área Fazer Pedido) — separado da tabela de vendas/estoque abaixo -->
+    <section class="secao-pedidos-finalizados">
+      <div class="pagina-titulo">
+        <h2>Pedidos finalizados</h2>
+        <div class="acoes-pedidos-finalizados">
+          <button class="btn btn-secundario" id="botao-excluir-selecionados-historico" style="display:none;">Excluir selecionados</button>
+          <button class="btn btn-secundario" id="botao-limpar-historico">Limpar histórico</button>
+        </div>
+      </div>
+
+      <div class="card tabela-pedidos-finalizados-wrap">
+        <table class="tabela">
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="checkbox-selecionar-todos-historico" aria-label="Selecionar todos" /></th>
+              <th>Pedido</th>
+              <th>Data</th>
+              <th>Total</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="corpo-tabela-pedidos-finalizados"></tbody>
+        </table>
+        <div class="estado-vazio" id="estado-vazio-pedidos-finalizados" style="display:none;">
+          Nenhum pedido finalizado ainda.
+        </div>
+      </div>
+    </section>
+
+    <h2 class="titulo-secao-historico">Movimentações de estoque e vendas de balcão</h2>
+
+    <div class="card filtros-historico">
+      <div class="form-grupo" style="margin-bottom:0;">
+        <label for="campo-pesquisa-historico">Pesquisar</label>
+        <input type="text" id="campo-pesquisa-historico" class="input" placeholder="Nome do produto, observação..." />
+      </div>
+      <div class="form-grupo" style="margin-bottom:0;">
+        <label for="filtro-tipo-historico">Tipo</label>
+        <select id="filtro-tipo-historico" class="input">
+          <option value="">Todos</option>
+          <option value="venda">Venda</option>
+          <option value="entrada">Reposição</option>
+          <option value="saida">Saída</option>
+          <option value="ajuste">Ajuste</option>
+        </select>
+      </div>
+      <div class="form-grupo" style="margin-bottom:0;">
+        <label for="campo-data-inicio">De</label>
+        <input type="date" id="campo-data-inicio" class="input" />
+      </div>
+      <div class="form-grupo" style="margin-bottom:0;">
+        <label for="campo-data-fim">Até</label>
+        <input type="date" id="campo-data-fim" class="input" />
+      </div>
+    </div>
+
+    <div class="card tabela-historico-wrap">
+      <table class="tabela">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Hora</th>
+            <th>Tipo</th>
+            <th>Itens</th>
+            <th>Quantidade</th>
+            <th>Valor</th>
+            <th>Pagamento / Observação</th>
+          </tr>
+        </thead>
+        <tbody id="corpo-tabela-historico"></tbody>
+      </table>
+      <div class="estado-vazio" id="estado-vazio-historico" style="display:none;">
+        Nenhum registro encontrado para os filtros selecionados.
+      </div>
+    </div>
+  </main>
+
+  <!-- Modal de confirmação de exclusão (reaproveitado pros 3 casos: individual, selecionados, limpar tudo) -->
+  <div class="modal-overlay" id="modal-overlay-confirmar-exclusao">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-cabecalho">
+        <h2 id="confirmar-exclusao-titulo">Excluir pedido?</h2>
+        <button class="btn-icone" id="botao-fechar-modal-confirmar-exclusao" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-corpo">
+        <p id="confirmar-exclusao-mensagem"></p>
+      </div>
+      <div class="modal-rodape">
+        <button type="button" class="btn btn-secundario" id="botao-cancelar-exclusao">Cancelar</button>
+        <button type="button" class="btn btn-perigo" id="botao-confirmar-exclusao">Excluir pedido</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal "Ver detalhes" de um pedido finalizado -->
+  <div class="modal-overlay" id="modal-overlay-detalhe-pedido-historico">
+    <div class="modal modal-pedido">
+      <div class="modal-cabecalho">
+        <h2 id="detalhe-pedido-historico-titulo">Pedido</h2>
+        <button class="btn-icone" id="botao-fechar-modal-detalhe-historico" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-corpo" id="detalhe-pedido-historico-corpo"></div>
+      <div class="modal-rodape">
+        <button type="button" class="btn btn-secundario" id="botao-fechar-modal-detalhe-historico-rodape">Fechar</button>
+        <button type="button" class="btn btn-perigo" id="botao-excluir-pedido-detalhe-historico">Excluir pedido</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/historico.js"></script>
+</body>
+</html>

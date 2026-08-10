@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    (function () {
+      try {
+        var config = JSON.parse(localStorage.getItem('caju_configuracoes') || '{}');
+        document.documentElement.setAttribute('data-tema', config.tema === 'claro' ? 'claro' : 'escuro');
+      } catch (erro) {}
+    })();
+  </script>
+  <title>Dashboard | Larica Food Truck</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/dashboard.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body data-pagina="dashboard" data-area="admin">
+  <div id="layout-shell"></div>
+  <main class="conteudo-pagina">
+    <div class="pagina-titulo">
+      <h1>Dashboard</h1>
+    </div>
+
+    <div class="grade-cartoes-dashboard">
+      <div class="card cartao-dashboard">
+        <span class="cartao-dashboard-icone">🍡</span>
+        <div>
+          <span class="cartao-dashboard-rotulo">Produtos cadastrados</span>
+          <span class="cartao-dashboard-valor" id="cartao-produtos-cadastrados">—</span>
+        </div>
+      </div>
+      <div class="card cartao-dashboard">
+        <span class="cartao-dashboard-icone">🧾</span>
+        <div>
+          <span class="cartao-dashboard-rotulo">Pedidos realizados</span>
+          <span class="cartao-dashboard-valor" id="cartao-pedidos-realizados">—</span>
+        </div>
+      </div>
+      <div class="card cartao-dashboard">
+        <span class="cartao-dashboard-icone">💰</span>
+        <div>
+          <span class="cartao-dashboard-rotulo">Valor vendido hoje</span>
+          <span class="cartao-dashboard-valor" id="cartao-valor-vendido-hoje">—</span>
+        </div>
+      </div>
+      <div class="card cartao-dashboard">
+        <span class="cartao-dashboard-icone">⚠️</span>
+        <div>
+          <span class="cartao-dashboard-rotulo">Estoque baixo</span>
+          <span class="cartao-dashboard-valor" id="cartao-estoque-baixo">—</span>
+        </div>
+      </div>
+      <div class="card cartao-dashboard">
+        <span class="cartao-dashboard-icone">🚫</span>
+        <div>
+          <span class="cartao-dashboard-rotulo">Produtos sem estoque</span>
+          <span class="cartao-dashboard-valor" id="cartao-sem-estoque">—</span>
+        </div>
+      </div>
+      <div class="card cartao-dashboard">
+        <span class="cartao-dashboard-icone">📦</span>
+        <div>
+          <span class="cartao-dashboard-rotulo">Valor total em estoque</span>
+          <span class="cartao-dashboard-valor" id="cartao-valor-estoque">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="grade-graficos-dashboard">
+      <div class="card">
+        <h2 class="titulo-grafico">Vendas dos últimos 7 dias</h2>
+        <div class="grafico-barras-vertical" id="grafico-vendas-semana"></div>
+      </div>
+      <div class="card">
+        <h2 class="titulo-grafico">Produtos mais vendidos</h2>
+        <div class="grafico-barras-horizontal" id="grafico-produtos-mais-vendidos"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/services/products-service.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/dashboard.js"></script>
+</body>
+</html>

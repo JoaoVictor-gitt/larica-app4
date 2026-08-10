@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    (function () {
+      try {
+        var config = JSON.parse(localStorage.getItem('caju_configuracoes') || '{}');
+        document.documentElement.setAttribute('data-tema', config.tema === 'claro' ? 'claro' : 'escuro');
+      } catch (erro) {}
+    })();
+  </script>
+  <title>Entrar | Larica Food Truck</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/login.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body class="tela-inicial-body">
+  <main class="tela-inicial">
+    <div class="tela-inicial-marca">
+      <h1 class="logo-larica tela-inicial-logo">LAR<span class="logo-chama">🔥</span>CA</h1>
+      <p class="tagline-larica">Painel Administrativo</p>
+    </div>
+
+    <form class="card cartao-login" id="form-login" novalidate>
+      <h2 class="cartao-login-titulo">Entrar</h2>
+
+      <div class="form-grupo">
+        <label for="login-email">E-mail</label>
+        <input type="email" class="input" id="login-email" autocomplete="username" required />
+      </div>
+      <div class="form-grupo">
+        <label for="login-senha">Senha</label>
+        <input type="password" class="input" id="login-senha" autocomplete="current-password" required />
+      </div>
+
+      <span class="campo-erro" id="erro-login" role="alert"></span>
+
+      <button type="submit" class="btn btn-primario cartao-login-botao" id="botao-entrar">Entrar</button>
+    </form>
+  </main>
+
+  <script src="js/utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/login.js"></script>
+</body>
+</html>

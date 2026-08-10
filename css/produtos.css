@@ -1,0 +1,161 @@
+/*
+ * produtos.css
+ * Estilos específicos da tela de Produtos: barra de filtros, tabela,
+ * modal de cadastro/edição e preview de foto.
+ */
+
+.filtros-produtos {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-lg);
+}
+
+.tabela-produtos-wrap { padding: 0; overflow-x: auto; }
+.tabela-produtos-wrap .tabela { min-width: 640px; }
+
+.miniatura-produto {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--raio-sm);
+  object-fit: cover;
+  background: var(--cor-cinza-claro);
+}
+
+.miniatura-produto-vazia {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--raio-sm);
+  background: var(--cor-cinza-claro);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  color: var(--cor-texto-secundario);
+}
+
+.acoes-linha { display: flex; gap: var(--espaco-xs); justify-content: flex-end; }
+
+/* ---------------------------------------------------------------------- */
+/* Modal de produto (o modal genérico está em style.css; aqui só o que é   */
+/* específico deste formulário: corpo em grid com coluna de foto)          */
+/* ---------------------------------------------------------------------- */
+.modal-corpo {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: var(--espaco-lg);
+  padding: var(--espaco-lg);
+}
+
+.coluna-foto { display: flex; flex-direction: column; align-items: center; gap: var(--espaco-sm); }
+
+.preview-foto {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border: 2px dashed var(--cor-borda);
+  border-radius: var(--raio-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--cor-texto-secundario);
+  cursor: pointer;
+  overflow: hidden;
+  background: var(--cor-cinza-claro);
+  transition: border-color var(--transicao-rapida);
+}
+
+.preview-foto:hover { border-color: var(--cor-terracota); }
+
+.preview-foto img { width: 100%; height: 100%; object-fit: cover; }
+
+.coluna-campos { min-width: 0; }
+
+.modal-rodape {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--espaco-sm);
+  padding: var(--espaco-lg);
+  border-top: 1px solid var(--cor-borda);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Campos extras do combo (categoria "Combos"): checklist de itens inclusos */
+/* e de acréscimo por espeto                                              */
+/* ---------------------------------------------------------------------- */
+
+.dica-campo {
+  margin: 0 0 var(--espaco-xs);
+  font-size: 0.78rem;
+  color: var(--cor-texto-secundario);
+}
+
+.lista-checklist-combo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-xs);
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm);
+}
+
+.linha-item-incluso {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  font-size: 0.9rem;
+}
+
+.linha-acrescimo-espeto {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-sm);
+  font-size: 0.9rem;
+}
+
+.linha-acrescimo-espeto .campo-acrescimo {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.linha-acrescimo-espeto .campo-acrescimo span {
+  font-size: 0.85rem;
+  color: var(--cor-texto-secundario);
+}
+
+.campo-acrescimo-espeto {
+  width: 72px;
+  padding: 4px var(--espaco-xs) !important;
+  text-align: right;
+}
+
+/* Avisos de item incluso indisponível (produto inativo/excluído referenciado por um combo) */
+.aviso-linha-produto {
+  cursor: help;
+}
+
+.aviso-combo {
+  margin: 0 0 var(--espaco-sm);
+  padding: var(--espaco-xs) var(--espaco-sm);
+  border-radius: var(--raio-sm);
+  background: rgba(224, 185, 78, 0.15);
+  border: 1px solid var(--cor-status-amarelo);
+  color: var(--cor-status-amarelo);
+  font-size: 0.82rem;
+}
+
+.linha-item-incluso-indisponivel {
+  opacity: 0.65;
+}
+
+.linha-item-incluso-indisponivel em {
+  color: var(--cor-status-amarelo);
+  font-style: normal;
+  font-size: 0.8rem;
+}

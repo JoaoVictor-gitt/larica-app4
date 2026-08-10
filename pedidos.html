@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    (function () {
+      try {
+        var config = JSON.parse(localStorage.getItem('caju_configuracoes') || '{}');
+        document.documentElement.setAttribute('data-tema', config.tema === 'claro' ? 'claro' : 'escuro');
+      } catch (erro) {}
+    })();
+  </script>
+  <title>Pedidos | Larica Food Truck</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/pedidos.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body data-pagina="pedidos" data-area="admin">
+  <div id="layout-shell"></div>
+  <main class="conteudo-pagina">
+    <div class="pagina-titulo">
+      <h1>Pedidos</h1>
+    </div>
+
+    <div class="card filtros-pedidos">
+      <div class="form-grupo" style="margin-bottom:0;">
+        <label for="campo-busca-pedidos">Buscar</label>
+        <input type="text" id="campo-busca-pedidos" class="input" placeholder="Número do pedido ou nome do cliente..." />
+      </div>
+      <div class="form-grupo" style="margin-bottom:0;">
+        <label for="filtro-tipo-pedidos">Tipo</label>
+        <select id="filtro-tipo-pedidos" class="input">
+          <option value="">Todos</option>
+          <option value="entrega">Entrega</option>
+          <option value="retirada">Retirada</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="kanban-pedidos">
+      <section class="coluna-kanban" data-status="solicitado">
+        <div class="coluna-kanban-cabecalho">
+          <h2>Solicitado</h2>
+          <span class="badge-coluna-kanban" id="contador-coluna-solicitado">0</span>
+        </div>
+        <div class="coluna-kanban-lista" id="lista-pedidos-solicitado"></div>
+        <p class="estado-vazio-coluna" id="vazio-coluna-solicitado" style="display:none;">Nenhum pedido aqui.</p>
+      </section>
+
+      <section class="coluna-kanban" data-status="em_preparo">
+        <div class="coluna-kanban-cabecalho">
+          <h2>Em Preparo</h2>
+          <span class="badge-coluna-kanban" id="contador-coluna-em_preparo">0</span>
+        </div>
+        <div class="coluna-kanban-lista" id="lista-pedidos-em_preparo"></div>
+        <p class="estado-vazio-coluna" id="vazio-coluna-em_preparo" style="display:none;">Nenhum pedido aqui.</p>
+      </section>
+
+      <section class="coluna-kanban" data-status="pronto">
+        <div class="coluna-kanban-cabecalho">
+          <h2>Pronto</h2>
+          <span class="badge-coluna-kanban" id="contador-coluna-pronto">0</span>
+        </div>
+        <div class="coluna-kanban-lista" id="lista-pedidos-pronto"></div>
+        <p class="estado-vazio-coluna" id="vazio-coluna-pronto" style="display:none;">Nenhum pedido aqui.</p>
+      </section>
+
+      <section class="coluna-kanban" data-status="finalizado">
+        <div class="coluna-kanban-cabecalho">
+          <h2>Finalizado</h2>
+          <span class="badge-coluna-kanban" id="contador-coluna-finalizado">0</span>
+        </div>
+        <div class="coluna-kanban-lista" id="lista-pedidos-finalizado"></div>
+        <p class="estado-vazio-coluna" id="vazio-coluna-finalizado" style="display:none;">Nenhum pedido finalizado hoje.</p>
+      </section>
+    </div>
+  </main>
+
+  <!-- Modal de detalhes do pedido -->
+  <div class="modal-overlay" id="modal-overlay-pedido">
+    <div class="modal modal-pedido">
+      <div class="modal-cabecalho">
+        <h2 id="pedido-modal-titulo">Pedido</h2>
+        <button class="btn-icone" id="botao-fechar-modal-pedido" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-corpo" id="pedido-modal-corpo"></div>
+      <div class="modal-rodape">
+        <button type="button" class="btn btn-secundario" id="botao-fechar-modal-pedido-rodape">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/pedidos.js"></script>
+</body>
+</html>

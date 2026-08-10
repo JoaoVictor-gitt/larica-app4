@@ -1,0 +1,86 @@
+/*
+ * estoque.css
+ * Estilos específicos da tela de Estoque: cartões-resumo, filtros, tabela
+ * e o seletor de tipo de ajuste dentro do modal.
+ */
+
+.cartoes-resumo-estoque {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-lg);
+}
+
+.cartao-resumo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-xs);
+}
+
+.cartao-resumo-rotulo { font-size: 0.82rem; color: var(--cor-texto-secundario); font-weight: 600; }
+.cartao-resumo-valor { font-size: 1.5rem; font-weight: 700; color: var(--cor-texto); }
+
+.filtros-estoque {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-lg);
+}
+
+.tabela-estoque-wrap { padding: 0; overflow-x: auto; }
+.tabela-estoque-wrap .tabela { min-width: 720px; }
+
+.miniatura-estoque {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--raio-sm);
+  object-fit: cover;
+  background: var(--cor-cinza-claro);
+}
+
+.miniatura-estoque-vazia {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--raio-sm);
+  background: var(--cor-cinza-claro);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+}
+
+.acoes-linha-estoque { display: flex; gap: var(--espaco-xs); justify-content: flex-end; }
+
+/* Seletor de tipo de ajuste dentro do modal */
+.opcoes-tipo-ajuste {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--espaco-sm);
+  margin-bottom: var(--espaco-md);
+}
+
+.opcao-tipo-ajuste {
+  padding: var(--espaco-sm);
+  border: 2px solid var(--cor-borda);
+  border-radius: var(--raio-md);
+  background: var(--cor-branco);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
+  transition: border-color var(--transicao-rapida), background var(--transicao-rapida);
+}
+
+.opcao-tipo-ajuste:hover { border-color: var(--cor-terracota); }
+
+.opcao-tipo-ajuste.selecionada {
+  border-color: var(--cor-terracota);
+  background: rgba(255, 77, 0, 0.08);
+}
+
+.preview-novo-estoque {
+  font-size: 0.85rem;
+  color: var(--cor-texto-secundario);
+  background: var(--cor-cinza-claro);
+  padding: var(--espaco-sm) var(--espaco-md);
+  border-radius: var(--raio-sm);
+}

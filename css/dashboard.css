@@ -1,0 +1,127 @@
+/*
+ * dashboard.css
+ * Estilos dos cartões de resumo e dos gráficos (construídos com <div>s
+ * dimensionados via JS, sem canvas nem bibliotecas externas).
+ */
+
+.grade-cartoes-dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-lg);
+}
+
+.cartao-dashboard {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-md);
+}
+
+.cartao-dashboard-icone {
+  font-size: 1.5rem;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--raio-md);
+  background: linear-gradient(135deg, var(--cor-terracota), var(--cor-terracota-escura));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cartao-dashboard-rotulo {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--cor-texto-secundario);
+  font-weight: 600;
+}
+
+.cartao-dashboard-valor {
+  display: block;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--cor-texto);
+}
+
+.grade-graficos-dashboard {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--espaco-lg);
+}
+
+.titulo-grafico { margin: 0 0 var(--espaco-lg); font-size: 1rem; }
+
+/* Gráfico de barras verticais (vendas por dia) */
+.grafico-barras-vertical {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--espaco-sm);
+  height: 200px;
+  border-bottom: 1px solid var(--cor-borda);
+  padding-bottom: 2px;
+}
+
+.coluna-barra-vertical {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 6px;
+}
+
+.valor-barra-vertical { font-size: 0.7rem; color: var(--cor-texto-secundario); white-space: nowrap; }
+
+.barra-vertical {
+  width: 100%;
+  max-width: 36px;
+  background: var(--cor-terracota);
+  border-radius: var(--raio-sm) var(--raio-sm) 0 0;
+  min-height: 2px;
+  transition: height var(--transicao-padrao);
+}
+
+.rotulo-barra-vertical { font-size: 0.7rem; color: var(--cor-texto-secundario); margin-top: 4px; }
+
+/* Gráfico de barras horizontais (produtos mais vendidos) */
+.grafico-barras-horizontal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-md);
+}
+
+.linha-barra-horizontal {
+  display: grid;
+  grid-template-columns: 120px 1fr 40px;
+  align-items: center;
+  gap: var(--espaco-sm);
+}
+
+.rotulo-barra-horizontal {
+  font-size: 0.82rem;
+  color: var(--cor-texto);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trilho-barra-horizontal {
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-pill);
+  height: 14px;
+  overflow: hidden;
+}
+
+.barra-horizontal {
+  height: 100%;
+  background: var(--cor-carvao);
+  border-radius: var(--raio-pill);
+  min-width: 4px;
+  transition: width var(--transicao-padrao);
+}
+
+.valor-barra-horizontal { font-size: 0.8rem; color: var(--cor-texto-secundario); text-align: right; }
+
+/* Breakpoints ficam centralizados em responsive.css */

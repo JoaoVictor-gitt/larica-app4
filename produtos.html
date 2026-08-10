@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    (function () {
+      try {
+        var config = JSON.parse(localStorage.getItem('caju_configuracoes') || '{}');
+        document.documentElement.setAttribute('data-tema', config.tema === 'claro' ? 'claro' : 'escuro');
+      } catch (erro) {}
+    })();
+  </script>
+  <title>Produtos | Larica Food Truck</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/produtos.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body data-pagina="produtos" data-area="admin">
+  <div id="layout-shell"></div>
+  <main class="conteudo-pagina">
+    <div class="pagina-titulo">
+      <h1>Produtos</h1>
+      <button class="btn btn-primario" id="botao-novo-produto">+ Novo Produto</button>
+    </div>
+
+    <div class="card filtros-produtos">
+      <div class="form-grupo" style="margin-bottom:0;">
+        <label for="campo-pesquisa">Pesquisar</label>
+        <input type="text" id="campo-pesquisa" class="input" placeholder="Nome ou descrição..." />
+      </div>
+      <div class="form-grupo" style="margin-bottom:0;">
+        <label for="filtro-categoria">Categoria</label>
+        <select id="filtro-categoria" class="input"></select>
+      </div>
+      <div class="form-grupo" style="margin-bottom:0;">
+        <label for="filtro-status">Status</label>
+        <select id="filtro-status" class="input">
+          <option value="">Todos</option>
+          <option value="ativo">Ativo</option>
+          <option value="inativo">Inativo</option>
+        </select>
+      </div>
+      <div class="form-grupo" style="margin-bottom:0;">
+        <label for="campo-ordenar">Ordenar por</label>
+        <select id="campo-ordenar" class="input">
+          <option value="nome-asc">Nome (A-Z)</option>
+          <option value="nome-desc">Nome (Z-A)</option>
+          <option value="preco-asc">Preço (menor primeiro)</option>
+          <option value="preco-desc">Preço (maior primeiro)</option>
+          <option value="estoque-asc">Estoque (menor primeiro)</option>
+          <option value="estoque-desc">Estoque (maior primeiro)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card tabela-produtos-wrap">
+      <table class="tabela">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Nome</th>
+            <th>Categoria</th>
+            <th>Preço</th>
+            <th>Estoque</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="corpo-tabela-produtos"></tbody>
+      </table>
+      <div class="estado-vazio" id="estado-carregando-produtos">Carregando produtos...</div>
+      <div class="estado-vazio" id="estado-erro-produtos" style="display:none;"></div>
+      <div class="estado-vazio" id="estado-vazio-produtos" style="display:none;">
+        Nenhum produto encontrado. Tente ajustar os filtros ou cadastre um novo produto.
+      </div>
+    </div>
+  </main>
+
+  <!-- Modal de cadastro/edição de produto -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+      <div class="modal-cabecalho">
+        <h2 id="modal-titulo">Novo Produto</h2>
+        <button class="btn-icone" id="botao-fechar-modal" aria-label="Fechar">✕</button>
+      </div>
+      <form id="form-produto">
+        <input type="hidden" id="campo-id" />
+
+        <div class="modal-corpo">
+          <div class="coluna-foto">
+            <label for="campo-foto" class="preview-foto" id="preview-foto">
+              <span id="preview-foto-texto">Clique para adicionar uma foto</span>
+              <img id="preview-foto-img" style="display:none;" alt="Prévia do produto" />
+            </label>
+            <input type="file" id="campo-foto" accept="image/*" style="display:none;" />
+            <button type="button" class="btn btn-secundario" id="botao-remover-foto" style="display:none;">Remover foto</button>
+          </div>
+
+          <div class="coluna-campos">
+            <div class="form-grupo">
+              <label for="campo-nome">Nome *</label>
+              <input type="text" id="campo-nome" class="input" required />
+            </div>
+
+            <div class="form-grupo">
+              <label for="campo-categoria">Categoria *</label>
+              <select id="campo-categoria" class="input" required>
+                <option value="Combos">Combos</option>
+                <option value="Espetinhos">Espetinhos</option>
+                <option value="Acompanhamentos">Acompanhamentos</option>
+                <option value="Bebidas">Bebidas</option>
+                <option value="Outro">Outro</option>
+              </select>
+            </div>
+
+            <div style="display:flex; gap:12px;">
+              <div class="form-grupo" style="flex:1;">
+                <label for="campo-preco">Preço (€) *</label>
+                <input type="number" id="campo-preco" class="input" min="0" step="0.01" required />
+              </div>
+              <div class="form-grupo" id="grupo-estoque" style="flex:1;">
+                <label for="campo-estoque">Qtd. em estoque *</label>
+                <input type="number" id="campo-estoque" class="input" min="0" step="1" required />
+              </div>
+            </div>
+
+            <div class="form-grupo">
+              <label for="campo-descricao">Descrição</label>
+              <textarea id="campo-descricao" class="input" rows="3"></textarea>
+            </div>
+
+            <div class="form-grupo">
+              <label for="campo-status">Status</label>
+              <select id="campo-status" class="input">
+                <option value="ativo">Ativo</option>
+                <option value="inativo">Inativo</option>
+              </select>
+            </div>
+
+            <!-- Campos extras, só aparecem quando a categoria digitada é "Combos" -->
+            <div id="secao-campos-combo" style="display:none;">
+              <div class="form-grupo">
+                <label for="campo-ordem">Ordem de exibição</label>
+                <input type="number" id="campo-ordem" class="input" min="0" step="1" />
+              </div>
+
+              <div style="display:flex; gap:12px;">
+                <div class="form-grupo" style="flex:1;">
+                  <label for="campo-qtd-espetos">Quantidade de espetos permitidos *</label>
+                  <input type="number" id="campo-qtd-espetos" class="input" min="1" step="1" />
+                </div>
+                <div class="form-grupo" style="flex:1;">
+                  <label for="campo-qtd-acompanhamentos">Quantidade de acompanhamentos permitidos *</label>
+                  <input type="number" id="campo-qtd-acompanhamentos" class="input" min="0" step="1" />
+                </div>
+              </div>
+
+              <div class="form-grupo">
+                <label>Itens já inclusos</label>
+                <p class="dica-campo">Marque os produtos que já vêm inclusos no combo (ex.: Farofa, Molho de alho).</p>
+                <p class="aviso-combo" id="aviso-itens-inclusos" style="display:none;"></p>
+                <div id="lista-itens-inclusos" class="lista-checklist-combo"></div>
+              </div>
+
+              <div class="form-grupo">
+                <label>Acréscimo por espeto (€)</label>
+                <p class="dica-campo">Deixe em 0 os espetos sem acréscimo. Só aparecem aqui os espetos ativos (categoria Espetinhos).</p>
+                <div id="lista-acrescimos-espetos" class="lista-checklist-combo"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-rodape">
+          <button type="button" class="btn btn-secundario" id="botao-cancelar-modal">Cancelar</button>
+          <button type="submit" class="btn btn-primario">Salvar Produto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/services/products-service.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/produtos.js"></script>
+</body>
+</html>

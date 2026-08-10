@@ -1,0 +1,428 @@
+/*
+ * pedido.css
+ * Estilos exclusivos da área "Fazer Pedido" (pedido.html). Reaproveita os
+ * tokens de css/style.css (cores, espaçamentos, raios, sombras) e as classes
+ * já existentes (.card-produto*, .opcao-pagamento, .linha-resumo, etc.) —
+ * aqui só entra o que ainda não existia no app: navegação por etapas, barra
+ * fixa do carrinho, cards grandes de seleção e mensagens de erro por campo.
+ */
+
+.conteudo-pedido {
+  padding-bottom: 96px; /* espaço para a barra fixa do carrinho não cobrir o conteúdo */
+}
+
+/* Navegação por etapas: cada <section> vira uma "tela" dentro da mesma página */
+.etapa-pedido {
+  display: none;
+}
+
+.etapa-pedido.etapa-ativa {
+  display: block;
+  animation: etapa-pedido-entrar 200ms ease;
+}
+
+@keyframes etapa-pedido-entrar {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.indicador-etapa-pedido {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--cor-texto-secundario);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: var(--espaco-lg);
+}
+
+.etapa-pedido-acoes {
+  display: flex;
+  gap: var(--espaco-md);
+  margin-top: var(--espaco-lg);
+}
+
+.etapa-pedido-acoes .btn {
+  flex: 1;
+  padding-top: var(--espaco-md);
+  padding-bottom: var(--espaco-md);
+  font-size: 1rem;
+}
+
+/* Cards grandes de seleção (retirada/entrega) — reaproveita .opcao-pagamento como base */
+.opcoes-recebimento {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-md);
+}
+
+.opcao-pagamento.opcao-grande {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--espaco-sm);
+  text-align: center;
+  padding: var(--espaco-xl) var(--espaco-md);
+  min-height: 140px;
+}
+
+.opcao-pagamento.opcao-grande .icone-pagamento {
+  font-size: 2rem;
+}
+
+.opcao-pagamento.opcao-grande strong {
+  display: block;
+  font-size: 1.05rem;
+  color: var(--cor-sobre-acento);
+}
+
+.opcao-pagamento.opcao-grande small {
+  display: block;
+  font-weight: 400;
+  color: var(--cor-texto-secundario);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+
+/* Aviso informativo (Dublin only, endereço de retirada, etc.) */
+.aviso-info {
+  background: var(--cor-cinza-claro);
+  border-left: 4px solid var(--cor-terracota);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  font-size: 0.85rem;
+  color: var(--cor-texto);
+  margin-bottom: var(--espaco-md);
+}
+
+/* Mensagem de erro abaixo de um campo do formulário */
+.campo-erro {
+  display: block;
+  min-height: 1em;
+  color: var(--cor-status-vermelho);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+
+/* Barra fixa inferior com o resumo do carrinho, visível durante o cardápio */
+.barra-carrinho-fixa {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  padding: var(--espaco-md);
+  background: linear-gradient(to top, var(--cor-fundo) 60%, transparent);
+}
+
+.barra-carrinho-fixa button {
+  width: 100%;
+  max-width: 480px;
+  background: var(--cor-terracota);
+  color: var(--cor-sobre-acento);
+  border: none;
+  border-radius: var(--raio-pill);
+  padding: var(--espaco-md) var(--espaco-lg);
+  font-weight: 700;
+  font-size: 1rem;
+  box-shadow: var(--sombra-lg);
+}
+
+.barra-carrinho-fixa button:active {
+  transform: scale(0.98);
+}
+
+/* Revisão do pedido */
+.resumo-revisao-secao {
+  margin-bottom: var(--espaco-lg);
+}
+
+.resumo-revisao-titulo {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cor-texto-secundario);
+  margin-bottom: var(--espaco-xs);
+}
+
+/* Tela de confirmação */
+.tela-confirmacao {
+  text-align: center;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.icone-confirmacao {
+  font-size: 3rem;
+  margin-bottom: var(--espaco-sm);
+}
+
+.numero-pedido {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--cor-terracota);
+  margin: var(--espaco-md) 0;
+}
+
+.tela-confirmacao .card {
+  text-align: left;
+  margin-top: var(--espaco-lg);
+  margin-bottom: var(--espaco-lg);
+}
+
+.tela-confirmacao .btn {
+  width: 100%;
+  padding-top: var(--espaco-md);
+  padding-bottom: var(--espaco-md);
+}
+
+@media (max-width: 480px) {
+  .opcoes-recebimento {
+    grid-template-columns: 1fr;
+  }
+
+  .etapa-pedido-acoes {
+    flex-direction: column-reverse;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Modal de personalização de combo                                       */
+/* ---------------------------------------------------------------------- */
+
+.modal-combo {
+  max-width: 480px;
+}
+
+.combo-descricao {
+  margin: 0 0 var(--espaco-md);
+  color: var(--cor-texto-secundario);
+  font-size: 0.88rem;
+}
+
+.secao-combo {
+  margin-bottom: var(--espaco-lg);
+}
+
+.secao-combo-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-sm);
+  margin-bottom: var(--espaco-sm);
+}
+
+.secao-combo-cabecalho h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.contador-escolha {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--cor-terracota);
+  background: rgba(255, 77, 0, 0.1);
+  border-radius: var(--raio-pill);
+  padding: 2px var(--espaco-sm);
+}
+
+/* Cards de escolha única dentro do combo (espeto/acompanhamento com limite = 1) */
+#combo-lista-espetos,
+#combo-lista-acompanhamentos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-xs);
+}
+
+.opcao-combo-item {
+  justify-content: space-between;
+  padding: var(--espaco-sm) var(--espaco-md);
+}
+
+.combo-item-acrescimo {
+  color: var(--cor-texto-secundario);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* Linhas com contador +/- (espeto/acompanhamento com limite > 1, permite repetir) */
+.linha-escolha-combo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-sm);
+}
+
+.linha-escolha-combo-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.linha-escolha-combo-nome {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+/* Nome do espeto/acompanhamento sempre em branco, legível sobre o fundo escuro do card (não afeta os valores de acréscimo) */
+#combo-lista-espetos .opcao-combo-item > span:first-child,
+#combo-lista-espetos .linha-escolha-combo-nome,
+#combo-lista-acompanhamentos .opcao-combo-item > span:first-child,
+#combo-lista-acompanhamentos .linha-escolha-combo-nome {
+  color: var(--cor-sobre-acento);
+}
+
+/* Texto das opções de forma de pagamento sempre em branco (mesmo padrão dos espetos/acompanhamentos) */
+#opcoes-pagamento-pedido .opcao-pagamento {
+  color: var(--cor-sobre-acento);
+}
+
+.linha-escolha-combo-acrescimo {
+  font-size: 0.78rem;
+  color: var(--cor-texto-secundario);
+}
+
+.stepper-combo {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  flex-shrink: 0;
+}
+
+.stepper-combo-botao {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--raio-pill);
+  border: 1px solid var(--cor-borda);
+  background: var(--cor-branco);
+  color: var(--cor-texto);
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.stepper-combo-botao:not(:disabled):hover { border-color: var(--cor-terracota); color: var(--cor-terracota); }
+.stepper-combo-botao:disabled { opacity: 0.4; }
+
+.stepper-combo-valor {
+  min-width: 1.4em;
+  text-align: center;
+  font-weight: 700;
+}
+
+.lista-inclusos-combo {
+  margin: 0;
+  padding-left: var(--espaco-lg);
+  color: var(--cor-texto-secundario);
+  font-size: 0.9rem;
+}
+
+.combo-resumo-total {
+  margin-top: var(--espaco-md);
+}
+
+/* Aviso discreto quando algum item incluso do combo ficou indisponível (produto inativo/excluído) */
+.aviso-card-combo {
+  margin: var(--espaco-xs) 0;
+  padding: var(--espaco-xs) var(--espaco-sm);
+  border-radius: var(--raio-sm);
+  background: rgba(224, 185, 78, 0.15);
+  border: 1px solid var(--cor-status-amarelo);
+  color: var(--cor-status-amarelo);
+  font-size: 0.78rem;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Composição do combo dentro da tabela do carrinho                       */
+/* ---------------------------------------------------------------------- */
+
+.linha-combo-carrinho td {
+  padding: var(--espaco-md);
+}
+
+.resumo-combo-carrinho-cabecalho {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--espaco-sm);
+  font-size: 1rem;
+  margin-bottom: var(--espaco-xs);
+}
+
+.resumo-combo-carrinho-grupo {
+  margin-bottom: var(--espaco-xs);
+  font-size: 0.88rem;
+}
+
+.resumo-combo-carrinho-rotulo {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cor-texto-secundario);
+}
+
+.resumo-combo-carrinho-grupo ul {
+  margin: 2px 0 0;
+  padding-left: var(--espaco-lg);
+}
+
+.resumo-combo-carrinho-precos {
+  display: flex;
+  gap: var(--espaco-md);
+  font-size: 0.8rem;
+  color: var(--cor-texto-secundario);
+  margin: var(--espaco-sm) 0;
+}
+
+.resumo-combo-carrinho-acoes {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Pergunta de troco (Etapa 5 — pagamento em Dinheiro)                    */
+/* ---------------------------------------------------------------------- */
+
+.secao-troco {
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-md);
+  padding: var(--espaco-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-sm);
+  color: var(--cor-texto);
+}
+
+.pergunta-troco {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.opcoes-troco-sim-nao {
+  display: flex;
+  gap: var(--espaco-sm);
+}
+
+.opcao-troco {
+  flex: 1;
+  justify-content: center;
+  padding: var(--espaco-sm) var(--espaco-md);
+}
+
+.troco-estimado {
+  margin: 0;
+  font-weight: 700;
+  color: var(--cor-terracota);
+  font-size: 0.9rem;
+}

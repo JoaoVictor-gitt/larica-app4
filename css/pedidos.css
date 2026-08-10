@@ -1,0 +1,268 @@
+/*
+ * pedidos.css
+ * Estilos da tela "Pedidos" (Painel Administrativo): barra de filtros,
+ * quadro Kanban (4 colunas), card de pedido e o modal de detalhes.
+ * Reaproveita os tokens de css/style.css (cores, espaçamentos, raios,
+ * sombras) e os componentes genéricos (.card, .btn, .badge, .modal-*).
+ */
+
+.filtros-pedidos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-lg);
+}
+
+.filtros-pedidos .form-grupo {
+  flex: 1;
+  min-width: 220px;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Quadro Kanban                                                          */
+/* ---------------------------------------------------------------------- */
+
+.kanban-pedidos {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(280px, 1fr));
+  gap: var(--espaco-lg);
+  align-items: start;
+  overflow-x: auto;
+  padding-bottom: var(--espaco-sm);
+}
+
+.coluna-kanban {
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-md);
+  padding: var(--espaco-md);
+  min-width: 280px;
+}
+
+.coluna-kanban-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--espaco-md);
+}
+
+.coluna-kanban-cabecalho h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cor-texto-secundario);
+}
+
+.badge-coluna-kanban {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 var(--espaco-xs);
+  border-radius: var(--raio-pill);
+  background: var(--cor-branco);
+  color: var(--cor-texto);
+  font-size: 0.8rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.coluna-kanban-lista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-md);
+}
+
+.estado-vazio-coluna {
+  text-align: center;
+  padding: var(--espaco-lg) var(--espaco-sm);
+  color: var(--cor-texto-secundario);
+  font-size: 0.85rem;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Card do pedido                                                         */
+/* ---------------------------------------------------------------------- */
+
+.card-pedido {
+  padding: var(--espaco-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-xs);
+}
+
+.card-pedido-novo {
+  border: 2px solid var(--cor-terracota);
+}
+
+.card-pedido-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-pedido-cabecalho strong {
+  font-size: 1rem;
+}
+
+.badge-novo {
+  background: var(--cor-terracota);
+  color: var(--cor-sobre-acento);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px var(--espaco-sm);
+  border-radius: var(--raio-pill);
+}
+
+.card-pedido-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--cor-texto-secundario);
+}
+
+.card-pedido-cliente {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.card-pedido-rodape {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-top: var(--espaco-xs);
+}
+
+.card-pedido-acoes {
+  display: flex;
+  gap: var(--espaco-sm);
+  margin-top: var(--espaco-xs);
+}
+
+.card-pedido-acoes .btn {
+  flex: 1;
+  font-size: 0.85rem;
+  padding: var(--espaco-sm) var(--espaco-sm);
+}
+
+/* Indicador discreto de demora — uma faixa fina colorida à esquerda do card */
+.card-pedido.demora-atencao {
+  border-left: 4px solid var(--cor-status-amarelo);
+}
+
+.card-pedido.demora-atrasado {
+  border-left: 4px solid var(--cor-status-vermelho);
+}
+
+/* Bloco "Pronto para retirada/entrega" — destaque dentro do card na coluna Pronto */
+.bloco-pronto-para {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(76, 168, 117, 0.12);
+  border: 1px solid var(--cor-status-verde);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm);
+  font-size: 0.82rem;
+}
+
+.bloco-pronto-para strong {
+  color: var(--cor-status-verde);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+/* Troco necessário — precisa se destacar mesmo dentro do bloco "Pronto para..." */
+.destaque-troco {
+  margin-top: 2px;
+  font-weight: 700;
+  color: var(--cor-status-amarelo);
+}
+
+/* Aviso de troco no modal de detalhes do pedido */
+.aviso-troco {
+  margin: var(--espaco-xs) 0 0;
+  padding: var(--espaco-xs) var(--espaco-sm);
+  border-radius: var(--raio-sm);
+  background: rgba(224, 185, 78, 0.15);
+  border: 1px solid var(--cor-status-amarelo);
+  color: var(--cor-status-amarelo);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Badges de status (usado no modal de detalhes)                          */
+/* ---------------------------------------------------------------------- */
+
+.badge-status-solicitado { background: var(--cor-terracota); color: var(--cor-sobre-acento); }
+.badge-status-em_preparo { background: var(--cor-status-amarelo); }
+.badge-status-pronto { background: var(--cor-status-verde); }
+.badge-status-finalizado { background: var(--cor-status-cinza); }
+
+/* ---------------------------------------------------------------------- */
+/* Modal de detalhes do pedido                                            */
+/* ---------------------------------------------------------------------- */
+
+.modal-pedido {
+  max-width: 560px;
+}
+
+.detalhe-pedido-secao {
+  margin-bottom: var(--espaco-lg);
+}
+
+.detalhe-pedido-titulo {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cor-texto-secundario);
+  margin-bottom: var(--espaco-xs);
+}
+
+.detalhe-combo-pedido {
+  margin-bottom: var(--espaco-md);
+  padding-bottom: var(--espaco-md);
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+.detalhe-combo-pedido:last-child {
+  border-bottom: none;
+}
+
+.detalhe-combo-pedido-cabecalho {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--espaco-xs);
+}
+
+.detalhe-combo-pedido-grupo {
+  font-size: 0.88rem;
+  margin-bottom: var(--espaco-xs);
+}
+
+.detalhe-combo-pedido-rotulo {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cor-texto-secundario);
+}
+
+.detalhe-combo-pedido-grupo ul {
+  margin: 2px 0 0;
+  padding-left: var(--espaco-lg);
+}
+
+@media (max-width: 1023px) {
+  .kanban-pedidos {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(280px, 320px);
+    grid-template-columns: none;
+  }
+}
