@@ -40,7 +40,8 @@ function renderizarTabelaEstoque() {
   const alerta = document.getElementById('filtro-alerta-estoque').value;
   const moeda = obterConfiguracoes().moeda;
 
-  let produtos = pesquisarProdutos({ termo });
+  // Combos não são item físico de estoque — não aparecem nesta tela.
+  let produtos = pesquisarProdutos({ termo }).filter((p) => p.categoria !== 'Combos');
   if (alerta) produtos = produtos.filter((p) => calcularStatusEstoque(p.quantidadeEstoque) === alerta);
   produtos = produtos.sort((a, b) => a.nome.localeCompare(b.nome));
 

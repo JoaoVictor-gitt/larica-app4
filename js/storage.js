@@ -352,20 +352,24 @@ async function ajustarEstoque(produtoId, { tipo, quantidade, observacao } = {}) 
   });
 }
 
-/** Soma quantidadeEstoque * preco de todos os produtos */
+/** Soma quantidadeEstoque * preco de todos os produtos — Combos não são item físico de estoque, não entram na conta */
 function obterValorTotalEstoque() {
-  return obterProdutos().reduce((soma, p) => soma + p.quantidadeEstoque * p.preco, 0);
+  return obterProdutos()
+    .filter((p) => p.categoria !== 'Combos')
+    .reduce((soma, p) => soma + p.quantidadeEstoque * p.preco, 0);
 }
 
 function obterProdutosEstoqueBaixo() {
-  return obterProdutos().filter((p) => {
-    const status = calcularStatusEstoque(p.quantidadeEstoque);
-    return status === 'amarelo' || status === 'vermelho';
-  });
+  return obterProdutos()
+    .filter((p) => p.categoria !== 'Combos')
+    .filter((p) => {
+      const status = calcularStatusEstoque(p.quantidadeEstoque);
+      return status === 'amarelo' || status === 'vermelho';
+    });
 }
 
 function obterProdutosSemEstoque() {
-  return obterProdutos().filter((p) => p.quantidadeEstoque <= 0);
+  return obterProdutos().filter((p) => p.categoria !== 'Combos' && p.quantidadeEstoque <= 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -475,6 +479,8 @@ async function finalizarVenda(itensCarrinho, formaPagamento) {
     if (item.combo) {
       // Combos não têm estoque próprio (não há ficha técnica/baixa por ingrediente
       // hoje) — só entra no histórico com o preço já calculado da personalização.
+      // Ponto certo, no futuro, pra dar baixa nos produtos que compõem o combo
+      // (ex.: item.combo.espetos/acompanhamentos/incluidos) — não implementado ainda.
       itensHistorico.push({
         produtoId: item.produtoId,
         nome: item.combo.nome,
