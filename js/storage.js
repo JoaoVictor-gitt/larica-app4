@@ -574,44 +574,21 @@ function salvarConfiguracoes(config) {
 }
 
 // ---------------------------------------------------------------------------
-// Pedidos de clientes (área de pedidos self-service, distinta do checkout de balcão)
+// Pedidos de clientes (Supabase — ver js/services/orders-service.js; cache em
+// memória aqui, mesmo padrão já usado pra produtos, pra manter
+// obterPedidosClientes()/obterPedidoClientePorId() síncronas)
 // ---------------------------------------------------------------------------
 
+let _cachePedidosClientes = null;
+
+/** Busca os pedidos no Supabase e guarda no cache em memória. Sem fallback silencioso — erro sobe pra quem chamou. */
+async function carregarPedidosClientesCache() {
+  _cachePedidosClientes = await getOrders();
+  return _cachePedidosClientes;
+}
+
 function obterPedidosClientes() {
-  return _lerChave(CHAVES.pedidosClientes, []);
-}
-
-/**
- * Grava um pedido completo feito pelo cliente (itens, retirada/entrega, dados
- * de contato/endereço e forma de pagamento). Não mexe em estoque nem no
- * histórico admin — isso é responsabilidade de finalizarVenda(), chamada à
- * parte por quem monta o pedido. Gera id e um número sequencial local
- * (#LARICA-1000, #LARICA-1001...). Ponto único a trocar futuramente por uma
- * chamada real a uma API de pedidos.
- */
-/** Gera o próximo número de pedido (#LARICA-1000, 1001...) a partir de um contador persistido que só cresce */
-function _obterProximoNumeroPedido() {
-  const proximo = _lerChave(CHAVES.proximoNumeroPedido, 1000);
-  _gravarChave(CHAVES.proximoNumeroPedido, proximo + 1);
-  return proximo;
-}
-
-function registrarPedidoCliente(pedido) {
-  const pedidos = obterPedidosClientes();
-  const numero = '#LARICA-' + _obterProximoNumeroPedido();
-  const registrado = {
-    ...pedido,
-    id: gerarId(),
-    numero,
-    status: STATUS_PEDIDO.SOLICITADO,
-    criadoEm: new Date().toISOString(),
-    aceitoEm: null,
-    prontoEm: null,
-    finalizadoEm: null,
-  };
-  pedidos.unshift(registrado);
-  _gravarChave(CHAVES.pedidosClientes, pedidos);
-  return registrado;
+  return _cachePedidosClientes || [];
 }
 
 function obterPedidoClientePorId(id) {
@@ -619,67 +596,53 @@ function obterPedidoClientePorId(id) {
 }
 
 /**
- * Exclusão de pedidos — centralizada aqui de propósito (item pedido pelo
- * usuário: no futuro dá pra restringir isso a admins só validando antes de
- * chamar essas 3 funções, sem mexer na tela). Nunca reaproveita/recalcula o
- * número do pedido — o contador em CHAVES.proximoNumeroPedido é independente
- * do tamanho da lista e não é afetado por nenhuma dessas exclusões.
+ * Exclusão de pedidos — centralizada aqui de propósito (no futuro dá pra
+ * restringir a admins só validando antes de chamar essas 3 funções, sem
+ * mexer na tela). O número do pedido nunca é reaproveitado: é
+ * `orders.order_number` (identity) no Supabase, não depende do tamanho da
+ * lista local.
  */
-function removerPedidoCliente(id) {
-  const pedidos = obterPedidosClientes().filter((p) => p.id !== id);
-  _gravarChave(CHAVES.pedidosClientes, pedidos);
+async function removerPedidoCliente(id) {
+  await deleteOrderNoSupabase(id);
+  await carregarPedidosClientesCache();
 }
 
-function removerPedidosClientes(ids) {
-  const idsParaRemover = new Set(ids || []);
-  const pedidos = obterPedidosClientes().filter((p) => !idsParaRemover.has(p.id));
-  _gravarChave(CHAVES.pedidosClientes, pedidos);
+async function removerPedidosClientes(ids) {
+  await deleteOrdersNoSupabase(ids);
+  await carregarPedidosClientesCache();
 }
 
 /** "Limpar histórico": remove só os pedidos Finalizado — nunca Solicitado/Em Preparo/Pronto (esses são operacionais, ver Painel > Pedidos) */
-function limparPedidosFinalizados() {
-  const pedidos = obterPedidosClientes().filter((p) => p.status !== STATUS_PEDIDO.FINALIZADO);
-  _gravarChave(CHAVES.pedidosClientes, pedidos);
+async function limparPedidosFinalizados() {
+  await clearCompletedOrdersNoSupabase();
+  await carregarPedidosClientesCache();
 }
 
 /**
- * Move um pedido de um status pro próximo, gravando o timestamp da
- * transição. Recusa se o pedido não estiver exatamente no status esperado —
- * é o que impede pular etapa (ex.: ir direto de Solicitado pra Finalizado).
- * Único lugar do sistema que muda o status de um pedido.
+ * Move um pedido de um status pro próximo via RPC update_order_status — o
+ * banco valida de novo que o pedido está exatamente no status esperado
+ * (reforço além da checagem que já existe aqui), grava o timestamp da
+ * transição e recusa pular etapa.
  */
-function _atualizarStatusPedido(id, statusEsperado, novoStatus, campoTimestamp) {
-  const pedidos = obterPedidosClientes();
-  const indice = pedidos.findIndex((p) => p.id === id);
-  if (indice === -1) throw new Error('Pedido não encontrado: ' + id);
-
-  const pedido = pedidos[indice];
-  if (pedido.status !== statusEsperado) {
-    throw new Error(
-      `Não é possível mudar o pedido ${pedido.numero} de "${pedido.status}" direto para "${novoStatus}" — precisa passar pelas etapas em ordem.`
-    );
-  }
-
-  pedido.status = novoStatus;
-  pedido[campoTimestamp] = new Date().toISOString();
-  pedidos[indice] = pedido;
-  _gravarChave(CHAVES.pedidosClientes, pedidos);
-  return pedido;
+async function _atualizarStatusPedido(id, novoStatus) {
+  const atualizado = await updateOrderStatusNoSupabase(id, novoStatus);
+  await carregarPedidosClientesCache();
+  return atualizado;
 }
 
 /** Funcionário aceitou o pedido: Solicitado -> Em Preparo */
-function aceitarPedido(id) {
-  return _atualizarStatusPedido(id, STATUS_PEDIDO.SOLICITADO, STATUS_PEDIDO.EM_PREPARO, 'aceitoEm');
+async function aceitarPedido(id) {
+  return _atualizarStatusPedido(id, STATUS_PEDIDO.EM_PREPARO);
 }
 
 /** Pedido ficou pronto: Em Preparo -> Pronto */
-function marcarPedidoComoPronto(id) {
-  return _atualizarStatusPedido(id, STATUS_PEDIDO.EM_PREPARO, STATUS_PEDIDO.PRONTO, 'prontoEm');
+async function marcarPedidoComoPronto(id) {
+  return _atualizarStatusPedido(id, STATUS_PEDIDO.PRONTO);
 }
 
 /** Pedido foi entregue/retirado: Pronto -> Finalizado */
-function concluirPedido(id) {
-  return _atualizarStatusPedido(id, STATUS_PEDIDO.PRONTO, STATUS_PEDIDO.FINALIZADO, 'finalizadoEm');
+async function concluirPedido(id) {
+  return _atualizarStatusPedido(id, STATUS_PEDIDO.FINALIZADO);
 }
 
 // Acompanhamentos e combos não são mais coleções próprias — são produtos

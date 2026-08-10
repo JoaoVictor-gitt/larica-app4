@@ -20,7 +20,7 @@
  *                        montarComposicaoCombo())
  *   Customer          -> { nome, telefone }
  *   DeliveryAddress   -> { eircode, linha1, linha2, area, distrito, instrucoes }
- *   PaymentMethod     -> 'cartao' | 'dinheiro' | 'revolut' | 'retirada'
+ *   PaymentMethod     -> 'cartao' | 'dinheiro' | 'revolut'
  *   CashPaymentInfo   -> { precisaTroco, valorPago, troco } — só quando
  *                        formaPagamento === 'dinheiro'; ponto único a trocar
  *                        futuramente por uma integração real (ex.: Revolut)
@@ -133,7 +133,6 @@ function preencherCamposComEstado() {
       botao.classList.toggle('selecionada', botao.dataset.fulfilment === estadoPedido.fulfilment);
     });
     document.getElementById('botao-continuar-recebimento').disabled = false;
-    atualizarVisibilidadePagarNaRetirada();
   }
 
   if (estadoPedido.formaPagamento) {
@@ -821,7 +820,6 @@ function ligarEventosRecebimento() {
       document.querySelectorAll('.opcoes-recebimento .opcao-pagamento').forEach((b) => b.classList.remove('selecionada'));
       botao.classList.add('selecionada');
       document.getElementById('botao-continuar-recebimento').disabled = false;
-      atualizarVisibilidadePagarNaRetirada();
       salvarProgressoPedido();
     });
   });
@@ -830,16 +828,6 @@ function ligarEventosRecebimento() {
     if (!estadoPedido.fulfilment) return;
     irParaEtapaPedido(estadoPedido.fulfilment === 'retirada' ? 'dados-retirada' : 'dados-entrega');
   });
-}
-
-function atualizarVisibilidadePagarNaRetirada() {
-  const opcao = document.getElementById('opcao-pagar-na-retirada');
-  const podeExibir = estadoPedido.fulfilment === 'retirada';
-  opcao.style.display = podeExibir ? '' : 'none';
-  if (!podeExibir && estadoPedido.formaPagamento === 'retirada') {
-    estadoPedido.formaPagamento = '';
-    document.getElementById('botao-continuar-pagamento').disabled = true;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1133,21 +1121,22 @@ function renderizarRevisao() {
 // ---------------------------------------------------------------------------
 
 /**
- * Simula a criação de um pedido: debita estoque + grava a venda no histórico
- * admin (reaproveitando finalizarVenda), limpa o carrinho e registra o
- * pedido completo (cliente/entrega/retirada) na chave própria de pedidos de
- * clientes. Único ponto a trocar quando existir backend — troca-se o corpo
- * por uma chamada real a uma API, mantendo a mesma assinatura.
+ * Cria o pedido no Supabase via RPC create_customer_order (products-service
+ * do lado de pedidos: js/services/orders-service.js) — preços e composição
+ * do combo são recalculados no banco, não confiamos no que o navegador
+ * enviou. Não mexe no carrinho nem no estoque local — quem chama decide o
+ * que fazer só depois de confirmado o sucesso.
  */
-async function criarPedido(pedido, itensCarrinho) {
-  await finalizarVenda(itensCarrinho, ROTULOS_FORMA_PAGAMENTO[pedido.formaPagamento] || pedido.formaPagamento);
-  limparCarrinho();
-  return registrarPedidoCliente(pedido);
+async function criarPedido(pedido, itensPedido) {
+  return await createOrder(pedido, itensPedido);
 }
 
 async function confirmarPedido() {
   const carrinho = obterCarrinho();
   if (carrinho.length === 0 || !estadoPedido.fulfilment || !pagamentoEstaCompleto()) return;
+
+  const botaoConfirmar = document.getElementById('botao-confirmar-pedido');
+  botaoConfirmar.disabled = true; // evita duplo clique / pedido duplicado enquanto a requisição está em andamento
 
   const config = obterConfiguracoes();
   const subtotal = calcularSubtotalCarrinho(carrinho);
@@ -1175,27 +1164,34 @@ async function confirmarPedido() {
     };
   });
 
-  ultimoPedidoConfirmado = await criarPedido(
-    {
-      itens: itensPedido,
-      fulfilment: estadoPedido.fulfilment,
-      cliente: { ...estadoPedido.cliente },
-      retirada: estadoPedido.fulfilment === 'retirada' ? { ...estadoPedido.retirada } : null,
-      endereco: estadoPedido.fulfilment === 'entrega' ? { ...estadoPedido.endereco } : null,
-      formaPagamento: estadoPedido.formaPagamento,
-      pagamentoDinheiro: estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro ? { ...estadoPedido.dinheiro } : null,
-      subtotal,
-      taxaEntrega,
-      total,
-    },
-    carrinho
-  );
+  const pedido = {
+    itens: itensPedido,
+    fulfilment: estadoPedido.fulfilment,
+    cliente: { ...estadoPedido.cliente },
+    retirada: estadoPedido.fulfilment === 'retirada' ? { ...estadoPedido.retirada } : null,
+    endereco: estadoPedido.fulfilment === 'entrega' ? { ...estadoPedido.endereco } : null,
+    formaPagamento: estadoPedido.formaPagamento,
+    pagamentoDinheiro: estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro ? { ...estadoPedido.dinheiro } : null,
+    subtotal,
+    taxaEntrega,
+    total,
+  };
 
+  try {
+    ultimoPedidoConfirmado = await criarPedido(pedido, itensPedido);
+  } catch (erro) {
+    mostrarToast('Não foi possível enviar o pedido. ' + erro.message, 'erro');
+    botaoConfirmar.disabled = false;
+    return; // permanece na etapa de revisão, carrinho intacto — pode tentar de novo
+  }
+
+  limparCarrinho(); // só depois de confirmado o sucesso no Supabase
   atualizarContadorCarrinho();
   renderizarConfirmacao(ultimoPedidoConfirmado, config.moeda);
   irParaEtapaPedido('confirmacao');
   localStorage.removeItem(CHAVE_PEDIDO_EM_ANDAMENTO); // etapa de confirmação nunca deve ser restaurada num refresh
   mostrarToast('Pedido confirmado!', 'sucesso');
+  botaoConfirmar.disabled = false;
 }
 
 function renderizarConfirmacao(pedido, moeda) {

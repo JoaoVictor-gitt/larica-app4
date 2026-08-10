@@ -38,7 +38,10 @@
       </div>
     </div>
 
-    <div class="kanban-pedidos">
+    <div class="estado-vazio" id="estado-carregando-pedidos">Carregando pedidos...</div>
+    <div class="estado-vazio" id="estado-erro-pedidos" style="display:none;"></div>
+
+    <div class="kanban-pedidos" id="kanban-pedidos" style="display:none;">
       <section class="coluna-kanban" data-status="solicitado">
         <div class="coluna-kanban-cabecalho">
           <h2>Solicitado</h2>
@@ -95,6 +98,7 @@
   <script src="js/storage.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="js/supabase.js"></script>
+  <script src="js/services/orders-service.js"></script>
   <script src="js/app.js"></script>
   <script src="js/pedidos.js"></script>
 </body>

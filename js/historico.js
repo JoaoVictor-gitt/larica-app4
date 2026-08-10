@@ -20,9 +20,22 @@ const ROTULOS_TIPO_HISTORICO = {
 let pedidosSelecionadosHistorico = new Set();
 let acaoPendenteExclusaoHistorico = null;
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   renderizarHistorico();
   ligarEventosFiltrosHistorico();
+
+  const carregando = document.getElementById('estado-carregando-pedidos-finalizados');
+  const erro = document.getElementById('estado-erro-pedidos-finalizados');
+  try {
+    await carregarPedidosClientesCache();
+  } catch (erroCarregamento) {
+    console.error('Erro ao carregar pedidos:', erroCarregamento);
+    carregando.style.display = 'none';
+    erro.textContent = 'Não foi possível carregar pedidos. ' + erroCarregamento.message;
+    erro.style.display = 'block';
+    return;
+  }
+  carregando.style.display = 'none';
 
   renderizarPedidosFinalizados();
   ligarEventosPedidosFinalizados();
@@ -173,8 +186,13 @@ function excluirPedidoHistoricoComConfirmacao(id) {
     titulo: 'Excluir este pedido?',
     mensagem: 'Esta ação removerá o pedido do histórico.',
     rotuloBotao: 'Excluir pedido',
-    aoConfirmar: () => {
-      removerPedidoCliente(id);
+    aoConfirmar: async () => {
+      try {
+        await removerPedidoCliente(id);
+      } catch (erro) {
+        mostrarToast('Não foi possível excluir o pedido. ' + erro.message, 'erro');
+        return;
+      }
       pedidosSelecionadosHistorico.delete(id);
       mostrarToast('Pedido excluído do histórico.', 'sucesso');
       renderizarPedidosFinalizados();
@@ -189,8 +207,13 @@ function excluirSelecionadosHistoricoComConfirmacao() {
     titulo: `Excluir ${ids.length} ${ids.length === 1 ? 'pedido' : 'pedidos'}?`,
     mensagem: `Deseja excluir os ${ids.length} pedidos selecionados?`,
     rotuloBotao: 'Excluir pedidos',
-    aoConfirmar: () => {
-      removerPedidosClientes(ids);
+    aoConfirmar: async () => {
+      try {
+        await removerPedidosClientes(ids);
+      } catch (erro) {
+        mostrarToast('Não foi possível excluir os pedidos. ' + erro.message, 'erro');
+        return;
+      }
       pedidosSelecionadosHistorico.clear();
       mostrarToast('Pedidos excluídos do histórico.', 'sucesso');
       renderizarPedidosFinalizados();
@@ -204,8 +227,13 @@ function limparHistoricoPedidosComConfirmacao() {
     titulo: 'Tem certeza que deseja excluir todos os pedidos do histórico?',
     mensagem: 'Esta ação não poderá ser desfeita.',
     rotuloBotao: 'Excluir todos',
-    aoConfirmar: () => {
-      limparPedidosFinalizados();
+    aoConfirmar: async () => {
+      try {
+        await limparPedidosFinalizados();
+      } catch (erro) {
+        mostrarToast('Não foi possível limpar o histórico. ' + erro.message, 'erro');
+        return;
+      }
       pedidosSelecionadosHistorico.clear();
       mostrarToast('Histórico de pedidos limpo.', 'sucesso');
       renderizarPedidosFinalizados();
@@ -262,8 +290,13 @@ function ligarEventosModalDetalhePedidoHistorico() {
       titulo: 'Excluir este pedido?',
       mensagem: 'Esta ação removerá o pedido do histórico.',
       rotuloBotao: 'Excluir pedido',
-      aoConfirmar: () => {
-        removerPedidoCliente(id);
+      aoConfirmar: async () => {
+        try {
+          await removerPedidoCliente(id);
+        } catch (erro) {
+          mostrarToast('Não foi possível excluir o pedido. ' + erro.message, 'erro');
+          return;
+        }
         pedidosSelecionadosHistorico.delete(id);
         fecharModalDetalhePedidoHistorico();
         mostrarToast('Pedido excluído do histórico.', 'sucesso');

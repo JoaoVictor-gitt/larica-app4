@@ -47,6 +47,8 @@
           </thead>
           <tbody id="corpo-tabela-pedidos-finalizados"></tbody>
         </table>
+        <div class="estado-vazio" id="estado-carregando-pedidos-finalizados">Carregando pedidos...</div>
+        <div class="estado-vazio" id="estado-erro-pedidos-finalizados" style="display:none;"></div>
         <div class="estado-vazio" id="estado-vazio-pedidos-finalizados" style="display:none;">
           Nenhum pedido finalizado ainda.
         </div>
@@ -137,6 +139,7 @@
   <script src="js/storage.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="js/supabase.js"></script>
+  <script src="js/services/orders-service.js"></script>
   <script src="js/app.js"></script>
   <script src="js/historico.js"></script>
 </body>

@@ -1,0 +1,198 @@
+/*
+ * orders-service.js
+ * Único arquivo que fala com o Supabase para pedidos (tabelas orders,
+ * order_items, order_item_selections + as funções RPC create_customer_order
+ * e update_order_status). Mapeia o formato relacional do Supabase (inglês)
+ * pro formato pt-BR que o resto do app já usa (mesmo "pedido" de sempre:
+ * numero, status em solicitado/em_preparo/pronto/finalizado, cliente.nome,
+ * fulfilment 'retirada'/'entrega', item.combo.espetos/acompanhamentos/
+ * incluidos) — quem chama isso (js/storage.js, js/pedido.js) não precisa
+ * saber que existe Supabase por trás. Depende de js/supabase.js
+ * (supabaseClient), carregado antes deste arquivo.
+ */
+
+const FULFILMENT_PARA_ENUM = { retirada: 'collection', entrega: 'delivery' };
+const ENUM_PARA_FULFILMENT = { collection: 'retirada', delivery: 'entrega' };
+
+const PAGAMENTO_PARA_ENUM = { cartao: 'card', dinheiro: 'cash', revolut: 'revolut' };
+const ENUM_PARA_PAGAMENTO = { card: 'cartao', cash: 'dinheiro', revolut: 'revolut' };
+
+const STATUS_PARA_ENUM = { solicitado: 'requested', em_preparo: 'preparing', pronto: 'ready', finalizado: 'completed' };
+const ENUM_PARA_STATUS = { requested: 'solicitado', preparing: 'em_preparo', ready: 'pronto', completed: 'finalizado' };
+
+/** Reconstrói o "pedido" no formato de sempre a partir de uma linha de `orders` (com order_items/order_item_selections embutidos) */
+function _linhaSupabaseParaPedido(o) {
+  const ehEntrega = o.fulfilment_type === 'delivery';
+  return {
+    id: o.id,
+    numero: '#LARICA-' + o.order_number,
+    status: ENUM_PARA_STATUS[o.status] || o.status,
+    criadoEm: o.created_at,
+    aceitoEm: o.accepted_at,
+    prontoEm: o.ready_at,
+    finalizadoEm: o.completed_at,
+    cliente: { nome: o.customer_name, telefone: o.customer_phone },
+    fulfilment: ENUM_PARA_FULFILMENT[o.fulfilment_type] || o.fulfilment_type,
+    retirada: !ehEntrega ? {} : null,
+    endereco: ehEntrega
+      ? {
+          eircode: o.eircode || '',
+          linha1: o.address_line_1 || '',
+          linha2: o.address_line_2 || '',
+          area: o.area || '',
+          distrito: '',
+          instrucoes: o.delivery_instructions || '',
+        }
+      : null,
+    formaPagamento: ENUM_PARA_PAGAMENTO[o.payment_method] || o.payment_method,
+    pagamentoDinheiro:
+      o.payment_method === 'cash'
+        ? { precisaTroco: !!o.needs_change, valorPago: o.cash_amount, troco: o.change_amount }
+        : null,
+    subtotal: Number(o.subtotal) || 0,
+    taxaEntrega: Number(o.delivery_fee) || 0,
+    total: Number(o.total) || 0,
+    itens: (o.order_items || []).map(_itemSupabaseParaItemPedido),
+  };
+}
+
+function _itemSupabaseParaItemPedido(item) {
+  const base = {
+    produtoId: item.product_id,
+    nome: item.product_name,
+    quantidade: item.quantity,
+    valorUnitario: Number(item.unit_price) || 0,
+    valorTotal: Number(item.total_price) || 0,
+  };
+  if (item.item_type !== 'combo') return base;
+
+  const selecoes = item.order_item_selections || [];
+  return {
+    ...base,
+    combo: {
+      comboId: item.product_id,
+      nome: item.product_name,
+      precoBase: Number(item.unit_price) || 0,
+      espetos: selecoes
+        .filter((s) => s.selection_type === 'skewer')
+        .map((s) => ({
+          produtoId: s.selected_product_id,
+          nome: s.selected_product_name,
+          quantidade: s.quantity,
+          acrescimoUnitario: Number(s.extra_price) || 0,
+        })),
+      acompanhamentos: selecoes
+        .filter((s) => s.selection_type === 'side')
+        .map((s) => ({ id: s.selected_product_id, nome: s.selected_product_name, quantidade: s.quantity })),
+      incluidos: selecoes.filter((s) => s.selection_type === 'included').map((s) => s.selected_product_name),
+      extras: Number(item.extras_total) || 0,
+      total: Number(item.total_price) || 0,
+    },
+  };
+}
+
+/** Busca todos os pedidos (orders + order_items + order_item_selections numa única consulta), mais recentes primeiro */
+async function getOrders() {
+  const { data, error } = await supabaseClient
+    .from('orders')
+    .select('*, order_items(*, order_item_selections(*))')
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data || []).map(_linhaSupabaseParaPedido);
+}
+
+/**
+ * Cria o pedido chamando a RPC create_customer_order (transação única no
+ * banco, preços recalculados a partir de products/combo_skewer_options —
+ * não confia em nada de preço/composição vindo do cliente). `pedido` é o
+ * objeto local montado por confirmarPedido() (pedido.js); `itensPedido` é o
+ * array já montado por confirmarPedido() com produtoId/nome/quantidade/
+ * valorUnitario/valorTotal (e `combo` quando aplicável) — usado tanto pra
+ * montar o payload da RPC quanto pra exibir a tela de confirmação (o
+ * cliente já escolheu tudo, não precisa buscar de novo).
+ */
+async function createOrder(pedido, itensPedido) {
+  const payload = {
+    customer_name: pedido.cliente.nome,
+    customer_phone: pedido.cliente.telefone,
+    fulfilment_type: FULFILMENT_PARA_ENUM[pedido.fulfilment],
+    eircode: pedido.endereco ? pedido.endereco.eircode : null,
+    address_line_1: pedido.endereco ? pedido.endereco.linha1 : null,
+    address_line_2: pedido.endereco ? pedido.endereco.linha2 : null,
+    area: pedido.endereco ? pedido.endereco.area : null,
+    delivery_instructions: pedido.endereco ? pedido.endereco.instrucoes : null,
+    delivery_distance_km: null,
+    delivery_fee: pedido.taxaEntrega || 0,
+    payment_method: PAGAMENTO_PARA_ENUM[pedido.formaPagamento],
+    needs_change: pedido.formaPagamento === 'dinheiro' && pedido.pagamentoDinheiro ? !!pedido.pagamentoDinheiro.precisaTroco : false,
+    cash_amount: pedido.formaPagamento === 'dinheiro' && pedido.pagamentoDinheiro ? pedido.pagamentoDinheiro.valorPago : null,
+    items: itensPedido.map((item) => {
+      if (item.combo) {
+        return {
+          item_type: 'combo',
+          product_id: item.produtoId,
+          quantity: item.quantidade,
+          selections: {
+            skewers: (item.combo.espetos || []).map((e) => ({ product_id: e.produtoId, quantity: e.quantidade })),
+            sides: (item.combo.acompanhamentos || []).map((a) => ({ product_id: a.id, quantity: a.quantidade })),
+          },
+        };
+      }
+      return { item_type: 'product', product_id: item.produtoId, quantity: item.quantidade };
+    }),
+  };
+
+  const { data, error } = await supabaseClient.rpc('create_customer_order', { payload });
+  if (error) throw new Error(error.message);
+
+  return {
+    numero: '#LARICA-' + data.order_number,
+    status: ENUM_PARA_STATUS[data.status] || data.status,
+    criadoEm: data.created_at,
+    subtotal: Number(data.subtotal) || 0,
+    taxaEntrega: Number(data.delivery_fee) || 0,
+    total: Number(data.total) || 0,
+    cliente: pedido.cliente,
+    fulfilment: pedido.fulfilment,
+    retirada: pedido.retirada,
+    endereco: pedido.endereco,
+    formaPagamento: pedido.formaPagamento,
+    pagamentoDinheiro: pedido.pagamentoDinheiro,
+    itens: itensPedido,
+  };
+}
+
+/** Transição de status via RPC (valida no banco, além do que já é validado no cliente) */
+async function updateOrderStatusNoSupabase(id, novoStatusPt) {
+  const novoStatusEnum = STATUS_PARA_ENUM[novoStatusPt];
+  const { data, error } = await supabaseClient.rpc('update_order_status', { p_order_id: id, p_new_status: novoStatusEnum });
+  if (error) throw new Error(error.message);
+  return _linhaSupabaseParaPedido(data);
+}
+
+async function deleteOrderNoSupabase(id) {
+  const { error } = await supabaseClient.from('orders').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+async function deleteOrdersNoSupabase(ids) {
+  const { error } = await supabaseClient.from('orders').delete().in('id', ids);
+  if (error) throw new Error(error.message);
+}
+
+async function clearCompletedOrdersNoSupabase() {
+  const { error } = await supabaseClient.from('orders').delete().eq('status', 'completed');
+  if (error) throw new Error(error.message);
+}
+
+/** Assina mudanças em `orders` (INSERT/UPDATE/DELETE). Retorna o canal, pra poder dar unsubscribe depois. */
+function subscribeToOrders(aoMudar) {
+  return supabaseClient
+    .channel('pedidos-admin')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, aoMudar)
+    .subscribe();
+}
+
+function unsubscribeFromOrders(canal) {
+  if (canal) supabaseClient.removeChannel(canal);
+}

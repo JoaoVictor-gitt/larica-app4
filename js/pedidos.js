@@ -10,13 +10,44 @@
 
 let filtroTipoPedidos = ''; // '' | 'entrega' | 'retirada'
 let termoBuscaPedidos = '';
+let canalPedidosRealtime = null;
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  const carregando = document.getElementById('estado-carregando-pedidos');
+  const erro = document.getElementById('estado-erro-pedidos');
+  const kanban = document.getElementById('kanban-pedidos');
+  try {
+    await carregarPedidosClientesCache();
+  } catch (erroCarregamento) {
+    console.error('Erro ao carregar pedidos:', erroCarregamento);
+    carregando.style.display = 'none';
+    erro.textContent = 'Não foi possível carregar pedidos. ' + erroCarregamento.message;
+    erro.style.display = 'block';
+    return;
+  }
+  carregando.style.display = 'none';
+  kanban.style.display = '';
+
   renderizarQuadroPedidos();
   ligarEventosFiltrosPedidos();
   ligarEventosModalPedido();
-  // Atualiza "há X min" e o alerta de demora sozinho enquanto a página estiver aberta
+  // Atualiza "há X min" e o alerta de demora sozinho enquanto a página estiver aberta (não busca dado novo, só redesenha o cache atual)
   setInterval(renderizarQuadroPedidos, 30000);
+
+  iniciarRealtimePedidos();
+});
+
+/** Uma única subscription pra mudanças em orders — em qualquer INSERT/UPDATE/DELETE, recarrega o cache e redesenha o quadro inteiro */
+function iniciarRealtimePedidos() {
+  if (canalPedidosRealtime) return;
+  canalPedidosRealtime = subscribeToOrders(async () => {
+    await carregarPedidosClientesCache();
+    renderizarQuadroPedidos();
+  });
+}
+
+window.addEventListener('beforeunload', () => {
+  unsubscribeFromOrders(canalPedidosRealtime);
 });
 
 function ligarEventosFiltrosPedidos() {
@@ -95,9 +126,9 @@ function renderizarColunaKanban(status, pedidosDaColuna) {
 }
 
 /** Chama a transição de status (storage.js), mostra toast e redesenha o quadro — trata erro de transição inválida sem quebrar a tela */
-function executarAcaoPedido(id, funcaoTransicao, mensagemSucesso) {
+async function executarAcaoPedido(id, funcaoTransicao, mensagemSucesso) {
   try {
-    funcaoTransicao(id);
+    await funcaoTransicao(id);
     mostrarToast(mensagemSucesso, 'sucesso');
     renderizarQuadroPedidos();
   } catch (erro) {

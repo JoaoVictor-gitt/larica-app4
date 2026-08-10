@@ -255,7 +255,7 @@ const ROTULOS_STATUS_PEDIDO = {
   finalizado: 'Finalizado',
 };
 
-const ROTULOS_FORMA_PAGAMENTO = { cartao: 'Cartão', dinheiro: 'Dinheiro', revolut: 'Revolut', retirada: 'Pagar na retirada' };
+const ROTULOS_FORMA_PAGAMENTO = { cartao: 'Cartão', dinheiro: 'Dinheiro', revolut: 'Revolut' };
 
 /** Limites (em minutos) usados pro indicador de demora dos pedidos — centralizados aqui, fácil de reconfigurar depois */
 const LIMITES_ALERTA_DEMORA_PEDIDO = { atencaoMin: 15, atrasadoMin: 25 };
