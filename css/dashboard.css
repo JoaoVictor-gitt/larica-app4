@@ -124,4 +124,41 @@
 
 .valor-barra-horizontal { font-size: 0.8rem; color: var(--cor-texto-secundario); text-align: right; }
 
+/* Filtro de período dos relatórios — mesmo padrão de pílula do filtro de categorias em Fazer Pedido (css/cardapio.css) */
+.filtro-categorias {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espaco-sm);
+  margin-bottom: var(--espaco-lg);
+}
+
+.filtro-categoria-botao {
+  padding: var(--espaco-xs) var(--espaco-md);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-pill);
+  background: var(--cor-branco);
+  color: var(--cor-texto-secundario);
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: background var(--transicao-rapida), color var(--transicao-rapida), border-color var(--transicao-rapida);
+}
+
+.filtro-categoria-botao:hover { border-color: var(--cor-terracota); }
+
+.filtro-categoria-botao.ativo {
+  background: var(--cor-terracota);
+  border-color: var(--cor-terracota);
+  color: var(--cor-sobre-acento);
+}
+
+.filtro-periodo-personalizado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--espaco-md);
+}
+
+/* Formas de pagamento / Delivery×Collection — linhas simples dentro do card, reaproveitando .linha-resumo */
+.lista-resumo-relatorio .linha-resumo:last-child { border-bottom: none; }
+
 /* Breakpoints ficam centralizados em responsive.css */

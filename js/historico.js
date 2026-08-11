@@ -1,29 +1,17 @@
 /*
  * historico.js
- * Duas listas independentes nesta página:
- * 1) Pedidos finalizados (área Fazer Pedido, caju_pedidos_clientes) — com
- *    exclusão individual/em massa/total. Só mexe em status "finalizado";
- *    nunca toca em pedidos Solicitado/Em Preparo/Pronto (esses pertencem ao
- *    painel operacional em pedidos.html).
- * 2) Histórico de vendas de balcão e movimentos de estoque (caju_historico)
- *    — já existia, sem nenhuma mudança de comportamento.
+ * Pedidos finalizados (área Fazer Pedido, Supabase via
+ * carregarPedidosClientesCache()/obterPedidosClientes()) — listar, ver
+ * detalhes, excluir individual/em massa/total. Só mexe em status
+ * "finalizado"; nunca toca em pedidos Solicitado/Em Preparo/Pronto (esses
+ * pertencem ao painel operacional em pedidos.html).
  * Depende de storage.js e utils.js.
  */
-
-const ROTULOS_TIPO_HISTORICO = {
-  venda: 'Venda',
-  entrada: 'Reposição',
-  saida: 'Saída',
-  ajuste: 'Ajuste',
-};
 
 let pedidosSelecionadosHistorico = new Set();
 let acaoPendenteExclusaoHistorico = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
-  renderizarHistorico();
-  ligarEventosFiltrosHistorico();
-
   const carregando = document.getElementById('estado-carregando-pedidos-finalizados');
   const erro = document.getElementById('estado-erro-pedidos-finalizados');
   try {
@@ -42,61 +30,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   ligarEventosConfirmacaoExclusaoHistorico();
   ligarEventosModalDetalhePedidoHistorico();
 });
-
-function ligarEventosFiltrosHistorico() {
-  document.getElementById('campo-pesquisa-historico').addEventListener('input', debounce(renderizarHistorico, 250));
-  document.getElementById('filtro-tipo-historico').addEventListener('change', renderizarHistorico);
-  document.getElementById('campo-data-inicio').addEventListener('change', renderizarHistorico);
-  document.getElementById('campo-data-fim').addEventListener('change', renderizarHistorico);
-}
-
-function renderizarHistorico() {
-  const termo = document.getElementById('campo-pesquisa-historico').value.trim();
-  const tipo = document.getElementById('filtro-tipo-historico').value;
-  const valorDataInicio = document.getElementById('campo-data-inicio').value;
-  const valorDataFim = document.getElementById('campo-data-fim').value;
-
-  const dataInicio = valorDataInicio ? `${valorDataInicio}T00:00:00.000` : undefined;
-  const dataFim = valorDataFim ? `${valorDataFim}T23:59:59.999` : undefined;
-
-  const registros = pesquisarHistorico({ termo, tipo, dataInicio, dataFim });
-  const moeda = obterConfiguracoes().moeda;
-
-  const corpo = document.getElementById('corpo-tabela-historico');
-  const estadoVazio = document.getElementById('estado-vazio-historico');
-
-  if (registros.length === 0) {
-    corpo.innerHTML = '';
-    estadoVazio.style.display = 'block';
-    return;
-  }
-  estadoVazio.style.display = 'none';
-
-  corpo.innerHTML = registros.map((registro) => linhaHistoricoHtml(registro, moeda)).join('');
-}
-
-function linhaHistoricoHtml(registro, moeda) {
-  const quantidadeTotal = registro.itens.reduce((soma, item) => soma + item.quantidade, 0);
-
-  const listaItens = registro.itens
-    .map((item) => `<li>${item.quantidade}x ${escaparHtml(item.nome)}</li>`)
-    .join('');
-
-  const pagamentoOuObservacao = registro.tipo === 'venda'
-    ? (registro.formaPagamento ? escaparHtml(registro.formaPagamento) : '—')
-    : (registro.observacao ? escaparHtml(registro.observacao) : '—');
-
-  return `
-    <tr>
-      <td>${formatarData(registro.timestamp)}</td>
-      <td>${formatarHora(registro.timestamp)}</td>
-      <td><span class="badge badge-tipo-${registro.tipo}">${ROTULOS_TIPO_HISTORICO[registro.tipo] || registro.tipo}</span></td>
-      <td><ul class="lista-itens-historico">${listaItens}</ul></td>
-      <td>${quantidadeTotal}</td>
-      <td>${formatarMoeda(registro.valorTotal, moeda)}</td>
-      <td>${pagamentoOuObservacao}</td>
-    </tr>`;
-}
 
 // ---------------------------------------------------------------------------
 // Pedidos finalizados (área Fazer Pedido) — listar, selecionar, excluir

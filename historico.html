@@ -54,53 +54,6 @@
         </div>
       </div>
     </section>
-
-    <h2 class="titulo-secao-historico">Movimentações de estoque e vendas de balcão</h2>
-
-    <div class="card filtros-historico">
-      <div class="form-grupo" style="margin-bottom:0;">
-        <label for="campo-pesquisa-historico">Pesquisar</label>
-        <input type="text" id="campo-pesquisa-historico" class="input" placeholder="Nome do produto, observação..." />
-      </div>
-      <div class="form-grupo" style="margin-bottom:0;">
-        <label for="filtro-tipo-historico">Tipo</label>
-        <select id="filtro-tipo-historico" class="input">
-          <option value="">Todos</option>
-          <option value="venda">Venda</option>
-          <option value="entrada">Reposição</option>
-          <option value="saida">Saída</option>
-          <option value="ajuste">Ajuste</option>
-        </select>
-      </div>
-      <div class="form-grupo" style="margin-bottom:0;">
-        <label for="campo-data-inicio">De</label>
-        <input type="date" id="campo-data-inicio" class="input" />
-      </div>
-      <div class="form-grupo" style="margin-bottom:0;">
-        <label for="campo-data-fim">Até</label>
-        <input type="date" id="campo-data-fim" class="input" />
-      </div>
-    </div>
-
-    <div class="card tabela-historico-wrap">
-      <table class="tabela">
-        <thead>
-          <tr>
-            <th>Data</th>
-            <th>Hora</th>
-            <th>Tipo</th>
-            <th>Itens</th>
-            <th>Quantidade</th>
-            <th>Valor</th>
-            <th>Pagamento / Observação</th>
-          </tr>
-        </thead>
-        <tbody id="corpo-tabela-historico"></tbody>
-      </table>
-      <div class="estado-vazio" id="estado-vazio-historico" style="display:none;">
-        Nenhum registro encontrado para os filtros selecionados.
-      </div>
-    </div>
   </main>
 
   <!-- Modal de confirmação de exclusão (reaproveitado pros 3 casos: individual, selecionados, limpar tudo) -->

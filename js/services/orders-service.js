@@ -256,3 +256,65 @@ function subscribeToOrders(aoMudar) {
 function unsubscribeFromOrders(canal) {
   if (canal) supabaseClient.removeChannel(canal);
 }
+
+/**
+ * Busca pedidos "enxutos" pra relatório (Dashboard) — só as colunas de
+ * `orders` usadas em métricas financeiras, sem `order_items`/seleções de
+ * combo (uma única consulta, nada de N+1). `desdeUtc`/`ateUtc` são strings
+ * ISO em UTC; o chamador (js/dashboard.js) é responsável por já ter
+ * calculado uma janela larga o bastante pra cobrir o período desejado em
+ * horário de Dublin (ver função de timezone em dashboard.js) — aqui só
+ * filtra e devolve, sem nenhuma lógica de fuso.
+ */
+async function getOrdersForReport({ desdeUtc, ateUtc } = {}) {
+  let consulta = supabaseClient
+    .from('orders')
+    .select('id, order_number, created_at, status, fulfilment_type, payment_method, subtotal, delivery_fee, total')
+    .order('created_at', { ascending: true });
+  if (desdeUtc) consulta = consulta.gte('created_at', desdeUtc);
+  if (ateUtc) consulta = consulta.lt('created_at', ateUtc);
+
+  const { data, error } = await consulta;
+  if (error) throw new Error(error.message);
+
+  return (data || []).map((o) => ({
+    id: o.id,
+    numero: '#LARICA-' + o.order_number,
+    criadoEm: o.created_at,
+    status: ENUM_PARA_STATUS[o.status] || o.status,
+    fulfilment: ENUM_PARA_FULFILMENT[o.fulfilment_type] || o.fulfilment_type,
+    formaPagamento: ENUM_PARA_PAGAMENTO[o.payment_method] || o.payment_method,
+    subtotal: Number(o.subtotal) || 0,
+    taxaEntrega: Number(o.delivery_fee) || 0,
+    total: Number(o.total) || 0,
+  }));
+}
+
+/**
+ * Ranking de produtos/combos mais vendidos dentro de um conjunto de pedidos
+ * já carregado (`orderIds`, vindo de getOrdersForReport). Uma única consulta
+ * em `order_items`, sem tocar `order_item_selections` — cada combo já é UMA
+ * linha em order_items, então os componentes internos (espeto/acompanhamento/
+ * incluso) nunca entram nesse ranking, só o combo em si.
+ */
+async function getTopProductsForReport(orderIds, limite = 10) {
+  if (!orderIds || orderIds.length === 0) return [];
+
+  const { data, error } = await supabaseClient
+    .from('order_items')
+    .select('product_id, product_name, quantity, total_price')
+    .in('order_id', orderIds);
+  if (error) throw new Error(error.message);
+
+  const porProduto = new Map();
+  (data || []).forEach((item) => {
+    const atual = porProduto.get(item.product_id) || { produtoId: item.product_id, nome: item.product_name, quantidade: 0, valorVendido: 0 };
+    atual.quantidade += Number(item.quantity) || 0;
+    atual.valorVendido += Number(item.total_price) || 0;
+    porProduto.set(item.product_id, atual);
+  });
+
+  return Array.from(porProduto.values())
+    .sort((a, b) => b.quantidade - a.quantidade)
+    .slice(0, limite);
+}

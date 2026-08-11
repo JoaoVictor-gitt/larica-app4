@@ -25,24 +25,38 @@
 
     <div class="grade-cartoes-dashboard">
       <div class="card cartao-dashboard">
-        <span class="cartao-dashboard-icone">🍡</span>
+        <span class="cartao-dashboard-icone">💰</span>
         <div>
-          <span class="cartao-dashboard-rotulo">Produtos cadastrados</span>
-          <span class="cartao-dashboard-valor" id="cartao-produtos-cadastrados">—</span>
+          <span class="cartao-dashboard-rotulo">Faturamento hoje</span>
+          <span class="cartao-dashboard-valor" id="cartao-faturamento-hoje">—</span>
         </div>
       </div>
       <div class="card cartao-dashboard">
         <span class="cartao-dashboard-icone">🧾</span>
         <div>
-          <span class="cartao-dashboard-rotulo">Pedidos realizados</span>
-          <span class="cartao-dashboard-valor" id="cartao-pedidos-realizados">—</span>
+          <span class="cartao-dashboard-rotulo">Pedidos hoje</span>
+          <span class="cartao-dashboard-valor" id="cartao-pedidos-hoje">—</span>
         </div>
       </div>
       <div class="card cartao-dashboard">
-        <span class="cartao-dashboard-icone">💰</span>
+        <span class="cartao-dashboard-icone">🎯</span>
         <div>
-          <span class="cartao-dashboard-rotulo">Valor vendido hoje</span>
-          <span class="cartao-dashboard-valor" id="cartao-valor-vendido-hoje">—</span>
+          <span class="cartao-dashboard-rotulo">Ticket médio hoje</span>
+          <span class="cartao-dashboard-valor" id="cartao-ticket-medio-hoje">—</span>
+        </div>
+      </div>
+      <div class="card cartao-dashboard">
+        <span class="cartao-dashboard-icone">🛵</span>
+        <div>
+          <span class="cartao-dashboard-rotulo">Taxas de entrega hoje</span>
+          <span class="cartao-dashboard-valor" id="cartao-taxa-entrega-hoje">—</span>
+        </div>
+      </div>
+      <div class="card cartao-dashboard">
+        <span class="cartao-dashboard-icone">🍡</span>
+        <div>
+          <span class="cartao-dashboard-rotulo">Produtos cadastrados</span>
+          <span class="cartao-dashboard-valor" id="cartao-produtos-cadastrados">—</span>
         </div>
       </div>
       <div class="card cartao-dashboard">
@@ -68,14 +82,65 @@
       </div>
     </div>
 
-    <div class="grade-graficos-dashboard">
-      <div class="card">
-        <h2 class="titulo-grafico">Vendas dos últimos 7 dias</h2>
-        <div class="grafico-barras-vertical" id="grafico-vendas-semana"></div>
+    <div class="pagina-titulo" style="margin-top:8px;">
+      <h2 style="margin:0;">Relatórios</h2>
+    </div>
+
+    <div class="filtro-categorias" id="filtro-periodo-dashboard">
+      <button type="button" class="filtro-categoria-botao ativo" data-periodo="hoje">Hoje</button>
+      <button type="button" class="filtro-categoria-botao" data-periodo="7dias">7 dias</button>
+      <button type="button" class="filtro-categoria-botao" data-periodo="30dias">30 dias</button>
+      <button type="button" class="filtro-categoria-botao" data-periodo="mes">Este mês</button>
+      <button type="button" class="filtro-categoria-botao" data-periodo="personalizado">Personalizado</button>
+    </div>
+
+    <div class="card filtro-periodo-personalizado" id="grupo-periodo-personalizado" style="display:none;">
+      <div class="form-grupo" style="margin-bottom:0;">
+        <label for="campo-periodo-inicio">De</label>
+        <input type="date" id="campo-periodo-inicio" class="input" />
       </div>
-      <div class="card">
-        <h2 class="titulo-grafico">Produtos mais vendidos</h2>
-        <div class="grafico-barras-horizontal" id="grafico-produtos-mais-vendidos"></div>
+      <div class="form-grupo" style="margin-bottom:0;">
+        <label for="campo-periodo-fim">Até</label>
+        <input type="date" id="campo-periodo-fim" class="input" />
+      </div>
+      <button type="button" class="btn btn-primario" id="botao-aplicar-periodo-personalizado">Aplicar</button>
+      <span class="campo-erro" id="erro-periodo-personalizado"></span>
+    </div>
+
+    <div class="estado-vazio" id="estado-carregando-relatorios" style="display:none;">Carregando relatórios...</div>
+    <div class="estado-vazio" id="estado-erro-relatorios" style="display:none;"></div>
+
+    <div id="conteudo-relatorios-dashboard">
+      <div class="grade-graficos-dashboard">
+        <div class="card">
+          <h2 class="titulo-grafico">Faturamento por dia</h2>
+          <div class="grafico-barras-vertical" id="grafico-faturamento-periodo"></div>
+        </div>
+        <div class="card">
+          <h2 class="titulo-grafico">Formas de pagamento</h2>
+          <div class="lista-resumo-relatorio" id="lista-formas-pagamento"></div>
+        </div>
+      </div>
+
+      <div class="grade-graficos-dashboard" style="margin-top:var(--espaco-lg);">
+        <div class="card">
+          <h2 class="titulo-grafico">Delivery × Collection</h2>
+          <div class="lista-resumo-relatorio" id="lista-delivery-collection"></div>
+        </div>
+        <div class="card tabela-estoque-wrap">
+          <h2 class="titulo-grafico">Produtos mais vendidos</h2>
+          <table class="tabela">
+            <thead>
+              <tr>
+                <th>Produto/Combo</th>
+                <th>Quantidade</th>
+                <th>Valor vendido</th>
+              </tr>
+            </thead>
+            <tbody id="corpo-tabela-top-produtos"></tbody>
+          </table>
+          <div class="estado-vazio" id="estado-vazio-top-produtos" style="display:none;">Nenhuma venda no período.</div>
+        </div>
       </div>
     </div>
   </main>
@@ -85,6 +150,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="js/supabase.js"></script>
   <script src="js/services/products-service.js"></script>
+  <script src="js/services/orders-service.js"></script>
   <script src="js/app.js"></script>
   <script src="js/dashboard.js"></script>
 </body>
