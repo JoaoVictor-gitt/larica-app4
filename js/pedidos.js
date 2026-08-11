@@ -11,23 +11,31 @@
 let filtroTipoPedidos = ''; // '' | 'entrega' | 'retirada'
 let termoBuscaPedidos = '';
 let canalPedidosRealtime = null;
+let timeoutRecarregarPedidosRealtime = null;
 
-document.addEventListener('DOMContentLoaded', async () => {
+document.addEventListener('DOMContentLoaded', init);
+
+async function init() {
   const carregando = document.getElementById('estado-carregando-pedidos');
   const erro = document.getElementById('estado-erro-pedidos');
   const kanban = document.getElementById('kanban-pedidos');
+  let sucesso = false;
+
   try {
     await carregarPedidosClientesCache();
+    sucesso = true;
   } catch (erroCarregamento) {
     console.error('Erro ao carregar pedidos:', erroCarregamento);
-    carregando.style.display = 'none';
-    erro.textContent = 'Não foi possível carregar pedidos. ' + erroCarregamento.message;
+    erro.textContent = 'Não foi possível carregar os pedidos. ' + erroCarregamento.message;
     erro.style.display = 'block';
-    return;
+  } finally {
+    // Sempre sai do "Carregando...", dê certo ou não — nunca fica preso aqui.
+    carregando.style.display = 'none';
   }
-  carregando.style.display = 'none';
-  kanban.style.display = '';
 
+  if (!sucesso) return;
+
+  kanban.style.display = '';
   renderizarQuadroPedidos();
   ligarEventosFiltrosPedidos();
   ligarEventosModalPedido();
@@ -35,18 +43,33 @@ document.addEventListener('DOMContentLoaded', async () => {
   setInterval(renderizarQuadroPedidos, 30000);
 
   iniciarRealtimePedidos();
-});
+}
 
-/** Uma única subscription pra mudanças em orders — em qualquer INSERT/UPDATE/DELETE, recarrega o cache e redesenha o quadro inteiro */
+/**
+ * Uma única subscription pra mudanças em `orders`. Cada evento (INSERT/
+ * UPDATE/DELETE) agenda um recarregamento debounced — se vários eventos
+ * chegarem juntos, só uma recarga é feita, evitando refazer as 3 consultas
+ * repetidamente à toa.
+ */
 function iniciarRealtimePedidos() {
   if (canalPedidosRealtime) return;
-  canalPedidosRealtime = subscribeToOrders(async () => {
-    await carregarPedidosClientesCache();
-    renderizarQuadroPedidos();
+  canalPedidosRealtime = subscribeToOrders(() => {
+    clearTimeout(timeoutRecarregarPedidosRealtime);
+    timeoutRecarregarPedidosRealtime = setTimeout(reloadOrders, 400);
   });
 }
 
+async function reloadOrders() {
+  try {
+    await carregarPedidosClientesCache();
+    renderizarQuadroPedidos();
+  } catch (erro) {
+    console.error('Erro ao recarregar pedidos (realtime):', erro);
+  }
+}
+
 window.addEventListener('beforeunload', () => {
+  clearTimeout(timeoutRecarregarPedidosRealtime);
   unsubscribeFromOrders(canalPedidosRealtime);
 });
 
@@ -145,7 +168,8 @@ function cardPedidoHtml(pedido) {
   const totalItens = (pedido.itens || []).reduce((soma, item) => soma + item.quantidade, 0);
   const minutosDesdeCriacao = Math.max(0, Math.floor((Date.now() - new Date(pedido.criadoEm).getTime()) / 60000));
   const nivelDemora = pedido.status === STATUS_PEDIDO.FINALIZADO ? 'normal' : calcularNivelDemoraPedido(minutosDesdeCriacao);
-  const tipoRotulo = pedido.fulfilment === 'entrega' ? '🚗 Entrega' : '📍 Retirada';
+  const tipoRotulo =
+    pedido.fulfilment === 'entrega' ? '🚗 Entrega' : `📍 Retirada · ${escaparHtml(rotuloCompactoHorarioRetirada(pedido))}`;
   const tempoRotulo = formatarTempoDecorrido(obterTimestampEtapaAtual(pedido));
   const moeda = obterConfiguracoes().moeda;
 
@@ -283,7 +307,7 @@ function abrirModalDetalhesPedido(id) {
     : `
       <div class="detalhe-pedido-secao">
         <div class="detalhe-pedido-titulo">Retirada</div>
-        <p>Horário: ${escaparHtml((pedido.retirada || {}).horario || '—')}</p>
+        <p>Retirada: ${escaparHtml(rotuloHorarioRetirada(pedido))}</p>
       </div>`;
 
   document.getElementById('pedido-modal-corpo').innerHTML = `

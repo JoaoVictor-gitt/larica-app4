@@ -336,7 +336,7 @@ function abrirModalDetalhePedidoHistorico(id) {
     : `
       <div class="detalhe-pedido-secao">
         <div class="detalhe-pedido-titulo">Retirada</div>
-        <p>Horário: ${escaparHtml((pedido.retirada || {}).horario || '—')}</p>
+        <p>Retirada: ${escaparHtml(rotuloHorarioRetirada(pedido))}</p>
       </div>`;
 
   document.getElementById('detalhe-pedido-historico-corpo').innerHTML = `

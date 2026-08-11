@@ -33,7 +33,9 @@ function _linhaSupabaseParaPedido(o) {
     finalizadoEm: o.completed_at,
     cliente: { nome: o.customer_name, telefone: o.customer_phone },
     fulfilment: ENUM_PARA_FULFILMENT[o.fulfilment_type] || o.fulfilment_type,
-    retirada: !ehEntrega ? {} : null,
+    // pickup_time (coluna `time` do Supabase) vem como "HH:MM:SS" — cortamos os segundos.
+    // null = "assim que possível"; com valor = horário escolhido pelo cliente.
+    retirada: !ehEntrega ? { modo: o.pickup_time ? 'horario' : 'asap', horario: o.pickup_time ? o.pickup_time.slice(0, 5) : null } : null,
     endereco: ehEntrega
       ? {
           eircode: o.eircode || '',
@@ -91,14 +93,66 @@ function _itemSupabaseParaItemPedido(item) {
   };
 }
 
-/** Busca todos os pedidos (orders + order_items + order_item_selections numa única consulta), mais recentes primeiro */
+/**
+ * Busca pedidos completos (orders + order_items + order_item_selections) em
+ * no máximo 3 consultas em lote — nunca uma consulta por pedido/item. O
+ * select aninhado (`orders(order_items(order_item_selections))`) trava a
+ * leitura nesta base (confirmado em teste), então a composição é feita aqui
+ * mesmo, em JavaScript, a partir de 3 arrays planos.
+ *
+ * Função central reaproveitada por pedidos.html (Kanban, sem filtro) e
+ * historico.html (`status: 'finalizado'`/`'completed'`) — ver
+ * js/storage.js:carregarPedidosClientesCache().
+ *
+ * @param {{ status?: string, orderIds?: string[], dateFrom?: string, dateTo?: string }} filtros
+ *   `status` aceita tanto o valor em pt-BR (solicitado/em_preparo/pronto/finalizado)
+ *   quanto o enum do banco (requested/preparing/ready/completed).
+ */
+async function getOrdersWithDetails({ status, orderIds, dateFrom, dateTo } = {}) {
+  let consulta = supabaseClient.from('orders').select('*').order('created_at', { ascending: true });
+  if (status) consulta = consulta.eq('status', STATUS_PARA_ENUM[status] || status);
+  if (orderIds && orderIds.length > 0) consulta = consulta.in('id', orderIds);
+  if (dateFrom) consulta = consulta.gte('created_at', dateFrom);
+  if (dateTo) consulta = consulta.lte('created_at', dateTo);
+
+  const { data: orders, error: erroOrders } = await consulta;
+  if (erroOrders) throw new Error(erroOrders.message);
+  if (!orders || orders.length === 0) return [];
+
+  const idsPedidos = orders.map((o) => o.id);
+  const { data: orderItems, error: erroItems } = await supabaseClient.from('order_items').select('*').in('order_id', idsPedidos);
+  if (erroItems) throw new Error(erroItems.message);
+
+  const idsItens = (orderItems || []).map((i) => i.id);
+  let selections = [];
+  if (idsItens.length > 0) {
+    const { data: selectionsData, error: erroSelections } = await supabaseClient
+      .from('order_item_selections')
+      .select('*')
+      .in('order_item_id', idsItens);
+    if (erroSelections) throw new Error(erroSelections.message);
+    selections = selectionsData || [];
+  }
+
+  const selectionsPorItem = new Map();
+  selections.forEach((s) => {
+    if (!selectionsPorItem.has(s.order_item_id)) selectionsPorItem.set(s.order_item_id, []);
+    selectionsPorItem.get(s.order_item_id).push(s);
+  });
+
+  const itensPorPedido = new Map();
+  (orderItems || []).forEach((item) => {
+    const itemComSelections = { ...item, order_item_selections: selectionsPorItem.get(item.id) || [] };
+    if (!itensPorPedido.has(item.order_id)) itensPorPedido.set(item.order_id, []);
+    itensPorPedido.get(item.order_id).push(itemComSelections);
+  });
+
+  return orders.map((o) => _linhaSupabaseParaPedido({ ...o, order_items: itensPorPedido.get(o.id) || [] }));
+}
+
+/** Busca todos os pedidos, sem filtro — usada pelo cache compartilhado em js/storage.js */
 async function getOrders() {
-  const { data, error } = await supabaseClient
-    .from('orders')
-    .select('*, order_items(*, order_item_selections(*))')
-    .order('created_at', { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data || []).map(_linhaSupabaseParaPedido);
+  return getOrdersWithDetails();
 }
 
 /**
@@ -119,6 +173,7 @@ async function createOrder(pedido, itensPedido) {
     eircode: pedido.endereco ? pedido.endereco.eircode : null,
     address_line_1: pedido.endereco ? pedido.endereco.linha1 : null,
     address_line_2: pedido.endereco ? pedido.endereco.linha2 : null,
+    pickup_time: pedido.retirada && pedido.retirada.modo === 'horario' ? pedido.retirada.horario : null,
     area: pedido.endereco ? pedido.endereco.area : null,
     delivery_instructions: pedido.endereco ? pedido.endereco.instrucoes : null,
     delivery_distance_km: null,

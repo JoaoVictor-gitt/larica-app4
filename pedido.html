@@ -121,13 +121,28 @@
           <span class="campo-erro" id="erro-retirada-telefone"></span>
         </div>
         <div class="form-grupo">
-          <label for="retirada-horario">Horário aproximado para retirada</label>
-          <select class="input" id="retirada-horario">
-            <option value="Assim que possível">Assim que possível</option>
-            <option value="Em 15 minutos">Em 15 minutos</option>
-            <option value="Em 30 minutos">Em 30 minutos</option>
-            <option value="Em 1 hora">Em 1 hora</option>
-          </select>
+          <label>Horário para retirada</label>
+          <div class="opcoes-recebimento" id="opcoes-modo-retirada">
+            <button type="button" class="opcao-pagamento opcao-grande" data-modo-retirada="asap">
+              <span class="icone-pagamento">⚡</span>
+              <span>
+                <strong>Assim que possível</strong>
+                <small>Prepararemos seu pedido o mais rápido possível.</small>
+              </span>
+            </button>
+            <button type="button" class="opcao-pagamento opcao-grande" data-modo-retirada="horario">
+              <span class="icone-pagamento">🕒</span>
+              <span>
+                <strong>Escolher horário</strong>
+                <small>Você escolhe o horário exato de retirada.</small>
+              </span>
+            </button>
+          </div>
+          <div class="form-grupo" id="grupo-horario-retirada-escolhido" style="display:none;">
+            <label for="campo-horario-retirada">Horário para retirada</label>
+            <input type="time" class="input" id="campo-horario-retirada" />
+            <span class="campo-erro" id="erro-horario-retirada"></span>
+          </div>
         </div>
         <div class="aviso-info" id="endereco-estabelecimento">
           Retirada no Larica Food Truck — endereço informado no local, Dublin.

@@ -59,7 +59,7 @@ function estadoPedidoInicial() {
   return {
     fulfilment: '',
     cliente: { nome: '', telefone: '' },
-    retirada: { horario: 'Assim que possível' },
+    retirada: { modo: '', horario: null }, // modo: 'asap' | 'horario'
     endereco: { eircode: '', linha1: '', linha2: '', area: '', distrito: '', instrucoes: '' },
     formaPagamento: '',
     dinheiro: null, // { precisaTroco, valorPago, troco } — só quando formaPagamento === 'dinheiro'
@@ -117,7 +117,18 @@ function carregarEstadoPersistido() {
 function preencherCamposComEstado() {
   document.getElementById('retirada-nome').value = estadoPedido.cliente.nome || '';
   document.getElementById('retirada-telefone').value = estadoPedido.cliente.telefone || '';
-  document.getElementById('retirada-horario').value = estadoPedido.retirada.horario || 'Assim que possível';
+
+  if (estadoPedido.retirada.modo) {
+    document.querySelectorAll('#opcoes-modo-retirada [data-modo-retirada]').forEach((botao) => {
+      botao.classList.toggle('selecionada', botao.dataset.modoRetirada === estadoPedido.retirada.modo);
+    });
+    const ehHorario = estadoPedido.retirada.modo === 'horario';
+    document.getElementById('grupo-horario-retirada-escolhido').style.display = ehHorario ? '' : 'none';
+    if (ehHorario) {
+      document.getElementById('campo-horario-retirada').min = horarioMinimoRetirada();
+      document.getElementById('campo-horario-retirada').value = estadoPedido.retirada.horario || '';
+    }
+  }
 
   document.getElementById('entrega-nome').value = estadoPedido.cliente.nome || '';
   document.getElementById('entrega-telefone').value = estadoPedido.cliente.telefone || '';
@@ -301,7 +312,7 @@ function cardProdutoPedidoHtml(produto, moeda) {
         <div class="card-produto-descricao">${escaparHtml(produto.descricao || '')}</div>
         <div class="card-produto-rodape">
           <span class="card-produto-preco">${formatarMoeda(produto.preco, moeda)}</span>
-          <span class="card-produto-estoque">${esgotado ? 'Indisponível' : produto.quantidadeEstoque + ' disponíveis'}</span>
+          ${esgotado ? '<span class="card-produto-estoque">Indisponível</span>' : ''}
         </div>
         <div class="card-produto-acao">
           <input type="number" class="seletor-quantidade" id="pedido-qtd-${produto.id}" min="1" max="${produto.quantidadeEstoque}" value="1" ${esgotado ? 'disabled' : ''} />
@@ -837,6 +848,29 @@ function ligarEventosRecebimento() {
 function ligarEventosDadosRetirada() {
   ligarFormatacaoTelefone('retirada-telefone');
 
+  document.querySelectorAll('#opcoes-modo-retirada [data-modo-retirada]').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      const modo = botao.dataset.modoRetirada;
+      estadoPedido.retirada = { modo, horario: modo === 'horario' ? estadoPedido.retirada.horario || null : null };
+
+      document.querySelectorAll('#opcoes-modo-retirada [data-modo-retirada]').forEach((b) => b.classList.toggle('selecionada', b === botao));
+
+      const grupoHorario = document.getElementById('grupo-horario-retirada-escolhido');
+      grupoHorario.style.display = modo === 'horario' ? '' : 'none';
+      if (modo === 'horario') {
+        document.getElementById('campo-horario-retirada').min = horarioMinimoRetirada();
+      }
+      document.getElementById('erro-horario-retirada').textContent = '';
+      salvarProgressoPedido();
+    });
+  });
+
+  document.getElementById('campo-horario-retirada').addEventListener('input', () => {
+    estadoPedido.retirada.horario = document.getElementById('campo-horario-retirada').value;
+    document.getElementById('erro-horario-retirada').textContent = '';
+    salvarProgressoPedido();
+  });
+
   document.getElementById('botao-continuar-retirada').addEventListener('click', () => {
     const nome = document.getElementById('retirada-nome').value.trim();
     const telefone = document.getElementById('retirada-telefone').value.trim();
@@ -844,10 +878,23 @@ function ligarEventosDadosRetirada() {
     let valido = true;
     valido = exibirErroCampo('erro-retirada-nome', nome ? '' : 'Informe seu nome.') && valido;
     valido = exibirErroCampo('erro-retirada-telefone', mensagemErroTelefone(telefone)) && valido;
+
+    if (!estadoPedido.retirada.modo) {
+      mostrarToast('Escolha quando você quer retirar o pedido.', 'erro');
+      valido = false;
+    } else if (estadoPedido.retirada.modo === 'horario') {
+      const horario = estadoPedido.retirada.horario;
+      const mensagemHorario = !horario
+        ? 'Escolha um horário para retirada.'
+        : !validarHorarioRetirada(horario)
+        ? `Escolha um horário a partir de ${horarioMinimoRetirada()}.`
+        : '';
+      valido = exibirErroCampo('erro-horario-retirada', mensagemHorario) && valido;
+    }
+
     if (!valido) return;
 
     estadoPedido.cliente = { nome, telefone };
-    estadoPedido.retirada = { horario: document.getElementById('retirada-horario').value };
     salvarProgressoPedido();
     irParaEtapaPedido('pagamento');
   });
@@ -1219,7 +1266,8 @@ function reiniciarPedido() {
   ['retirada-nome', 'retirada-telefone', 'entrega-nome', 'entrega-telefone', 'entrega-eircode', 'entrega-linha1', 'entrega-linha2', 'entrega-area', 'entrega-distrito', 'entrega-instrucoes'].forEach(
     (id) => (document.getElementById(id).value = '')
   );
-  document.getElementById('retirada-horario').value = 'Assim que possível';
+  document.getElementById('campo-horario-retirada').value = '';
+  document.getElementById('grupo-horario-retirada-escolhido').style.display = 'none';
   document
     .querySelectorAll('.opcoes-recebimento .opcao-pagamento, #opcoes-pagamento-pedido .opcao-pagamento')
     .forEach((b) => b.classList.remove('selecionada'));
@@ -1227,7 +1275,7 @@ function reiniciarPedido() {
   atualizarVisibilidadeSecaoTroco();
   document.getElementById('botao-continuar-recebimento').disabled = true;
   document.getElementById('botao-continuar-pagamento').disabled = true;
-  ['erro-retirada-nome', 'erro-retirada-telefone', 'erro-entrega-nome', 'erro-entrega-telefone', 'erro-entrega-eircode', 'erro-entrega-linha1'].forEach(
+  ['erro-retirada-nome', 'erro-retirada-telefone', 'erro-horario-retirada', 'erro-entrega-nome', 'erro-entrega-telefone', 'erro-entrega-eircode', 'erro-entrega-linha1'].forEach(
     (id) => (document.getElementById(id).textContent = '')
   );
 

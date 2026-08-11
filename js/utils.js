@@ -279,3 +279,34 @@ function formatarTempoDecorrido(iso) {
   const resto = minutos % 60;
   return resto > 0 ? `há ${horas}h ${resto}min` : `há ${horas}h`;
 }
+
+// ---------------------------------------------------------------------------
+// Horário de retirada (Fazer Pedido, etapa "Dados para retirada")
+// ---------------------------------------------------------------------------
+
+/** Tempo mínimo (minutos) entre agora e o horário de retirada que o cliente pode escolher — só mexer aqui pra reconfigurar */
+const MINUTOS_MINIMOS_PREPARO_RETIRADA = 20;
+
+/** Menor horário (HH:MM, no fuso local, hoje) que o cliente pode escolher pra retirada, dado o tempo mínimo de preparo */
+function horarioMinimoRetirada() {
+  const minimo = new Date(Date.now() + MINUTOS_MINIMOS_PREPARO_RETIRADA * 60000);
+  const dois = (n) => String(n).padStart(2, '0');
+  return `${dois(minimo.getHours())}:${dois(minimo.getMinutes())}`;
+}
+
+/** Um horário (HH:MM) é válido pra retirada se não for antes de agora + MINUTOS_MINIMOS_PREPARO_RETIRADA */
+function validarHorarioRetirada(horarioHHMM) {
+  return !!horarioHHMM && horarioHHMM >= horarioMinimoRetirada();
+}
+
+/** "Assim que possível" ou "HH:MM" — usado nos detalhes completos do pedido (modal admin) */
+function rotuloHorarioRetirada(pedido) {
+  const retirada = pedido.retirada || {};
+  return retirada.modo === 'horario' && retirada.horario ? retirada.horario : 'Assim que possível';
+}
+
+/** "ASAP" ou "HH:MM" — versão compacta, usada no card do Kanban */
+function rotuloCompactoHorarioRetirada(pedido) {
+  const retirada = pedido.retirada || {};
+  return retirada.modo === 'horario' && retirada.horario ? retirada.horario : 'ASAP';
+}
