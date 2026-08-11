@@ -10,6 +10,12 @@
 
 const DIAS_SEMANA = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
 
+// Listas explícitas das colunas com GRANT de SELECT pra anon/authenticated — nunca '*'/select() vazio,
+// que pediriam também `updated_by` (sem grant público) e derrubariam a consulta inteira.
+const BUSINESS_SETTINGS_COLUNAS_PUBLICAS =
+  'id, orders_enabled, closed_message, delivery_enabled, collection_enabled, delivery_minimum_fee, delivery_minimum_distance_km, delivery_price_per_km, delivery_max_distance_km, delivery_origin_lat, delivery_origin_lng, timezone, updated_at';
+const BUSINESS_HOURS_COLUNAS_PUBLICAS = 'day_of_week, enabled, opening_time, closing_time, updated_at';
+
 function _linhaSupabaseParaConfiguracaoNegocio(linha) {
   return {
     pedidosAtivos: linha.orders_enabled,
@@ -29,7 +35,7 @@ function _linhaSupabaseParaConfiguracaoNegocio(linha) {
 
 /** Busca a linha única de configurações de negócio (id=1) */
 async function buscarConfiguracoesNegocioDoSupabase() {
-  const { data, error } = await supabaseClient.from('business_settings').select('*').eq('id', 1).single();
+  const { data, error } = await supabaseClient.from('business_settings').select(BUSINESS_SETTINGS_COLUNAS_PUBLICAS).eq('id', 1).single();
   if (error) throw new Error(error.message);
   return _linhaSupabaseParaConfiguracaoNegocio(data);
 }
@@ -52,7 +58,12 @@ async function atualizarConfiguracoesNegocioNoSupabase(config) {
         ? null
         : Math.max(0, Number(config.entregaDistanciaMaximaKm) || 0),
   };
-  const { data, error } = await supabaseClient.from('business_settings').update(linha).eq('id', 1).select().single();
+  const { data, error } = await supabaseClient
+    .from('business_settings')
+    .update(linha)
+    .eq('id', 1)
+    .select(BUSINESS_SETTINGS_COLUNAS_PUBLICAS)
+    .single();
   if (error) throw new Error(error.message);
   return _linhaSupabaseParaConfiguracaoNegocio(data);
 }
@@ -70,7 +81,10 @@ function _linhaSupabaseParaHorario(linha) {
 
 /** Busca as 7 linhas de horário de funcionamento, ordenadas por dia (0=domingo...6=sábado) */
 async function buscarHorariosFuncionamentoDoSupabase() {
-  const { data, error } = await supabaseClient.from('business_hours').select('*').order('day_of_week', { ascending: true });
+  const { data, error } = await supabaseClient
+    .from('business_hours')
+    .select(BUSINESS_HOURS_COLUNAS_PUBLICAS)
+    .order('day_of_week', { ascending: true });
   if (error) throw new Error(error.message);
   return (data || []).map(_linhaSupabaseParaHorario);
 }
@@ -86,7 +100,12 @@ async function atualizarHorarioFuncionamentoNoSupabase(diaSemana, { ativo, horaA
     opening_time: ativo ? horaAbertura || null : null,
     closing_time: ativo ? horaFechamento || null : null,
   };
-  const { data, error } = await supabaseClient.from('business_hours').update(linha).eq('day_of_week', diaSemana).select().single();
+  const { data, error } = await supabaseClient
+    .from('business_hours')
+    .update(linha)
+    .eq('day_of_week', diaSemana)
+    .select(BUSINESS_HOURS_COLUNAS_PUBLICAS)
+    .single();
   if (error) throw new Error(error.message);
   return _linhaSupabaseParaHorario(data);
 }
