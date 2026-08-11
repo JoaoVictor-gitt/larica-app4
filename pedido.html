@@ -201,9 +201,24 @@
         </div>
       </div>
 
+      <div class="card" id="cartao-calculo-entrega">
+        <button type="button" class="btn btn-primario" id="botao-calcular-entrega" style="width:100%;">Calcular entrega</button>
+        <span class="campo-erro" id="erro-calculo-entrega"></span>
+
+        <div id="resultado-calculo-entrega" style="display:none; margin-top:16px;">
+          <div class="linha-resumo"><span>Distância de entrega</span><span id="entrega-distancia-valor">—</span></div>
+          <div class="linha-resumo"><span>Taxa de entrega</span><span id="entrega-taxa-valor">—</span></div>
+          <p class="aviso-info" id="entrega-tempo-estimado" style="display:none;"></p>
+        </div>
+
+        <p style="font-size:12px; color:var(--cor-texto-secundario); margin-top:12px; margin-bottom:0;">
+          A distância é estimada com base em rota de bicicleta.
+        </p>
+      </div>
+
       <div class="etapa-pedido-acoes">
         <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-entrega">Continuar para pagamento</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-entrega" disabled>Continuar para pagamento</button>
       </div>
     </section>
 

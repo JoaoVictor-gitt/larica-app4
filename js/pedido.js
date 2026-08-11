@@ -61,6 +61,9 @@ function estadoPedidoInicial() {
     cliente: { nome: '', telefone: '' },
     retirada: { modo: '', horario: null }, // modo: 'asap' | 'horario'
     endereco: { eircode: '', linha1: '', linha2: '', area: '', distrito: '', instrucoes: '' },
+    // { distanciaKm, taxa, modoViagem, duracaoTexto, enderecoCotado: {eircode,linha1,linha2,area} } — null até calcular
+    // (ou depois que o endereço mudar) — ver calcularEntrega()/cotacaoEntregaValida() em js/pedido.js
+    cotacaoEntrega: null,
     formaPagamento: '',
     dinheiro: null, // { precisaTroco, valorPago, troco } — só quando formaPagamento === 'dinheiro'
   };
@@ -138,6 +141,8 @@ function preencherCamposComEstado() {
   document.getElementById('entrega-area').value = estadoPedido.endereco.area || '';
   document.getElementById('entrega-distrito').value = estadoPedido.endereco.distrito || '';
   document.getElementById('entrega-instrucoes').value = estadoPedido.endereco.instrucoes || '';
+  exibirResultadoCalculoEntrega(); // só mostra algo se cotacaoEntrega existir e ainda bater com os campos restaurados acima
+  atualizarEstadoBotaoContinuarEntrega();
 
   if (estadoPedido.fulfilment) {
     document.querySelectorAll('.opcoes-recebimento .opcao-pagamento[data-fulfilment]').forEach((botao) => {
@@ -910,9 +915,15 @@ function ligarEventosDadosEntrega() {
     const posicaoCursorNoFim = campoEircode.selectionStart === campoEircode.value.length;
     campoEircode.value = formatarEircode(campoEircode.value);
     if (posicaoCursorNoFim) campoEircode.setSelectionRange(campoEircode.value.length, campoEircode.value.length);
+    invalidarCotacaoEntrega();
+  });
+  ['entrega-linha1', 'entrega-linha2', 'entrega-area'].forEach((id) => {
+    document.getElementById(id).addEventListener('input', invalidarCotacaoEntrega);
   });
 
   ligarFormatacaoTelefone('entrega-telefone');
+
+  document.getElementById('botao-calcular-entrega').addEventListener('click', calcularEntrega);
 
   document.getElementById('botao-continuar-entrega').addEventListener('click', () => {
     const nome = document.getElementById('entrega-nome').value.trim();
@@ -931,11 +942,129 @@ function ligarEventosDadosEntrega() {
     valido = exibirErroCampo('erro-entrega-linha1', linha1 ? '' : 'Informe o endereço.') && valido;
     if (!valido) return;
 
+    if (!cotacaoEntregaValida()) {
+      mostrarToast('Calcule a taxa de entrega antes de continuar.', 'erro');
+      return;
+    }
+
     estadoPedido.cliente = { nome, telefone };
     estadoPedido.endereco = { eircode, linha1, linha2, area, distrito, instrucoes };
     salvarProgressoPedido();
     irParaEtapaPedido('pagamento');
   });
+}
+
+/** Endereço atualmente digitado nos campos usados pela Edge Function calculate-delivery (não confia em estadoPedido.endereco, que só é gravado ao clicar Continuar) */
+function enderecoEntregaDoFormulario() {
+  return {
+    eircode: document.getElementById('entrega-eircode').value.trim(),
+    linha1: document.getElementById('entrega-linha1').value.trim(),
+    linha2: document.getElementById('entrega-linha2').value.trim(),
+    area: document.getElementById('entrega-area').value.trim(),
+  };
+}
+
+/** A cotação só é válida se existir E o endereço não tiver mudado desde que foi calculada */
+function cotacaoEntregaValida() {
+  const cotacao = estadoPedido.cotacaoEntrega;
+  if (!cotacao) return false;
+  const atual = enderecoEntregaDoFormulario();
+  const cotado = cotacao.enderecoCotado || {};
+  return atual.eircode === cotado.eircode && atual.linha1 === cotado.linha1 && atual.linha2 === cotado.linha2 && atual.area === cotado.area;
+}
+
+/** Zera a cotação (endereço mudou) — obriga o cliente a clicar em "Calcular entrega" de novo antes de continuar */
+function invalidarCotacaoEntrega() {
+  if (!estadoPedido.cotacaoEntrega) return;
+  estadoPedido.cotacaoEntrega = null;
+  document.getElementById('resultado-calculo-entrega').style.display = 'none';
+  document.getElementById('erro-calculo-entrega').textContent = '';
+  atualizarEstadoBotaoContinuarEntrega();
+  salvarProgressoPedido();
+}
+
+function atualizarEstadoBotaoContinuarEntrega() {
+  document.getElementById('botao-continuar-entrega').disabled = !cotacaoEntregaValida();
+}
+
+/** Mostra distância/taxa/tempo estimado calculados — ou esconde o bloco se não houver cotação válida */
+function exibirResultadoCalculoEntrega() {
+  const cotacao = estadoPedido.cotacaoEntrega;
+  const resultado = document.getElementById('resultado-calculo-entrega');
+  if (!cotacao) {
+    resultado.style.display = 'none';
+    return;
+  }
+
+  const moeda = obterConfiguracoes().moeda;
+  document.getElementById('entrega-distancia-valor').textContent = `${Number(cotacao.distanciaKm).toFixed(2).replace('.', ',')} km`;
+  document.getElementById('entrega-taxa-valor').textContent = formatarMoeda(cotacao.taxa, moeda);
+
+  const tempoEl = document.getElementById('entrega-tempo-estimado');
+  const textoTempo = formatarDuracaoBicicleta(cotacao.duracaoTexto);
+  tempoEl.textContent = textoTempo;
+  tempoEl.style.display = textoTempo ? '' : 'none';
+
+  resultado.style.display = '';
+}
+
+/**
+ * Chama a Edge Function calculate-delivery (rota de bicicleta, origem fixa
+ * configurada no próprio Supabase) pelo cliente já existente — nunca cria
+ * outro client nem expõe chave do Google. Sem fallback: se falhar, não
+ * assume nenhuma taxa, só mostra o erro e mantém a cotação zerada.
+ */
+async function calcularEntrega() {
+  const { eircode, linha1, linha2, area } = enderecoEntregaDoFormulario();
+
+  let valido = true;
+  valido = exibirErroCampo('erro-entrega-eircode', validarFormatoEircode(eircode) ? '' : 'Informe um Eircode válido.') && valido;
+  valido = exibirErroCampo('erro-entrega-linha1', linha1 ? '' : 'Informe o endereço.') && valido;
+  if (!valido) return;
+
+  const botao = document.getElementById('botao-calcular-entrega');
+  const rotuloOriginal = botao.textContent;
+  const erroCalculo = document.getElementById('erro-calculo-entrega');
+
+  estadoPedido.cotacaoEntrega = null;
+  document.getElementById('resultado-calculo-entrega').style.display = 'none';
+  erroCalculo.textContent = '';
+  atualizarEstadoBotaoContinuarEntrega();
+
+  botao.disabled = true;
+  botao.textContent = 'Calculando entrega...';
+
+  try {
+    const { data, error } = await supabaseClient.functions.invoke('calculate-delivery', {
+      body: { eircode, address_line_1: linha1, address_line_2: linha2, area },
+    });
+    console.log('[Delivery] resposta:', data);
+
+    if (error) {
+      console.error('[Delivery] erro:', error);
+      throw new Error('Não foi possível calcular a entrega para este endereço.');
+    }
+    if (!data || data.success !== true || typeof data.delivery_fee !== 'number' || typeof data.distance_km !== 'number') {
+      throw new Error((data && data.error) || 'Não foi possível calcular a entrega para este endereço.');
+    }
+
+    estadoPedido.cotacaoEntrega = {
+      distanciaKm: data.distance_km,
+      taxa: data.delivery_fee,
+      modoViagem: data.travel_mode || 'BICYCLE',
+      duracaoTexto: data.duration || '',
+      enderecoCotado: { eircode, linha1, linha2, area },
+    };
+    salvarProgressoPedido();
+    exibirResultadoCalculoEntrega();
+  } catch (erro) {
+    console.error('[Delivery] erro:', erro);
+    erroCalculo.textContent = erro && erro.message ? erro.message : 'Não foi possível calcular a entrega para este endereço.';
+  } finally {
+    botao.disabled = false;
+    botao.textContent = rotuloOriginal;
+    atualizarEstadoBotaoContinuarEntrega();
+  }
 }
 
 /**
@@ -1051,8 +1180,20 @@ function calcularTotaisPedidoAtual() {
   const carrinho = obterCarrinho();
   const config = obterConfiguracoes();
   const subtotal = calcularSubtotalCarrinho(carrinho);
-  const taxaEntrega = estadoPedido.fulfilment === 'entrega' ? Number(config.taxaEntrega) || 0 : 0;
+  const taxaEntrega = taxaEntregaAtual();
   return { subtotal, taxaEntrega, total: subtotal + taxaEntrega, moeda: config.moeda };
+}
+
+/** Taxa de entrega vinda da cotação real (Edge Function calculate-delivery) — 0 pra Retirada ou se não houver cotação válida. Nunca usa valor fixo/manual. */
+function taxaEntregaAtual() {
+  if (estadoPedido.fulfilment !== 'entrega' || !estadoPedido.cotacaoEntrega) return 0;
+  return Number(estadoPedido.cotacaoEntrega.taxa) || 0;
+}
+
+/** Distância (km) da cotação real, ou null se não houver — vai no payload só como dado informativo (ver item 13/14 do pedido do usuário) */
+function distanciaEntregaAtual() {
+  if (estadoPedido.fulfilment !== 'entrega' || !estadoPedido.cotacaoEntrega) return null;
+  return Number(estadoPedido.cotacaoEntrega.distanciaKm);
 }
 
 /** Recalcula o troco a partir do campo "Troco para quanto?", validando contra o total atual do pedido */
@@ -1126,7 +1267,7 @@ function renderizarRevisao() {
   const carrinho = obterCarrinho();
   const config = obterConfiguracoes();
   const subtotal = calcularSubtotalCarrinho(carrinho);
-  const taxaEntrega = estadoPedido.fulfilment === 'entrega' ? Number(config.taxaEntrega) || 0 : 0;
+  const taxaEntrega = taxaEntregaAtual();
   const total = subtotal + taxaEntrega;
 
   const linhasItens = carrinho
@@ -1210,9 +1351,16 @@ async function confirmarPedido() {
       return;
     }
 
+    // Reconfere contra os campos atuais (não só o que foi salvo ao sair da etapa de entrega) —
+    // mesma lógica de "nunca confiar em cotação potencialmente obsoleta" do item 8/12 do pedido.
+    if (estadoPedido.fulfilment === 'entrega' && !cotacaoEntregaValida()) {
+      mostrarToast('Calcule a taxa de entrega antes de continuar.', 'erro');
+      return;
+    }
+
     const config = obterConfiguracoes();
     const subtotal = calcularSubtotalCarrinho(carrinho);
-    const taxaEntrega = estadoPedido.fulfilment === 'entrega' ? Number(config.taxaEntrega) || 0 : 0;
+    const taxaEntrega = taxaEntregaAtual();
     const total = subtotal + taxaEntrega;
 
     // Última checagem contra o total atual antes de gastar uma chamada à RPC — o carrinho pode ter
@@ -1260,6 +1408,7 @@ async function confirmarPedido() {
       cliente: { ...estadoPedido.cliente },
       retirada: estadoPedido.fulfilment === 'retirada' ? { ...estadoPedido.retirada } : null,
       endereco: estadoPedido.fulfilment === 'entrega' ? { ...estadoPedido.endereco } : null,
+      distanciaEntregaKm: distanciaEntregaAtual(),
       formaPagamento: estadoPedido.formaPagamento,
       pagamentoDinheiro: estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro ? { ...estadoPedido.dinheiro } : null,
       subtotal,
@@ -1319,6 +1468,9 @@ function reiniciarPedido() {
   atualizarVisibilidadeSecaoTroco();
   document.getElementById('botao-continuar-recebimento').disabled = true;
   document.getElementById('botao-continuar-pagamento').disabled = true;
+  document.getElementById('botao-continuar-entrega').disabled = false;
+  document.getElementById('resultado-calculo-entrega').style.display = 'none';
+  document.getElementById('erro-calculo-entrega').textContent = '';
   ['erro-retirada-nome', 'erro-retirada-telefone', 'erro-horario-retirada', 'erro-entrega-nome', 'erro-entrega-telefone', 'erro-entrega-eircode', 'erro-entrega-linha1'].forEach(
     (id) => (document.getElementById(id).textContent = '')
   );

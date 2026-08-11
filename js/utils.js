@@ -260,6 +260,14 @@ const ROTULOS_FORMA_PAGAMENTO = { cartao: 'Cartão', dinheiro: 'Dinheiro', revol
 /** Rótulos pt-BR pros movement_type de stock_movements (tela Estoque > Movimentações recentes) */
 const ROTULOS_TIPO_MOVIMENTACAO_ESTOQUE = { sale: 'Venda', manual_addition: 'Entrada', manual_removal: 'Saída' };
 
+/** Converte a duração da Edge Function calculate-delivery (ex.: "532s") num texto amigável em minutos, ou '' se inválida */
+function formatarDuracaoBicicleta(duracaoTexto) {
+  const segundos = parseInt(String(duracaoTexto || '').replace(/[^0-9]/g, ''), 10);
+  if (!segundos || isNaN(segundos)) return '';
+  const minutos = Math.max(1, Math.round(segundos / 60));
+  return `Tempo estimado de bicicleta: aproximadamente ${minutos} min`;
+}
+
 /** Troco = valorPago - total, arredondado a 2 casas; null se valorPago inválido ou menor que o total (nunca negativo) */
 function calcularTroco(valorPago, total) {
   if (typeof valorPago !== 'number' || isNaN(valorPago) || valorPago < total) return null;
