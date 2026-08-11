@@ -88,6 +88,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   atualizarBarraCarrinhoFixa();
   mostrarEtapaAtual();
   ligarEventosGerais();
+
+  // Rede de segurança pra qualquer promise rejeitada sem catch — diagnóstico temporário
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('[Checkout] unhandled rejection:', event.reason);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -987,7 +992,17 @@ function ligarEventosPagamento() {
   ligarEventosTroco();
 
   document.getElementById('botao-continuar-pagamento').addEventListener('click', () => {
-    if (!pagamentoEstaCompleto()) return;
+    if (estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro && estadoPedido.dinheiro.precisaTroco) {
+      recalcularTroco(); // o total pode ter mudado (ex.: cliente voltou pro carrinho) desde a última digitação
+    }
+    if (!pagamentoEstaCompleto()) {
+      const mensagem =
+        estadoPedido.dinheiro && estadoPedido.dinheiro.precisaTroco
+          ? 'O valor informado para troco deve ser igual ou superior ao total do pedido.'
+          : 'Escolha uma forma de pagamento para continuar.';
+      mostrarToast(mensagem, 'erro');
+      return;
+    }
     renderizarRevisao();
     irParaEtapaPedido('revisao');
   });
@@ -1065,15 +1080,15 @@ function recalcularTroco() {
 
   estadoPedido.dinheiro.valorPago = valorPago;
 
-  if (valorPago < total) {
+  const troco = calcularTroco(valorPago, total);
+  if (troco === null) {
     estadoPedido.dinheiro.troco = null;
-    erro.textContent = 'O valor para troco deve ser igual ou superior ao total do pedido.';
+    erro.textContent = 'O valor informado para troco deve ser igual ou superior ao total do pedido.';
     estimado.style.display = 'none';
     return;
   }
 
   erro.textContent = '';
-  const troco = Math.round((valorPago - total) * 100) / 100;
   estadoPedido.dinheiro.troco = troco;
   estimado.textContent = `Troco estimado: ${formatarMoeda(troco, moeda)}`;
   estimado.style.display = '';
@@ -1100,10 +1115,15 @@ function blocoPagamentoRevisaoHtml(moeda) {
   if (estadoPedido.formaPagamento !== 'dinheiro') return rotulo;
 
   const d = estadoPedido.dinheiro;
+  if (d && d.precisaTroco) {
+    // Recalcula contra o total atual em vez de confiar no que já estava salvo — o carrinho pode ter mudado
+    // desde que o cliente informou o valor pago, e a Revisão nunca deve mostrar um troco obsoleto.
+    d.troco = calcularTroco(d.valorPago, calcularTotaisPedidoAtual().total);
+  }
   const blocoTroco =
     d && d.precisaTroco
       ? `<p>Troco para: ${formatarMoeda(d.valorPago, moeda)}<br/>Troco necessário: ${formatarMoeda(d.troco, moeda)}</p>`
-      : '<p>Troco: Não necessário</p>';
+      : '<p>Sem troco</p>';
   return rotulo + blocoTroco;
 }
 
@@ -1138,7 +1158,7 @@ function renderizarRevisao() {
       : `
       <div class="resumo-revisao-secao">
         <div class="resumo-revisao-titulo">Retirada</div>
-        <p>Horário: ${escaparHtml(estadoPedido.retirada.horario)}</p>
+        <p>Horário: ${escaparHtml(rotuloHorarioRetirada(estadoPedido))}</p>
       </div>`;
 
   document.getElementById('conteudo-revisao').innerHTML = `
@@ -1179,66 +1199,99 @@ async function criarPedido(pedido, itensPedido) {
 }
 
 async function confirmarPedido() {
-  const carrinho = obterCarrinho();
-  if (carrinho.length === 0 || !estadoPedido.fulfilment || !pagamentoEstaCompleto()) return;
-
+  console.log('[Checkout] botão confirmar clicado'); // diagnóstico temporário
   const botaoConfirmar = document.getElementById('botao-confirmar-pedido');
-  botaoConfirmar.disabled = true; // evita duplo clique / pedido duplicado enquanto a requisição está em andamento
+  const rotuloOriginalBotao = botaoConfirmar.textContent;
 
-  const config = obterConfiguracoes();
-  const subtotal = calcularSubtotalCarrinho(carrinho);
-  const taxaEntrega = estadoPedido.fulfilment === 'entrega' ? Number(config.taxaEntrega) || 0 : 0;
-  const total = subtotal + taxaEntrega;
+  // Todo o fluxo (validação, montagem do payload e chamada à RPC) fica dentro deste try —
+  // qualquer exceção, esperada ou não, cai no catch em vez de morrer em silêncio.
+  try {
+    console.log('[Checkout] iniciando confirmação'); // diagnóstico temporário
 
-  const itensPedido = carrinho.map((item) => {
-    if (item.combo) {
+    const carrinho = obterCarrinho();
+    if (carrinho.length === 0) {
+      mostrarToast('Seu carrinho está vazio.', 'erro');
+      return;
+    }
+    if (!estadoPedido.fulfilment) {
+      mostrarToast('Escolha retirada ou entrega para continuar.', 'erro');
+      return;
+    }
+
+    const config = obterConfiguracoes();
+    const subtotal = calcularSubtotalCarrinho(carrinho);
+    const taxaEntrega = estadoPedido.fulfilment === 'entrega' ? Number(config.taxaEntrega) || 0 : 0;
+    const total = subtotal + taxaEntrega;
+
+    // Última checagem contra o total atual antes de gastar uma chamada à RPC — o carrinho pode ter
+    // mudado desde que o valor pago foi informado (ex.: cliente voltou e editou o pedido).
+    if (estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro && estadoPedido.dinheiro.precisaTroco) {
+      estadoPedido.dinheiro.troco = calcularTroco(estadoPedido.dinheiro.valorPago, total);
+      if (estadoPedido.dinheiro.troco === null) {
+        mostrarToast('O valor informado para troco deve ser igual ou superior ao total do pedido.', 'erro');
+        return;
+      }
+    }
+
+    if (!pagamentoEstaCompleto()) {
+      mostrarToast('Verifique a forma de pagamento antes de confirmar.', 'erro');
+      return;
+    }
+
+    botaoConfirmar.disabled = true; // evita duplo clique / pedido duplicado enquanto a requisição está em andamento
+    botaoConfirmar.textContent = 'Enviando pedido...';
+
+    const itensPedido = carrinho.map((item) => {
+      if (item.combo) {
+        return {
+          produtoId: item.produtoId,
+          nome: item.combo.nome,
+          quantidade: item.quantidade,
+          valorUnitario: item.precoUnitario,
+          valorTotal: item.precoUnitario * item.quantidade,
+          combo: item.combo,
+        };
+      }
+      const produto = obterProdutoPorId(item.produtoId);
       return {
         produtoId: item.produtoId,
-        nome: item.combo.nome,
+        nome: produto ? produto.nome : '(produto removido)',
         quantidade: item.quantidade,
         valorUnitario: item.precoUnitario,
         valorTotal: item.precoUnitario * item.quantidade,
-        combo: item.combo,
       };
-    }
-    const produto = obterProdutoPorId(item.produtoId);
-    return {
-      produtoId: item.produtoId,
-      nome: produto ? produto.nome : '(produto removido)',
-      quantidade: item.quantidade,
-      valorUnitario: item.precoUnitario,
-      valorTotal: item.precoUnitario * item.quantidade,
+    });
+
+    const pedido = {
+      itens: itensPedido,
+      fulfilment: estadoPedido.fulfilment,
+      cliente: { ...estadoPedido.cliente },
+      retirada: estadoPedido.fulfilment === 'retirada' ? { ...estadoPedido.retirada } : null,
+      endereco: estadoPedido.fulfilment === 'entrega' ? { ...estadoPedido.endereco } : null,
+      formaPagamento: estadoPedido.formaPagamento,
+      pagamentoDinheiro: estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro ? { ...estadoPedido.dinheiro } : null,
+      subtotal,
+      taxaEntrega,
+      total,
     };
-  });
 
-  const pedido = {
-    itens: itensPedido,
-    fulfilment: estadoPedido.fulfilment,
-    cliente: { ...estadoPedido.cliente },
-    retirada: estadoPedido.fulfilment === 'retirada' ? { ...estadoPedido.retirada } : null,
-    endereco: estadoPedido.fulfilment === 'entrega' ? { ...estadoPedido.endereco } : null,
-    formaPagamento: estadoPedido.formaPagamento,
-    pagamentoDinheiro: estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro ? { ...estadoPedido.dinheiro } : null,
-    subtotal,
-    taxaEntrega,
-    total,
-  };
-
-  try {
     ultimoPedidoConfirmado = await criarPedido(pedido, itensPedido);
-  } catch (erro) {
-    mostrarToast('Não foi possível enviar o pedido. ' + erro.message, 'erro');
-    botaoConfirmar.disabled = false;
-    return; // permanece na etapa de revisão, carrinho intacto — pode tentar de novo
-  }
 
-  limparCarrinho(); // só depois de confirmado o sucesso no Supabase
-  atualizarContadorCarrinho();
-  renderizarConfirmacao(ultimoPedidoConfirmado, config.moeda);
-  irParaEtapaPedido('confirmacao');
-  localStorage.removeItem(CHAVE_PEDIDO_EM_ANDAMENTO); // etapa de confirmação nunca deve ser restaurada num refresh
-  mostrarToast('Pedido confirmado!', 'sucesso');
-  botaoConfirmar.disabled = false;
+    limparCarrinho(); // só depois de confirmado o sucesso no Supabase
+    atualizarContadorCarrinho();
+    renderizarConfirmacao(ultimoPedidoConfirmado, config.moeda);
+    irParaEtapaPedido('confirmacao');
+    localStorage.removeItem(CHAVE_PEDIDO_EM_ANDAMENTO); // etapa de confirmação nunca deve ser restaurada num refresh
+    mostrarToast('Pedido confirmado!', 'sucesso');
+    botaoConfirmar.disabled = false;
+    botaoConfirmar.textContent = rotuloOriginalBotao;
+  } catch (erro) {
+    console.error('[Checkout] erro ao confirmar pedido:', erro); // diagnóstico temporário
+    mostrarToast(erro && erro.message ? erro.message : 'Não foi possível finalizar o pedido.', 'erro');
+    botaoConfirmar.disabled = false;
+    botaoConfirmar.textContent = rotuloOriginalBotao;
+    // permanece na etapa de revisão, carrinho e dados intactos — pode corrigir e tentar de novo
+  }
 }
 
 function renderizarConfirmacao(pedido, moeda) {

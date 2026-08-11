@@ -257,6 +257,12 @@ const ROTULOS_STATUS_PEDIDO = {
 
 const ROTULOS_FORMA_PAGAMENTO = { cartao: 'Cartão', dinheiro: 'Dinheiro', revolut: 'Revolut' };
 
+/** Troco = valorPago - total, arredondado a 2 casas; null se valorPago inválido ou menor que o total (nunca negativo) */
+function calcularTroco(valorPago, total) {
+  if (typeof valorPago !== 'number' || isNaN(valorPago) || valorPago < total) return null;
+  return Math.round((valorPago - total) * 100) / 100;
+}
+
 /** Limites (em minutos) usados pro indicador de demora dos pedidos — centralizados aqui, fácil de reconfigurar depois */
 const LIMITES_ALERTA_DEMORA_PEDIDO = { atencaoMin: 15, atrasadoMin: 25 };
 
