@@ -17,8 +17,8 @@ const ENUM_PARA_FULFILMENT = { collection: 'retirada', delivery: 'entrega' };
 const PAGAMENTO_PARA_ENUM = { cartao: 'card', dinheiro: 'cash', revolut: 'revolut' };
 const ENUM_PARA_PAGAMENTO = { card: 'cartao', cash: 'dinheiro', revolut: 'revolut' };
 
-const STATUS_PARA_ENUM = { solicitado: 'requested', em_preparo: 'preparing', pronto: 'ready', finalizado: 'completed' };
-const ENUM_PARA_STATUS = { requested: 'solicitado', preparing: 'em_preparo', ready: 'pronto', completed: 'finalizado' };
+const STATUS_PARA_ENUM = { solicitado: 'requested', em_preparo: 'preparing', pronto: 'ready', finalizado: 'completed', cancelado: 'cancelled' };
+const ENUM_PARA_STATUS = { requested: 'solicitado', preparing: 'em_preparo', ready: 'pronto', completed: 'finalizado', cancelled: 'cancelado' };
 
 /** Reconstrói o "pedido" no formato de sempre a partir de uma linha de `orders` (com order_items/order_item_selections embutidos) */
 function _linhaSupabaseParaPedido(o) {
@@ -31,6 +31,8 @@ function _linhaSupabaseParaPedido(o) {
     aceitoEm: o.accepted_at,
     prontoEm: o.ready_at,
     finalizadoEm: o.completed_at,
+    canceladoEm: o.cancelled_at,
+    motivoCancelamento: o.cancel_reason,
     cliente: { nome: o.customer_name, telefone: o.customer_phone },
     fulfilment: ENUM_PARA_FULFILMENT[o.fulfilment_type] || o.fulfilment_type,
     // pickup_time (coluna `time` do Supabase) vem como "HH:MM:SS" — cortamos os segundos.
@@ -230,6 +232,17 @@ async function updateOrderStatusNoSupabase(id, novoStatusPt) {
   return _linhaSupabaseParaPedido(data);
 }
 
+/**
+ * Cancela um pedido (Solicitado/Em Preparo) via RPC cancel_order — RPC própria, separada de
+ * update_order_status. Toda a lógica de estorno de estoque roda no banco; aqui só chama e mapeia
+ * o retorno, nunca calcula nem devolve estoque no frontend.
+ */
+async function cancelOrderNoSupabase(id, motivo) {
+  const { data, error } = await supabaseClient.rpc('cancel_order', { p_order_id: id, p_reason: motivo });
+  if (error) throw new Error(error.message);
+  return _linhaSupabaseParaPedido(data);
+}
+
 async function deleteOrderNoSupabase(id) {
   const { error } = await supabaseClient.from('orders').delete().eq('id', id);
   if (error) throw new Error(error.message);
@@ -269,7 +282,7 @@ function unsubscribeFromOrders(canal) {
 async function getOrdersForReport({ desdeUtc, ateUtc } = {}) {
   let consulta = supabaseClient
     .from('orders')
-    .select('id, order_number, created_at, status, fulfilment_type, payment_method, subtotal, delivery_fee, total')
+    .select('id, order_number, created_at, cancelled_at, status, fulfilment_type, payment_method, subtotal, delivery_fee, total')
     .order('created_at', { ascending: true });
   if (desdeUtc) consulta = consulta.gte('created_at', desdeUtc);
   if (ateUtc) consulta = consulta.lt('created_at', ateUtc);
@@ -281,6 +294,7 @@ async function getOrdersForReport({ desdeUtc, ateUtc } = {}) {
     id: o.id,
     numero: '#LARICA-' + o.order_number,
     criadoEm: o.created_at,
+    canceladoEm: o.cancelled_at,
     status: ENUM_PARA_STATUS[o.status] || o.status,
     fulfilment: ENUM_PARA_FULFILMENT[o.fulfilment_type] || o.fulfilment_type,
     formaPagamento: ENUM_PARA_PAGAMENTO[o.payment_method] || o.payment_method,

@@ -23,35 +23,32 @@
       <h1>Histórico</h1>
     </div>
 
-    <!-- Pedidos finalizados (área Fazer Pedido) — separado da tabela de vendas/estoque abaixo -->
+    <!-- Pedidos finalizados/cancelados (área Fazer Pedido) — separado da tabela de vendas/estoque abaixo -->
     <section class="secao-pedidos-finalizados">
       <div class="pagina-titulo">
-        <h2>Pedidos finalizados</h2>
-        <div class="acoes-pedidos-finalizados">
+        <h2 id="titulo-secao-historico-pedidos">Pedidos finalizados</h2>
+        <div class="acoes-pedidos-finalizados" id="acoes-pedidos-finalizados-wrap">
           <button class="btn btn-secundario" id="botao-excluir-selecionados-historico" style="display:none;">Excluir selecionados</button>
           <button class="btn btn-secundario" id="botao-limpar-historico">Limpar histórico</button>
         </div>
       </div>
 
+      <div class="filtro-categorias" id="abas-historico-pedidos">
+        <button type="button" class="filtro-categoria-botao ativo" data-aba-historico="finalizado">Finalizados</button>
+        <button type="button" class="filtro-categoria-botao" data-aba-historico="cancelado">Cancelados</button>
+      </div>
+      <p class="aviso-info" id="aviso-historico-cancelados" style="display:none;">
+        Pedidos cancelados aparecem aqui só para consulta/auditoria — o valor não é contado como faturamento (já excluído do Dashboard) e não podem ser excluídos por aqui.
+      </p>
+
       <div class="card tabela-pedidos-finalizados-wrap">
         <table class="tabela">
-          <thead>
-            <tr>
-              <th><input type="checkbox" id="checkbox-selecionar-todos-historico" aria-label="Selecionar todos" /></th>
-              <th>Pedido</th>
-              <th>Data</th>
-              <th>Total</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
+          <thead id="cabecalho-tabela-historico"></thead>
           <tbody id="corpo-tabela-pedidos-finalizados"></tbody>
         </table>
         <div class="estado-vazio" id="estado-carregando-pedidos-finalizados">Carregando pedidos...</div>
         <div class="estado-vazio" id="estado-erro-pedidos-finalizados" style="display:none;"></div>
-        <div class="estado-vazio" id="estado-vazio-pedidos-finalizados" style="display:none;">
-          Nenhum pedido finalizado ainda.
-        </div>
+        <div class="estado-vazio" id="estado-vazio-pedidos-finalizados" style="display:none;"></div>
       </div>
     </section>
   </main>
@@ -85,6 +82,7 @@
         <button type="button" class="btn btn-secundario" id="botao-fechar-modal-detalhe-historico-rodape">Fechar</button>
         <button type="button" class="btn btn-perigo" id="botao-excluir-pedido-detalhe-historico">Excluir pedido</button>
       </div>
+      <!-- botao-excluir-pedido-detalhe-historico fica display:none via JS quando o pedido exibido é cancelado (não pode ser excluído) -->
     </div>
   </div>
 

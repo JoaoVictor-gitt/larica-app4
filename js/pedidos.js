@@ -13,6 +13,14 @@ let termoBuscaPedidos = '';
 let canalPedidosRealtime = null;
 let timeoutRecarregarPedidosRealtime = null;
 
+// Som de pedido novo (Fase 6) — preferência local do dispositivo, nunca vai pra business_settings.
+const CHAVE_SOM_PEDIDOS_ATIVO = 'caju_som_pedidos_ativo';
+let idsPedidosVistos = null; // Set — populado no 1º carregamento bem-sucedido, sem tocar som nesse load
+let audioContextPedidos = null;
+
+// Cancelamento de pedido (Fase 7) — id do pedido atualmente aberto no modal de cancelamento
+let pedidoCancelamentoId = null;
+
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
@@ -23,6 +31,8 @@ async function init() {
 
   try {
     await carregarPedidosClientesCache();
+    // Marca tudo que já existe na primeira carga como "visto" — nunca toca som pros pedidos que já estavam lá ao abrir a página.
+    idsPedidosVistos = new Set(obterPedidosClientes().map((p) => p.id));
     sucesso = true;
   } catch (erroCarregamento) {
     console.error('Erro ao carregar pedidos:', erroCarregamento);
@@ -39,6 +49,8 @@ async function init() {
   renderizarQuadroPedidos();
   ligarEventosFiltrosPedidos();
   ligarEventosModalPedido();
+  ligarEventosModalCancelamento();
+  ligarEventosSomPedidos();
   // Atualiza "há X min" e o alerta de demora sozinho enquanto a página estiver aberta (não busca dado novo, só redesenha o cache atual)
   setInterval(renderizarQuadroPedidos, 30000);
 
@@ -62,10 +74,87 @@ function iniciarRealtimePedidos() {
 async function reloadOrders() {
   try {
     await carregarPedidosClientesCache();
+    detectarPedidosNovos();
     renderizarQuadroPedidos();
   } catch (erro) {
     console.error('Erro ao recarregar pedidos (realtime):', erro);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Som de pedido novo
+// ---------------------------------------------------------------------------
+
+function somPedidosAtivo() {
+  return localStorage.getItem(CHAVE_SOM_PEDIDOS_ATIVO) !== 'nao'; // ligado por padrão
+}
+
+function definirSomPedidosAtivo(ativo) {
+  localStorage.setItem(CHAVE_SOM_PEDIDOS_ATIVO, ativo ? 'sim' : 'nao');
+}
+
+function ligarEventosSomPedidos() {
+  const campo = document.getElementById('campo-som-pedidos');
+  campo.checked = somPedidosAtivo();
+  campo.addEventListener('change', () => {
+    definirSomPedidosAtivo(campo.checked);
+    obterAudioContextPedidos(); // já é uma interação do usuário — aproveita pra desbloquear o autoplay
+  });
+
+  // Qualquer clique na página conta como interação do usuário pro autoplay — desbloqueia
+  // o AudioContext o quanto antes, sem esperar o primeiro pedido novo realmente chegar.
+  document.addEventListener('click', obterAudioContextPedidos, { once: true });
+}
+
+/** Cria/retoma o AudioContext. Só funciona de verdade após alguma interação do usuário na página (regra do navegador) — silencioso se falhar/indisponível. */
+function obterAudioContextPedidos() {
+  try {
+    if (!audioContextPedidos) {
+      const AudioContextClasse = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClasse) return null;
+      audioContextPedidos = new AudioContextClasse();
+    }
+    if (audioContextPedidos.state === 'suspended') audioContextPedidos.resume().catch(() => {});
+    return audioContextPedidos;
+  } catch (erro) {
+    return null;
+  }
+}
+
+/** Beep curto via Web Audio API (sem arquivo/biblioteca externa). Nunca lança — autoplay bloqueado é ignorado silenciosamente. */
+function tocarSomNovoPedido() {
+  if (!somPedidosAtivo()) return;
+  try {
+    const ctx = obterAudioContextPedidos();
+    if (!ctx) return;
+
+    const osc = ctx.createOscillator();
+    const ganho = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    ganho.gain.setValueAtTime(0.0001, ctx.currentTime);
+    ganho.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+    ganho.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+    osc.connect(ganho);
+    ganho.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+  } catch (erro) {
+    // Som é só um extra — autoplay bloqueado ou API indisponível nunca deve quebrar a tela.
+  }
+}
+
+/** Compara os pedidos atuais com idsPedidosVistos — qualquer id que apareceu de novo toca o som e entra no set. */
+function detectarPedidosNovos() {
+  if (!idsPedidosVistos) return;
+  let temPedidoNovo = false;
+  obterPedidosClientes().forEach((p) => {
+    if (!idsPedidosVistos.has(p.id)) {
+      idsPedidosVistos.add(p.id);
+      temPedidoNovo = true;
+    }
+  });
+  if (temPedidoNovo) tocarSomNovoPedido();
 }
 
 window.addEventListener('beforeunload', () => {
@@ -135,27 +224,42 @@ function renderizarColunaKanban(status, pedidosDaColuna) {
     botao.addEventListener('click', () => abrirModalDetalhesPedido(botao.dataset.id));
   });
   lista.querySelectorAll('[data-acao="aceitar"]').forEach((botao) => {
-    botao.addEventListener('click', () => executarAcaoPedido(botao.dataset.id, aceitarPedido, 'Pedido aceito — em preparo.'));
+    botao.addEventListener('click', () => executarAcaoPedido(botao, aceitarPedido, 'Pedido aceito — em preparo.'));
   });
   lista.querySelectorAll('[data-acao="pronto"]').forEach((botao) => {
-    botao.addEventListener('click', () => executarAcaoPedido(botao.dataset.id, marcarPedidoComoPronto, 'Pedido marcado como pronto.'));
+    botao.addEventListener('click', () => executarAcaoPedido(botao, marcarPedidoComoPronto, 'Pedido marcado como pronto.'));
   });
   lista.querySelectorAll('[data-acao="concluir"]').forEach((botao) => {
     botao.addEventListener('click', () => {
       if (!confirm('Confirmar que este pedido foi entregue/retirado?')) return;
-      executarAcaoPedido(botao.dataset.id, concluirPedido, 'Pedido finalizado.');
+      executarAcaoPedido(botao, concluirPedido, 'Pedido finalizado.');
     });
+  });
+  lista.querySelectorAll('[data-acao="cancelar"]').forEach((botao) => {
+    botao.addEventListener('click', () => abrirModalCancelamento(botao.dataset.id));
   });
 }
 
-/** Chama a transição de status (storage.js), mostra toast e redesenha o quadro — trata erro de transição inválida sem quebrar a tela */
-async function executarAcaoPedido(id, funcaoTransicao, mensagemSucesso) {
+/**
+ * Chama a transição de status (storage.js), mostra toast e redesenha o quadro — trata erro de
+ * transição inválida sem quebrar a tela. Desabilita o botão clicado enquanto a RPC está em
+ * andamento (evita clique duplo disparar 2 transições); no sucesso o quadro inteiro é redesenhado,
+ * então o botão antigo já some do DOM — só precisa reabilitar explicitamente no erro.
+ */
+async function executarAcaoPedido(botao, funcaoTransicao, mensagemSucesso) {
+  const id = botao.dataset.id;
+  const rotuloOriginal = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = 'Aguarde...';
+
   try {
     await funcaoTransicao(id);
     mostrarToast(mensagemSucesso, 'sucesso');
     renderizarQuadroPedidos();
   } catch (erro) {
     mostrarToast(erro.message || 'Não foi possível atualizar o pedido.', 'erro');
+    botao.disabled = false;
+    botao.textContent = rotuloOriginal;
   }
 }
 
@@ -184,6 +288,7 @@ function cardPedidoHtml(pedido) {
         <span>${tipoRotulo}</span>
       </div>
       <div class="card-pedido-cliente">${escaparHtml((pedido.cliente || {}).nome || '(sem nome)')}</div>
+      <div class="card-pedido-pagamento">${rotuloPagamentoCompacto(pedido)}</div>
       ${pedido.status === STATUS_PEDIDO.PRONTO ? blocoProntoParaHtml(pedido) : ''}
       <div class="card-pedido-rodape">
         <span>${totalItens} ${totalItens === 1 ? 'item' : 'itens'}</span>
@@ -193,7 +298,13 @@ function cardPedidoHtml(pedido) {
         <button type="button" class="btn btn-secundario" data-acao="ver" data-id="${pedido.id}">Ver pedido</button>
         ${botaoPrincipalPedidoHtml(pedido)}
       </div>
+      ${pedidoPodeSerCancelado(pedido) ? `<button type="button" class="link-cancelar-pedido" data-acao="cancelar" data-id="${pedido.id}">Cancelar pedido</button>` : ''}
     </div>`;
+}
+
+/** Cancelável só em Solicitado/Em Preparo — nunca Pronto/Finalizado/Cancelado (mesma regra da RPC cancel_order) */
+function pedidoPodeSerCancelado(pedido) {
+  return pedido.status === STATUS_PEDIDO.SOLICITADO || pedido.status === STATUS_PEDIDO.EM_PREPARO;
 }
 
 /** Timestamp relevante pro "há X min" mostrado no card, conforme o status atual */
@@ -242,13 +353,26 @@ function blocoProntoParaHtml(pedido) {
     </div>`;
 }
 
+/** true quando o pedido é pago em Dinheiro e precisa de troco — checagem única, reaproveitada no card e no bloco "Pronto para..." */
+function precisaDeTroco(pedido) {
+  return pedido.formaPagamento === 'dinheiro' && !!pedido.pagamentoDinheiro && !!pedido.pagamentoDinheiro.precisaTroco;
+}
+
+/** Rótulo curto de pagamento pro card do Kanban (ex.: "💳 Cartão", "💶 Dinheiro · Troco") — visível em qualquer status, não só Pronto */
+function rotuloPagamentoCompacto(pedido) {
+  const icones = { cartao: '💳', dinheiro: '💶', revolut: '🔵' };
+  const icone = icones[pedido.formaPagamento] || '';
+  const rotulo = ROTULOS_FORMA_PAGAMENTO[pedido.formaPagamento] || '';
+  return `${icone} ${rotulo}${precisaDeTroco(pedido) ? ' · Troco' : ''}`.trim();
+}
+
 /**
- * Linha de "troco necessário" pra pagamento em Dinheiro — reaproveitada no
+ * Linha de "troco necessário" (com o valor) pra pagamento em Dinheiro — reaproveitada no
  * bloco de destaque "Pronto para..." e no modal de detalhes do pedido.
  * Retorna '' quando não for dinheiro ou não precisar de troco.
  */
 function linhaTrocoNecessarioHtml(pedido) {
-  if (pedido.formaPagamento !== 'dinheiro' || !pedido.pagamentoDinheiro || !pedido.pagamentoDinheiro.precisaTroco) return '';
+  if (!precisaDeTroco(pedido)) return '';
   const moeda = obterConfiguracoes().moeda;
   return `<span class="destaque-troco">💶 Troco necessário: ${formatarMoeda(pedido.pagamentoDinheiro.troco, moeda)}</span>`;
 }
@@ -277,6 +401,13 @@ function ligarEventosModalPedido() {
   document.getElementById('modal-overlay-pedido').addEventListener('click', (evento) => {
     if (evento.target.id === 'modal-overlay-pedido') fecharModalPedido();
   });
+  // Reaproveita o MESMO modal/função de cancelamento do card — só fecha "Ver pedido" e abre o de cancelamento.
+  document.getElementById('botao-cancelar-pedido-detalhe').addEventListener('click', (evento) => {
+    const id = evento.target.dataset.id;
+    if (!id) return;
+    fecharModalPedido();
+    abrirModalCancelamento(id);
+  });
 }
 
 function fecharModalPedido() {
@@ -293,6 +424,15 @@ function abrirModalDetalhesPedido(id) {
   const ehEntrega = pedido.fulfilment === 'entrega';
 
   document.getElementById('pedido-modal-titulo').textContent = pedido.numero;
+
+  const botaoCancelarDetalhe = document.getElementById('botao-cancelar-pedido-detalhe');
+  if (pedidoPodeSerCancelado(pedido)) {
+    botaoCancelarDetalhe.style.display = '';
+    botaoCancelarDetalhe.dataset.id = pedido.id;
+  } else {
+    botaoCancelarDetalhe.style.display = 'none';
+    delete botaoCancelarDetalhe.dataset.id;
+  }
 
   const blocoTipo = ehEntrega
     ? `
@@ -347,6 +487,74 @@ function linhasItensPedidoHtml(pedido) {
       return `<div class="linha-resumo"><span>${item.quantidade}x ${escaparHtml(item.nome)}</span><span>${formatarMoeda(item.valorTotal, moeda)}</span></div>`;
     })
     .join('');
+}
+
+// ---------------------------------------------------------------------------
+// Modal "Cancelar pedido" (Fase 7) — reaproveitado tanto pelo botão do card
+// quanto pelo botão dentro do modal "Ver pedido" (mesma função, sem duplicar)
+// ---------------------------------------------------------------------------
+
+function ligarEventosModalCancelamento() {
+  document.getElementById('botao-fechar-modal-cancelar').addEventListener('click', fecharModalCancelamento);
+  document.getElementById('botao-voltar-cancelamento').addEventListener('click', fecharModalCancelamento);
+  document.getElementById('modal-overlay-cancelar-pedido').addEventListener('click', (evento) => {
+    if (evento.target.id === 'modal-overlay-cancelar-pedido') fecharModalCancelamento();
+  });
+  document.getElementById('botao-confirmar-cancelamento').addEventListener('click', confirmarCancelamentoPedido);
+}
+
+function abrirModalCancelamento(id) {
+  const pedido = obterPedidoClientePorId(id);
+  if (!pedido || !pedidoPodeSerCancelado(pedido)) return;
+
+  pedidoCancelamentoId = id;
+  document.getElementById('cancelar-pedido-numero').textContent = pedido.numero;
+  document.getElementById('cancelar-pedido-cliente').textContent = (pedido.cliente || {}).nome || '(sem nome)';
+  document.getElementById('campo-motivo-cancelamento').value = '';
+  document.getElementById('erro-motivo-cancelamento').textContent = '';
+
+  document.getElementById('modal-overlay-cancelar-pedido').classList.add('modal-visivel');
+  document.getElementById('campo-motivo-cancelamento').focus();
+}
+
+function fecharModalCancelamento() {
+  document.getElementById('modal-overlay-cancelar-pedido').classList.remove('modal-visivel');
+  pedidoCancelamentoId = null;
+  document.getElementById('campo-motivo-cancelamento').value = '';
+  document.getElementById('erro-motivo-cancelamento').textContent = '';
+}
+
+/** Valida motivo obrigatório no cliente (a RPC também valida — não depende só disso), desabilita o botão durante a chamada e trata sucesso/erro sem deixar clique duplo disparar 2 cancelamentos. */
+async function confirmarCancelamentoPedido() {
+  if (!pedidoCancelamentoId) return;
+
+  const campoMotivo = document.getElementById('campo-motivo-cancelamento');
+  const erroMotivo = document.getElementById('erro-motivo-cancelamento');
+  const motivo = campoMotivo.value.trim();
+
+  if (!motivo) {
+    erroMotivo.textContent = 'Informe o motivo do cancelamento.';
+    campoMotivo.focus();
+    return;
+  }
+  erroMotivo.textContent = '';
+
+  const botao = document.getElementById('botao-confirmar-cancelamento');
+  const rotuloOriginal = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = 'Cancelando...';
+
+  try {
+    await cancelarPedido(pedidoCancelamentoId, motivo);
+    mostrarToast('Pedido cancelado.', 'sucesso');
+    fecharModalCancelamento();
+    renderizarQuadroPedidos();
+  } catch (erro) {
+    mostrarToast(erro.message || 'Não foi possível cancelar o pedido.', 'erro');
+  } finally {
+    botao.disabled = false;
+    botao.textContent = rotuloOriginal;
+  }
 }
 
 /** Composição de um combo já congelada no pedido (item.combo) — mesma informação mostrada no carrinho do cliente, sem recalcular nada */

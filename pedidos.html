@@ -36,6 +36,13 @@
           <option value="retirada">Retirada</option>
         </select>
       </div>
+      <div class="linha-toggle-som">
+        <label class="toggle-switch">
+          <input type="checkbox" id="campo-som-pedidos" />
+          <span class="toggle-switch-trilho"></span>
+        </label>
+        <span>🔔 Som de novo pedido</span>
+      </div>
     </div>
 
     <div class="estado-vazio" id="estado-carregando-pedidos">Carregando pedidos...</div>
@@ -89,7 +96,30 @@
       </div>
       <div class="modal-corpo" id="pedido-modal-corpo"></div>
       <div class="modal-rodape">
+        <button type="button" class="btn btn-perigo" id="botao-cancelar-pedido-detalhe" style="display:none;">Cancelar pedido</button>
         <button type="button" class="btn btn-secundario" id="botao-fechar-modal-pedido-rodape">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de cancelamento de pedido -->
+  <div class="modal-overlay" id="modal-overlay-cancelar-pedido">
+    <div class="modal">
+      <div class="modal-cabecalho">
+        <h2>Cancelar pedido</h2>
+        <button class="btn-icone" id="botao-fechar-modal-cancelar" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-corpo">
+        <p><strong id="cancelar-pedido-numero"></strong> · <span id="cancelar-pedido-cliente"></span></p>
+        <div class="form-grupo">
+          <label for="campo-motivo-cancelamento">Motivo do cancelamento</label>
+          <textarea class="input" id="campo-motivo-cancelamento" rows="4" placeholder="Ex.: cliente solicitou cancelamento, item indisponível, endereço inválido..."></textarea>
+          <span class="campo-erro" id="erro-motivo-cancelamento"></span>
+        </div>
+      </div>
+      <div class="modal-rodape">
+        <button type="button" class="btn btn-secundario" id="botao-voltar-cancelamento">Voltar</button>
+        <button type="button" class="btn btn-perigo" id="botao-confirmar-cancelamento">Confirmar cancelamento</button>
       </div>
     </div>
   </div>

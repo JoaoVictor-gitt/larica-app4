@@ -592,6 +592,17 @@ async function concluirPedido(id) {
   return _atualizarStatusPedido(id, STATUS_PEDIDO.FINALIZADO);
 }
 
+/**
+ * Cancela um pedido (Solicitado ou Em Preparo) via RPC cancel_order — não passa por
+ * _atualizarStatusPedido() de propósito, pois usa uma RPC própria (estorna estoque no banco),
+ * não update_order_status. Mesmo padrão de recarregar o cache depois da mudança.
+ */
+async function cancelarPedido(id, motivo) {
+  const atualizado = await cancelOrderNoSupabase(id, motivo);
+  await carregarPedidosClientesCache();
+  return atualizado;
+}
+
 // Acompanhamentos e combos não são mais coleções próprias — são produtos
 // (categoria "Acompanhamentos" ou "Combos", esta última com `comboConfig`).
 // Use pesquisarProdutos()/obterProdutoPorId()/salvarProduto() normalmente.

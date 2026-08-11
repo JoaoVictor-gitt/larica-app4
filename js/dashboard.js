@@ -128,7 +128,11 @@ async function carregarCardsHoje() {
   try {
     const { dias, desdeUtc, ateUtc } = calcularJanelaPeriodo('hoje');
     const brutos = await getOrdersForReport({ desdeUtc, ateUtc });
-    const pedidos = brutos.filter((p) => dias.includes(chaveDataDublin(p.criadoEm)));
+    const doDia = brutos.filter((p) => dias.includes(chaveDataDublin(p.criadoEm)));
+
+    // Cancelados nunca contam em nenhuma métrica de venda (faturamento/pedidos/ticket médio/taxa/
+    // pagamento/produtos) — filtrado uma única vez aqui, o resto do Dashboard reaproveita este array.
+    const pedidos = doDia.filter((p) => p.status !== STATUS_PEDIDO.CANCELADO);
     const resumo = calcularResumoPedidos(pedidos);
 
     document.getElementById('cartao-faturamento-hoje').textContent = formatarMoeda(resumo.faturamento, moeda);
@@ -136,12 +140,23 @@ async function carregarCardsHoje() {
     document.getElementById('cartao-ticket-medio-hoje').textContent = formatarMoeda(resumo.ticketMedio, moeda);
     document.getElementById('cartao-taxa-entrega-hoje').textContent = formatarMoeda(resumo.taxaEntrega, moeda);
 
+    // "Cancelamentos hoje" é informativo — nunca entra em faturamento/pedidos/ticket médio/taxa.
+    // Conta por canceladoEm (não criadoEm), dentro do array bruto (doDia é filtrado por criadoEm,
+    // então um pedido criado ontem e cancelado hoje não aparece aqui — limitação documentada,
+    // aceita explicitamente para não precisar de uma consulta adicional).
+    const cancelamentosHoje = brutos.filter(
+      (p) => p.status === STATUS_PEDIDO.CANCELADO && p.canceladoEm && dias.includes(chaveDataDublin(p.canceladoEm))
+    ).length;
+    const cartaoCancelamentos = document.getElementById('cartao-cancelamentos-hoje');
+    if (cartaoCancelamentos) cartaoCancelamentos.textContent = cancelamentosHoje;
+
     pedidosHojeCache = pedidos;
   } catch (erro) {
     console.error('Erro ao carregar cards de hoje:', erro);
-    ['cartao-faturamento-hoje', 'cartao-pedidos-hoje', 'cartao-ticket-medio-hoje', 'cartao-taxa-entrega-hoje'].forEach(
-      (id) => (document.getElementById(id).textContent = '—')
-    );
+    ['cartao-faturamento-hoje', 'cartao-pedidos-hoje', 'cartao-ticket-medio-hoje', 'cartao-taxa-entrega-hoje', 'cartao-cancelamentos-hoje'].forEach((id) => {
+      const elemento = document.getElementById(id);
+      if (elemento) elemento.textContent = '—';
+    });
   }
 }
 
@@ -192,10 +207,10 @@ async function carregarRelatorioPeriodo(tipo, inicioPersonalizado, fimPersonaliz
 
     let pedidos;
     if (tipo === 'hoje' && pedidosHojeCache) {
-      pedidos = pedidosHojeCache;
+      pedidos = pedidosHojeCache; // já filtrado sem cancelados em carregarCardsHoje()
     } else {
       const brutos = await getOrdersForReport({ desdeUtc, ateUtc });
-      pedidos = brutos.filter((p) => dias.includes(chaveDataDublin(p.criadoEm)));
+      pedidos = brutos.filter((p) => dias.includes(chaveDataDublin(p.criadoEm)) && p.status !== STATUS_PEDIDO.CANCELADO);
     }
 
     const topProdutos = await getTopProductsForReport(

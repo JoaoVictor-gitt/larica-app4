@@ -25,6 +25,46 @@
   min-width: 560px;
 }
 
+/* Abas Finalizados/Cancelados — mesmo padrão de pill button já usado no Dashboard/Cardápio, duplicado
+   aqui porque historico.html não carrega dashboard.css/cardapio.css */
+.filtro-categorias {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espaco-sm);
+  margin-bottom: var(--espaco-lg);
+}
+
+.filtro-categoria-botao {
+  padding: var(--espaco-xs) var(--espaco-md);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-pill);
+  background: var(--cor-branco);
+  color: var(--cor-texto-secundario);
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: background var(--transicao-rapida), color var(--transicao-rapida), border-color var(--transicao-rapida);
+}
+
+.filtro-categoria-botao:hover { border-color: var(--cor-terracota); }
+
+.filtro-categoria-botao.ativo {
+  background: var(--cor-terracota);
+  border-color: var(--cor-terracota);
+  color: var(--cor-sobre-acento);
+}
+
+/* Aviso informativo acima da tabela de Cancelados — mesmo padrão visual já usado em Fazer Pedido
+   (css/pedido.css), duplicado aqui pelo mesmo motivo (página não carrega aquele CSS) */
+.aviso-info {
+  background: var(--cor-cinza-claro);
+  border-left: 4px solid var(--cor-terracota);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  font-size: 0.85rem;
+  color: var(--cor-texto);
+  margin-bottom: var(--espaco-md);
+}
+
 .titulo-secao-historico {
   font-size: 1rem;
   color: var(--cor-texto-secundario);

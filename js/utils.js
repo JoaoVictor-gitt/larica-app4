@@ -244,8 +244,11 @@ const STATUS_PEDIDO = {
   EM_PREPARO: 'em_preparo',
   PRONTO: 'pronto',
   FINALIZADO: 'finalizado',
+  CANCELADO: 'cancelado',
 };
 
+// Representa SOMENTE o fluxo operacional normal (Aceitar -> Pronto -> Concluir) — cancelado é um desvio
+// à parte (RPC própria, cancel_order), nunca faz parte dessa sequência linear.
 const SEQUENCIA_STATUS_PEDIDO = [STATUS_PEDIDO.SOLICITADO, STATUS_PEDIDO.EM_PREPARO, STATUS_PEDIDO.PRONTO, STATUS_PEDIDO.FINALIZADO];
 
 const ROTULOS_STATUS_PEDIDO = {
@@ -253,6 +256,7 @@ const ROTULOS_STATUS_PEDIDO = {
   em_preparo: 'Em Preparo',
   pronto: 'Pronto',
   finalizado: 'Finalizado',
+  cancelado: 'Cancelado',
 };
 
 const ROTULOS_FORMA_PAGAMENTO = { cartao: 'Cartão', dinheiro: 'Dinheiro', revolut: 'Revolut' };

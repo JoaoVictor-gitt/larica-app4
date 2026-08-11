@@ -1,15 +1,18 @@
 /*
  * historico.js
- * Pedidos finalizados (área Fazer Pedido, Supabase via
+ * Pedidos finalizados e cancelados (área Fazer Pedido, Supabase via
  * carregarPedidosClientesCache()/obterPedidosClientes()) — listar, ver
- * detalhes, excluir individual/em massa/total. Só mexe em status
- * "finalizado"; nunca toca em pedidos Solicitado/Em Preparo/Pronto (esses
- * pertencem ao painel operacional em pedidos.html).
+ * detalhes, excluir individual/em massa/total. Duas abas: Finalizados
+ * (excluível, comportamento original) e Cancelados (só consulta/auditoria,
+ * nunca excluível por aqui — ver item 8 da Fase 7/Etapa 4). Nunca toca em
+ * pedidos Solicitado/Em Preparo/Pronto (esses pertencem ao painel
+ * operacional em pedidos.html).
  * Depende de storage.js e utils.js.
  */
 
 let pedidosSelecionadosHistorico = new Set();
 let acaoPendenteExclusaoHistorico = null;
+let abaHistoricoAtual = 'finalizado'; // 'finalizado' | 'cancelado'
 
 document.addEventListener('DOMContentLoaded', async () => {
   const carregando = document.getElementById('estado-carregando-pedidos-finalizados');
@@ -27,49 +30,133 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   renderizarPedidosFinalizados();
   ligarEventosPedidosFinalizados();
+  ligarEventosAbasHistorico();
   ligarEventosConfirmacaoExclusaoHistorico();
   ligarEventosModalDetalhePedidoHistorico();
 });
 
+function ligarEventosAbasHistorico() {
+  document.querySelectorAll('#abas-historico-pedidos .filtro-categoria-botao').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      abaHistoricoAtual = botao.dataset.abaHistorico;
+      document.querySelectorAll('#abas-historico-pedidos .filtro-categoria-botao').forEach((b) => b.classList.toggle('ativo', b === botao));
+      pedidosSelecionadosHistorico.clear();
+      renderizarPedidosFinalizados();
+    });
+  });
+}
+
 // ---------------------------------------------------------------------------
-// Pedidos finalizados (área Fazer Pedido) — listar, selecionar, excluir
+// Pedidos finalizados/cancelados — listar, selecionar (só Finalizados), excluir (só Finalizados)
 // ---------------------------------------------------------------------------
 
 function renderizarPedidosFinalizados() {
-  const pedidos = obterPedidosClientes()
-    .filter((p) => p.status === STATUS_PEDIDO.FINALIZADO)
-    .sort((a, b) => new Date(b.finalizadoEm || b.criadoEm) - new Date(a.finalizadoEm || a.criadoEm));
+  const ehCancelados = abaHistoricoAtual === 'cancelado';
+
+  document.getElementById('titulo-secao-historico-pedidos').textContent = ehCancelados ? 'Pedidos cancelados' : 'Pedidos finalizados';
+  document.getElementById('acoes-pedidos-finalizados-wrap').style.display = ehCancelados ? 'none' : '';
+  document.getElementById('aviso-historico-cancelados').style.display = ehCancelados ? '' : 'none';
+
+  renderizarCabecalhoTabelaHistorico(ehCancelados);
+
+  const pedidos = ehCancelados
+    ? obterPedidosClientes()
+        .filter((p) => p.status === STATUS_PEDIDO.CANCELADO)
+        .sort((a, b) => new Date(b.canceladoEm || b.criadoEm) - new Date(a.canceladoEm || a.criadoEm))
+    : obterPedidosClientes()
+        .filter((p) => p.status === STATUS_PEDIDO.FINALIZADO)
+        .sort((a, b) => new Date(b.finalizadoEm || b.criadoEm) - new Date(a.finalizadoEm || a.criadoEm));
 
   const corpo = document.getElementById('corpo-tabela-pedidos-finalizados');
   const vazio = document.getElementById('estado-vazio-pedidos-finalizados');
+  vazio.textContent = ehCancelados ? 'Nenhum pedido cancelado.' : 'Nenhum pedido finalizado ainda.';
 
   if (pedidos.length === 0) {
     corpo.innerHTML = '';
     vazio.style.display = 'block';
-    document.getElementById('checkbox-selecionar-todos-historico').checked = false;
-    atualizarBotaoExcluirSelecionadosHistorico();
+    if (!ehCancelados) {
+      document.getElementById('checkbox-selecionar-todos-historico').checked = false;
+      atualizarBotaoExcluirSelecionadosHistorico();
+    }
     return;
   }
   vazio.style.display = 'none';
 
   const moeda = obterConfiguracoes().moeda;
-  corpo.innerHTML = pedidos.map((p) => linhaPedidoFinalizadoHtml(p, moeda)).join('');
+  corpo.innerHTML = pedidos.map((p) => (ehCancelados ? linhaPedidoCanceladoHtml(p, moeda) : linhaPedidoFinalizadoHtml(p, moeda))).join('');
 
   corpo.querySelectorAll('[data-acao="ver-detalhes"]').forEach((botao) => {
     botao.addEventListener('click', () => abrirModalDetalhePedidoHistorico(botao.dataset.id));
   });
-  corpo.querySelectorAll('[data-acao="excluir"]').forEach((botao) => {
-    botao.addEventListener('click', () => excluirPedidoHistoricoComConfirmacao(botao.dataset.id));
-  });
-  corpo.querySelectorAll('.checkbox-pedido-historico').forEach((checkbox) => {
-    checkbox.addEventListener('change', () => {
-      if (checkbox.checked) pedidosSelecionadosHistorico.add(checkbox.dataset.id);
-      else pedidosSelecionadosHistorico.delete(checkbox.dataset.id);
+
+  if (!ehCancelados) {
+    corpo.querySelectorAll('[data-acao="excluir"]').forEach((botao) => {
+      botao.addEventListener('click', () => excluirPedidoHistoricoComConfirmacao(botao.dataset.id));
+    });
+    corpo.querySelectorAll('.checkbox-pedido-historico').forEach((checkbox) => {
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) pedidosSelecionadosHistorico.add(checkbox.dataset.id);
+        else pedidosSelecionadosHistorico.delete(checkbox.dataset.id);
+        atualizarBotaoExcluirSelecionadosHistorico();
+      });
+    });
+    atualizarBotaoExcluirSelecionadosHistorico();
+  }
+}
+
+/** Recria o <thead> conforme a aba ativa — colunas diferentes pra Finalizados (com seleção/exclusão) e Cancelados (sem nenhuma das duas) */
+function renderizarCabecalhoTabelaHistorico(ehCancelados) {
+  const cabecalho = document.getElementById('cabecalho-tabela-historico');
+  cabecalho.innerHTML = ehCancelados
+    ? `<tr>
+        <th>Pedido</th>
+        <th>Cliente</th>
+        <th>Tipo</th>
+        <th>Total</th>
+        <th>Cancelado em</th>
+        <th>Motivo</th>
+        <th></th>
+      </tr>`
+    : `<tr>
+        <th><input type="checkbox" id="checkbox-selecionar-todos-historico" aria-label="Selecionar todos" /></th>
+        <th>Pedido</th>
+        <th>Data</th>
+        <th>Total</th>
+        <th>Status</th>
+        <th></th>
+      </tr>`;
+
+  // O checkbox "selecionar todos" é recriado a cada troca de aba (thead é regenerado) — precisa religar aqui.
+  if (!ehCancelados) {
+    document.getElementById('checkbox-selecionar-todos-historico').addEventListener('change', (evento) => {
+      const marcado = evento.target.checked;
+      document.querySelectorAll('.checkbox-pedido-historico').forEach((checkbox) => {
+        checkbox.checked = marcado;
+        if (marcado) pedidosSelecionadosHistorico.add(checkbox.dataset.id);
+        else pedidosSelecionadosHistorico.delete(checkbox.dataset.id);
+      });
       atualizarBotaoExcluirSelecionadosHistorico();
     });
-  });
+  }
+}
 
-  atualizarBotaoExcluirSelecionadosHistorico();
+/** Linha da aba Cancelados — total é histórico/informativo (já excluído do Dashboard), sem checkbox nem botão de excluir (item 8) */
+function linhaPedidoCanceladoHtml(pedido, moeda) {
+  const tipoRotulo = pedido.fulfilment === 'entrega' ? 'Entrega' : 'Retirada';
+  return `
+    <tr>
+      <td>${escaparHtml(pedido.numero)}</td>
+      <td>${escaparHtml((pedido.cliente || {}).nome || '(sem nome)')}</td>
+      <td>${escaparHtml(tipoRotulo)}</td>
+      <td>${formatarMoeda(pedido.total, moeda)}</td>
+      <td>${escaparHtml(formatarData(pedido.canceladoEm))} ${escaparHtml(formatarHora(pedido.canceladoEm))}</td>
+      <td>${escaparHtml(pedido.motivoCancelamento || '—')}</td>
+      <td>
+        <div class="acoes-linha">
+          <button class="btn btn-secundario" data-acao="ver-detalhes" data-id="${pedido.id}">Ver detalhes</button>
+        </div>
+      </td>
+    </tr>`;
 }
 
 function linhaPedidoFinalizadoHtml(pedido, moeda) {
@@ -98,16 +185,8 @@ function atualizarBotaoExcluirSelecionadosHistorico() {
 }
 
 function ligarEventosPedidosFinalizados() {
-  document.getElementById('checkbox-selecionar-todos-historico').addEventListener('change', (evento) => {
-    const marcado = evento.target.checked;
-    document.querySelectorAll('.checkbox-pedido-historico').forEach((checkbox) => {
-      checkbox.checked = marcado;
-      if (marcado) pedidosSelecionadosHistorico.add(checkbox.dataset.id);
-      else pedidosSelecionadosHistorico.delete(checkbox.dataset.id);
-    });
-    atualizarBotaoExcluirSelecionadosHistorico();
-  });
-
+  // checkbox-selecionar-todos-historico é religado a cada render em renderizarCabecalhoTabelaHistorico()
+  // (o <thead> é recriado a cada troca de aba, então o elemento em si muda).
   document.getElementById('botao-excluir-selecionados-historico').addEventListener('click', excluirSelecionadosHistoricoComConfirmacao);
   document.getElementById('botao-limpar-historico').addEventListener('click', limparHistoricoPedidosComConfirmacao);
 }
@@ -253,6 +332,10 @@ function abrirModalDetalhePedidoHistorico(id) {
   const cliente = pedido.cliente || {};
   const endereco = pedido.endereco || {};
   const ehEntrega = pedido.fulfilment === 'entrega';
+  const ehCancelado = pedido.status === STATUS_PEDIDO.CANCELADO;
+
+  // Pedido cancelado não pode ser excluído por aqui (item 8 — mantém rastreabilidade do estorno de estoque)
+  document.getElementById('botao-excluir-pedido-detalhe-historico').style.display = ehCancelado ? 'none' : '';
 
   document.getElementById('detalhe-pedido-historico-titulo').textContent = pedido.numero;
 
@@ -272,6 +355,15 @@ function abrirModalDetalhePedidoHistorico(id) {
         <p>Retirada: ${escaparHtml(rotuloHorarioRetirada(pedido))}</p>
       </div>`;
 
+  const blocoCancelamento = ehCancelado
+    ? `
+      <div class="detalhe-pedido-secao">
+        <div class="detalhe-pedido-titulo">Cancelamento</div>
+        <p>Cancelado em: ${escaparHtml(formatarData(pedido.canceladoEm))} ${escaparHtml(formatarHora(pedido.canceladoEm))}</p>
+        <p>Motivo: ${escaparHtml(pedido.motivoCancelamento || '—')}</p>
+      </div>`
+    : '';
+
   document.getElementById('detalhe-pedido-historico-corpo').innerHTML = `
     <div class="detalhe-pedido-secao">
       <div class="detalhe-pedido-titulo">Pedido</div>
@@ -283,6 +375,7 @@ function abrirModalDetalhePedidoHistorico(id) {
       <p>${escaparHtml(cliente.nome || '')} · ${escaparHtml(cliente.telefone || '')}</p>
     </div>
     ${blocoTipo}
+    ${blocoCancelamento}
     <div class="detalhe-pedido-secao">
       <div class="detalhe-pedido-titulo">Itens do pedido</div>
       ${linhasItensPedidoHistoricoHtml(pedido)}
