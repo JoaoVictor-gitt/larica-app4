@@ -95,6 +95,27 @@
   margin-bottom: var(--espaco-md);
 }
 
+/* Variante de atenção (pedidos fechados/fora de horário/indisponível) — mesmo aviso-info, borda de alerta */
+.aviso-info.aviso-atencao {
+  border-left-color: var(--cor-status-vermelho);
+}
+
+/* Opção de recebimento (Retirada/Entrega) desativada nas configurações do negócio */
+.opcao-pagamento.opcao-indisponivel {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.opcao-pagamento.opcao-indisponivel:hover {
+  border-color: var(--cor-borda);
+}
+.selo-indisponivel {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--cor-status-vermelho);
+  margin-top: 2px;
+}
+
 /* Mensagem de erro abaixo de um campo do formulário */
 .campo-erro {
   display: block;

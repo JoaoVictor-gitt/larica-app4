@@ -27,6 +27,8 @@
 
     <div class="indicador-etapa-pedido" id="indicador-etapa-pedido"></div>
 
+    <div class="aviso-info" id="banner-disponibilidade-pedido" style="display:none;"></div>
+
     <!-- Etapa 1: Cardápio -->
     <section class="etapa-pedido etapa-ativa" data-etapa="cardapio">
       <div class="filtro-categorias" id="filtro-categorias-pedido"></div>
@@ -100,6 +102,9 @@
           </span>
         </button>
       </div>
+      <p class="aviso-info aviso-atencao" id="aviso-recebimento-indisponivel" style="display:none;">
+        Entrega e retirada estão indisponíveis no momento.
+      </p>
       <div class="etapa-pedido-acoes">
         <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
         <button type="button" class="btn btn-primario" id="botao-continuar-recebimento" disabled>Continuar</button>
@@ -338,6 +343,7 @@
   <script src="js/supabase.js"></script>
   <script src="js/services/products-service.js"></script>
   <script src="js/services/orders-service.js"></script>
+  <script src="js/services/settings-service.js"></script>
   <script src="js/app.js"></script>
   <script src="js/pedido.js"></script>
 </body>

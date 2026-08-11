@@ -49,6 +49,13 @@ let pilhaEtapasPedido = ['cardapio'];
 let estadoPedido = estadoPedidoInicial();
 let ultimoPedidoConfirmado = null;
 
+// Disponibilidade do negócio (business_settings/business_hours) — carregada 1x no início,
+// nunca via polling; ver carregarDisponibilidadeNegocio()/disponibilidadeNegocioAtual().
+let configuracoesNegocio = null; // shape pt-BR de buscarConfiguracoesNegocioDoSupabase()
+let horariosNegocio = null; // array de buscarHorariosFuncionamentoDoSupabase()
+let configuracoesNegocioCarregadas = false;
+let erroConfiguracoesNegocio = null; // string ou null
+
 // Estado do modal de personalização de combo (ver seção "Modal de combo" mais abaixo)
 let comboAtual = null; // registro de storage.js sendo personalizado
 let comboEmEdicaoItemId = null; // itemId do carrinho, se estiver editando um combo já adicionado
@@ -71,6 +78,7 @@ function estadoPedidoInicial() {
 
 document.addEventListener('DOMContentLoaded', async () => {
   carregarEstadoPersistido();
+  carregarDisponibilidadeNegocio(); // não bloqueia o cardápio — roda em paralelo
 
   const carregando = document.getElementById('estado-carregando-pedido');
   const erro = document.getElementById('estado-erro-pedido');
@@ -175,6 +183,200 @@ function preencherCamposComEstado() {
 }
 
 // ---------------------------------------------------------------------------
+// Disponibilidade do negócio (Fase 3 — gate client-side; a proteção real
+// server-side fica pra Fase 4, em create_customer_order). Carrega
+// business_settings/business_hours 1x aqui; toda checagem depois disso é
+// local, sem novas chamadas ao Supabase (ver disponibilidadeNegocioAtual()).
+// ---------------------------------------------------------------------------
+
+async function carregarDisponibilidadeNegocio() {
+  atualizarBannerDisponibilidade(); // mostra "Verificando disponibilidade..."
+  try {
+    const [config, horarios] = await Promise.all([buscarConfiguracoesNegocioDoSupabase(), buscarHorariosFuncionamentoDoSupabase()]);
+    configuracoesNegocio = config;
+    horariosNegocio = horarios;
+    erroConfiguracoesNegocio = null;
+  } catch (erro) {
+    erroConfiguracoesNegocio = (erro && erro.message) || 'Não foi possível verificar se os pedidos estão disponíveis. Tente novamente.';
+  } finally {
+    configuracoesNegocioCarregadas = true;
+    aplicarDisponibilidadeFulfilment();
+    invalidarFulfilmentSeIndisponivel();
+    atualizarBannerDisponibilidade();
+  }
+}
+
+/** Dia da semana em Dublin (0=domingo...6=sábado, mesma convenção de business_hours.day_of_week) */
+function diaSemanaDublin(agora, fuso) {
+  const partes = new Intl.DateTimeFormat('en-CA', { timeZone: fuso, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(agora);
+  const mapa = {};
+  partes.forEach((p) => (mapa[p.type] = p.value));
+  // Ancorado ao meio-dia UTC do mesmo dia-calendário de Dublin, pra extrair o dia da semana sem risco de a conversão de fuso empurrar pra outro dia
+  const ancora = new Date(Date.UTC(Number(mapa.year), Number(mapa.month) - 1, Number(mapa.day), 12));
+  return ancora.getUTCDay();
+}
+
+/** Minutos desde a meia-noite, na hora local de Dublin (hourCycle 'h23' evita o bug de hour12:false retornar "24:00" à meia-noite) */
+function minutosDoDiaDublin(agora, fuso) {
+  const partes = new Intl.DateTimeFormat('en-GB', { timeZone: fuso, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(agora);
+  const mapa = {};
+  partes.forEach((p) => (mapa[p.type] = p.value));
+  return Number(mapa.hour) * 60 + Number(mapa.minute);
+}
+
+/** "HH:MM" ou "HH:MM:SS" (formato que o Postgres `time` retorna) -> minutos desde a meia-noite, ou null se vazio/inválido */
+function minutosDoHorario(horaTexto) {
+  if (!horaTexto) return null;
+  const [h, m] = horaTexto.split(':');
+  const horas = Number(h);
+  const minutos = Number(m);
+  if (Number.isNaN(horas) || Number.isNaN(minutos)) return null;
+  return horas * 60 + minutos;
+}
+
+/**
+ * Está aberto agora, considerando o turno de hoje E o de ontem (caso ontem
+ * atravesse a meia-noite e ainda não tenha fechado) — ver item 12 do pedido
+ * do usuário: closing_time <= opening_time NUNCA é tratado como erro, só
+ * como "esse turno vai até a madrugada do dia seguinte".
+ */
+function diaEstaAbertoAgora(horarios, diaSemana, minutosAgora) {
+  const linhaHoje = horarios.find((h) => h.diaSemana === diaSemana);
+  if (linhaHoje && linhaHoje.ativo) {
+    const abertura = minutosDoHorario(linhaHoje.horaAbertura);
+    const fechamento = minutosDoHorario(linhaHoje.horaFechamento);
+    if (abertura != null && fechamento != null) {
+      if (fechamento > abertura) {
+        if (minutosAgora >= abertura && minutosAgora < fechamento) return true;
+      } else if (minutosAgora >= abertura) {
+        return true; // turno de hoje atravessa a meia-noite — aberto até 23:59 de hoje
+      }
+    }
+  }
+
+  const diaOntem = (diaSemana + 6) % 7;
+  const linhaOntem = horarios.find((h) => h.diaSemana === diaOntem);
+  if (linhaOntem && linhaOntem.ativo) {
+    const abertura = minutosDoHorario(linhaOntem.horaAbertura);
+    const fechamento = minutosDoHorario(linhaOntem.horaFechamento);
+    if (abertura != null && fechamento != null && fechamento <= abertura && minutosAgora < fechamento) {
+      return true; // madrugada de hoje ainda dentro do turno overnight de ontem
+    }
+  }
+
+  return false;
+}
+
+/**
+ * { configurado, aberto }. `configurado=false` quando os 7 dias estão
+ * enabled=false (regra de transição do item 13) — nesse caso `aberto` é
+ * sempre true, pra não bloquear pedidos por horário antes do admin
+ * configurar pelo menos 1 dia.
+ */
+function obterStatusFuncionamentoAgora(config, horarios, agora) {
+  const fuso = (config && config.fusoHorario) || 'Europe/Dublin';
+  const configurado = horarios.some((h) => h.ativo);
+  if (!configurado) return { configurado: false, aberto: true };
+
+  const diaSemana = diaSemanaDublin(agora, fuso);
+  const minutosAgora = minutosDoDiaDublin(agora, fuso);
+  return { configurado: true, aberto: diaEstaAbertoAgora(horarios, diaSemana, minutosAgora) };
+}
+
+/**
+ * Lógica central (única fonte de verdade — nenhum handler duplica isso):
+ * orders_enabled -> business_hours -> delivery/collection, nessa ordem
+ * (ver "Ordem dos gates" no plano). Pura: não lê DOM nem estado global.
+ */
+function calcularDisponibilidadeNegocio(config, horarios, agora) {
+  if (!config.pedidosAtivos) {
+    return { podeFinalizar: false, motivo: 'orders_disabled', mensagem: config.mensagemFechado || 'Pedidos fechados no momento.' };
+  }
+
+  const status = obterStatusFuncionamentoAgora(config, horarios, agora);
+  if (status.configurado && !status.aberto) {
+    return { podeFinalizar: false, motivo: 'outside_hours', mensagem: config.mensagemFechado || 'Pedidos fechados no momento.' };
+  }
+
+  if (!config.entregaAtiva && !config.retiradaAtiva) {
+    return { podeFinalizar: false, motivo: 'no_methods', mensagem: 'Entrega e retirada estão indisponíveis no momento.' };
+  }
+
+  return { podeFinalizar: true, motivo: 'open', mensagem: '' };
+}
+
+/** Envolve calcularDisponibilidadeNegocio() com os estados de loading/erro do carregamento inicial */
+function disponibilidadeNegocioAtual() {
+  if (erroConfiguracoesNegocio) {
+    return { podeFinalizar: false, motivo: 'error', mensagem: 'Não foi possível verificar se os pedidos estão disponíveis. Tente novamente.' };
+  }
+  if (!configuracoesNegocioCarregadas) {
+    return { podeFinalizar: false, motivo: 'loading', mensagem: 'Verificando disponibilidade...' };
+  }
+  return calcularDisponibilidadeNegocio(configuracoesNegocio, horariosNegocio, new Date());
+}
+
+/** Banner fora das etapas (visível em qualquer uma) — só aparece quando não está simplesmente "aberto" */
+function atualizarBannerDisponibilidade() {
+  const disponibilidade = disponibilidadeNegocioAtual();
+  const banner = document.getElementById('banner-disponibilidade-pedido');
+  if (disponibilidade.motivo === 'open') {
+    banner.style.display = 'none';
+    banner.classList.remove('aviso-atencao');
+    return;
+  }
+  banner.textContent = disponibilidade.mensagem;
+  banner.classList.toggle('aviso-atencao', disponibilidade.motivo !== 'loading');
+  banner.style.display = '';
+}
+
+/** Desabilita + rotula "Indisponível" o botão de Retirada/Entrega conforme configuracoesNegocio — só roda após carga bem-sucedida */
+function aplicarDisponibilidadeFulfilment() {
+  if (!configuracoesNegocioCarregadas || erroConfiguracoesNegocio || !configuracoesNegocio) return;
+
+  aplicarDisponibilidadeBotaoFulfilment('retirada', configuracoesNegocio.retiradaAtiva);
+  aplicarDisponibilidadeBotaoFulfilment('entrega', configuracoesNegocio.entregaAtiva);
+
+  const nenhumMetodo = !configuracoesNegocio.entregaAtiva && !configuracoesNegocio.retiradaAtiva;
+  document.getElementById('aviso-recebimento-indisponivel').style.display = nenhumMetodo ? '' : 'none';
+}
+
+function aplicarDisponibilidadeBotaoFulfilment(fulfilment, disponivel) {
+  const botao = document.querySelector(`.opcoes-recebimento .opcao-pagamento[data-fulfilment="${fulfilment}"]`);
+  if (!botao) return;
+
+  botao.disabled = !disponivel;
+  botao.classList.toggle('opcao-indisponivel', !disponivel);
+
+  let selo = botao.querySelector('.selo-indisponivel');
+  if (!disponivel && !selo) {
+    selo = document.createElement('small');
+    selo.className = 'selo-indisponivel';
+    selo.textContent = 'Indisponível';
+    botao.querySelector('span:last-child').appendChild(selo);
+  } else if (disponivel && selo) {
+    selo.remove();
+  }
+}
+
+/** Se o fulfilment restaurado do localStorage não está mais disponível, limpa a seleção e obriga nova escolha (item 18) */
+function invalidarFulfilmentSeIndisponivel() {
+  if (!configuracoesNegocioCarregadas || erroConfiguracoesNegocio || !configuracoesNegocio) return;
+  if (!estadoPedido.fulfilment) return;
+
+  const aindaValido =
+    (estadoPedido.fulfilment === 'entrega' && configuracoesNegocio.entregaAtiva) ||
+    (estadoPedido.fulfilment === 'retirada' && configuracoesNegocio.retiradaAtiva);
+  if (aindaValido) return;
+
+  estadoPedido.fulfilment = '';
+  document.querySelectorAll('.opcoes-recebimento .opcao-pagamento[data-fulfilment]').forEach((b) => b.classList.remove('selecionada'));
+  document.getElementById('botao-continuar-recebimento').disabled = true;
+  salvarProgressoPedido();
+  mostrarToast('A opção de recebimento escolhida não está mais disponível. Escolha novamente.', 'erro');
+}
+
+// ---------------------------------------------------------------------------
 // Navegação entre etapas
 // ---------------------------------------------------------------------------
 
@@ -218,6 +420,11 @@ function ligarEventosGerais() {
 
   document.getElementById('botao-continuar-carrinho').addEventListener('click', () => {
     if (obterCarrinho().length === 0) return;
+    const disponibilidade = disponibilidadeNegocioAtual();
+    if (!disponibilidade.podeFinalizar) {
+      mostrarToast(disponibilidade.mensagem, 'erro');
+      return;
+    }
     irParaEtapaPedido('recebimento');
   });
 
@@ -1347,6 +1554,15 @@ async function confirmarPedido() {
       mostrarToast('Seu carrinho está vazio.', 'erro');
       return;
     }
+
+    // Revalidação final (client-side — a proteção real fica pra Fase 4, em create_customer_order):
+    // o estado pode ter sido carregado há vários passos atrás, então recalcula contra "agora".
+    const disponibilidade = disponibilidadeNegocioAtual();
+    if (!disponibilidade.podeFinalizar) {
+      mostrarToast(disponibilidade.mensagem, 'erro');
+      return;
+    }
+
     if (!estadoPedido.fulfilment) {
       mostrarToast('Escolha retirada ou entrega para continuar.', 'erro');
       return;
