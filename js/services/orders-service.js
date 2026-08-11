@@ -197,11 +197,7 @@ async function createOrder(pedido, itensPedido) {
     }),
   };
 
-  console.log('[Checkout] payload enviado:', payload); // diagnóstico temporário
-  console.log('[Checkout] chamando RPC create_customer_order'); // diagnóstico temporário
   const { data, error } = await supabaseClient.rpc('create_customer_order', { payload });
-  console.log('[Checkout] RPC data:', data); // diagnóstico temporário
-  console.log('[Checkout] RPC error:', error); // diagnóstico temporário
   if (error) throw new Error(error.message);
 
   return {

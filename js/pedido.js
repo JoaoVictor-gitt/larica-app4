@@ -88,11 +88,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   atualizarBarraCarrinhoFixa();
   mostrarEtapaAtual();
   ligarEventosGerais();
-
-  // Rede de segurança pra qualquer promise rejeitada sem catch — diagnóstico temporário
-  window.addEventListener('unhandledrejection', (event) => {
-    console.error('[Checkout] unhandled rejection:', event.reason);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -145,7 +140,7 @@ function preencherCamposComEstado() {
   document.getElementById('entrega-instrucoes').value = estadoPedido.endereco.instrucoes || '';
 
   if (estadoPedido.fulfilment) {
-    document.querySelectorAll('.opcoes-recebimento .opcao-pagamento').forEach((botao) => {
+    document.querySelectorAll('.opcoes-recebimento .opcao-pagamento[data-fulfilment]').forEach((botao) => {
       botao.classList.toggle('selecionada', botao.dataset.fulfilment === estadoPedido.fulfilment);
     });
     document.getElementById('botao-continuar-recebimento').disabled = false;
@@ -830,10 +825,10 @@ function confirmarComboNoCarrinho() {
 // ---------------------------------------------------------------------------
 
 function ligarEventosRecebimento() {
-  document.querySelectorAll('.opcoes-recebimento .opcao-pagamento').forEach((botao) => {
+  document.querySelectorAll('.opcoes-recebimento .opcao-pagamento[data-fulfilment]').forEach((botao) => {
     botao.addEventListener('click', () => {
       estadoPedido.fulfilment = botao.dataset.fulfilment;
-      document.querySelectorAll('.opcoes-recebimento .opcao-pagamento').forEach((b) => b.classList.remove('selecionada'));
+      document.querySelectorAll('.opcoes-recebimento .opcao-pagamento[data-fulfilment]').forEach((b) => b.classList.remove('selecionada'));
       botao.classList.add('selecionada');
       document.getElementById('botao-continuar-recebimento').disabled = false;
       salvarProgressoPedido();
@@ -1199,15 +1194,12 @@ async function criarPedido(pedido, itensPedido) {
 }
 
 async function confirmarPedido() {
-  console.log('[Checkout] botão confirmar clicado'); // diagnóstico temporário
   const botaoConfirmar = document.getElementById('botao-confirmar-pedido');
   const rotuloOriginalBotao = botaoConfirmar.textContent;
 
   // Todo o fluxo (validação, montagem do payload e chamada à RPC) fica dentro deste try —
   // qualquer exceção, esperada ou não, cai no catch em vez de morrer em silêncio.
   try {
-    console.log('[Checkout] iniciando confirmação'); // diagnóstico temporário
-
     const carrinho = obterCarrinho();
     if (carrinho.length === 0) {
       mostrarToast('Seu carrinho está vazio.', 'erro');
@@ -1286,7 +1278,6 @@ async function confirmarPedido() {
     botaoConfirmar.disabled = false;
     botaoConfirmar.textContent = rotuloOriginalBotao;
   } catch (erro) {
-    console.error('[Checkout] erro ao confirmar pedido:', erro); // diagnóstico temporário
     mostrarToast(erro && erro.message ? erro.message : 'Não foi possível finalizar o pedido.', 'erro');
     botaoConfirmar.disabled = false;
     botaoConfirmar.textContent = rotuloOriginalBotao;
