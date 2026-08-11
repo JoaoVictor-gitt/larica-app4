@@ -198,13 +198,35 @@ async function atualizarProdutoNoSupabase(id, produto) {
   return _linhaSupabaseParaProduto(data);
 }
 
-/** Atualização parcial só da quantidade em estoque — usada por ajustarEstoque/finalizarVenda (storage.js), sem mexer no resto do produto. */
-async function atualizarEstoqueNoSupabase(id, quantidadeEstoque) {
-  const { error } = await supabaseClient
-    .from('products')
-    .update({ stock_quantity: Math.max(0, Number(quantidadeEstoque) || 0), updated_at: new Date().toISOString() })
-    .eq('id', id);
+/**
+ * Ajuste manual de estoque — usada por ajustarEstoque() (storage.js). Passa
+ * por trás pela RPC `adjust_stock` (staff only), que já valida, aplica o
+ * delta de forma atômica e grava a movimentação em stock_movements; nunca
+ * escreve stock_quantity diretamente daqui. `delta` é um número com sinal
+ * (positivo = entrada, negativo = saída). Retorna o produto já atualizado.
+ */
+async function ajustarEstoqueNoSupabase(id, delta, motivo) {
+  const { data, error } = await supabaseClient.rpc('adjust_stock', {
+    p_product_id: id,
+    p_quantity_change: delta,
+    p_reason: motivo || null,
+  });
   if (error) throw new Error(error.message);
+  return _linhaSupabaseParaProduto(data);
+}
+
+/**
+ * Busca o histórico de movimentações de estoque (tabela stock_movements),
+ * mais recentes primeiro. Sem `produtoId`, traz de todos os produtos.
+ */
+async function buscarMovimentacoesEstoqueDoSupabase({ produtoId, limite } = {}) {
+  let consulta = supabaseClient.from('stock_movements').select('*').order('created_at', { ascending: false });
+  if (produtoId) consulta = consulta.eq('product_id', produtoId);
+  if (limite) consulta = consulta.limit(limite);
+
+  const { data, error } = await consulta;
+  if (error) throw new Error(error.message);
+  return data || [];
 }
 
 /** Exclui um produto. Se houver combo dependente (violação de FK, código Postgres 23503), lança mensagem amigável. */

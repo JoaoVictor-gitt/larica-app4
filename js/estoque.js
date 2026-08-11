@@ -26,7 +26,60 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderizarTabelaEstoque();
   ligarEventosFiltrosEstoque();
   ligarEventosModalEstoque();
+  renderizarMovimentacoesEstoque();
 });
+
+// ---------------------------------------------------------------------------
+// Movimentações recentes (stock_movements)
+// ---------------------------------------------------------------------------
+
+async function renderizarMovimentacoesEstoque() {
+  const carregando = document.getElementById('estado-carregando-movimentacoes');
+  const erro = document.getElementById('estado-erro-movimentacoes');
+  const vazio = document.getElementById('estado-vazio-movimentacoes');
+  const corpo = document.getElementById('corpo-tabela-movimentacoes');
+
+  corpo.innerHTML = '';
+  erro.style.display = 'none';
+  vazio.style.display = 'none';
+  carregando.style.display = 'block';
+
+  let movimentacoes;
+  try {
+    movimentacoes = await buscarMovimentacoesEstoque({ limite: 50 });
+  } catch (erroCarregamento) {
+    console.error('Erro ao carregar movimentações de estoque:', erroCarregamento);
+    carregando.style.display = 'none';
+    erro.textContent = 'Não foi possível carregar as movimentações. ' + erroCarregamento.message;
+    erro.style.display = 'block';
+    return;
+  }
+  carregando.style.display = 'none';
+
+  if (movimentacoes.length === 0) {
+    vazio.style.display = 'block';
+    return;
+  }
+
+  corpo.innerHTML = movimentacoes.map(linhaMovimentacaoEstoqueHtml).join('');
+}
+
+function linhaMovimentacaoEstoqueHtml(m) {
+  const produto = obterProdutoPorId(m.product_id);
+  const nomeProduto = produto ? produto.nome : '(produto removido)';
+  const tipo = ROTULOS_TIPO_MOVIMENTACAO_ESTOQUE[m.movement_type] || m.movement_type;
+  const sinal = m.quantity_change > 0 ? '+' : '';
+
+  return `
+    <tr>
+      <td>${formatarData(m.created_at)} ${formatarHora(m.created_at)}</td>
+      <td>${escaparHtml(nomeProduto)}</td>
+      <td>${escaparHtml(tipo)}</td>
+      <td>${sinal}${m.quantity_change}</td>
+      <td>${m.new_quantity}</td>
+      <td>${escaparHtml(m.reason || '')}</td>
+    </tr>`;
+}
 
 function renderizarResumoEstoque() {
   const moeda = obterConfiguracoes().moeda;
@@ -183,4 +236,5 @@ async function salvarAjusteEstoque(evento) {
   fecharModalEstoque();
   renderizarResumoEstoque();
   renderizarTabelaEstoque();
+  renderizarMovimentacoesEstoque();
 }

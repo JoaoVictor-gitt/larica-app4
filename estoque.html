@@ -77,6 +77,31 @@
         Nenhum produto encontrado. Cadastre produtos na tela Produtos.
       </div>
     </div>
+
+    <div class="pagina-titulo" style="margin-top:32px;">
+      <h2 style="margin:0;">Movimentações recentes</h2>
+    </div>
+
+    <div class="card tabela-estoque-wrap">
+      <table class="tabela">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Produto</th>
+            <th>Tipo</th>
+            <th>Quantidade</th>
+            <th>Estoque resultante</th>
+            <th>Observação</th>
+          </tr>
+        </thead>
+        <tbody id="corpo-tabela-movimentacoes"></tbody>
+      </table>
+      <div class="estado-vazio" id="estado-carregando-movimentacoes">Carregando movimentações...</div>
+      <div class="estado-vazio" id="estado-erro-movimentacoes" style="display:none;"></div>
+      <div class="estado-vazio" id="estado-vazio-movimentacoes" style="display:none;">
+        Nenhuma movimentação registrada ainda.
+      </div>
+    </div>
   </main>
 
   <!-- Modal de ajuste de estoque -->

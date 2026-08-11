@@ -257,6 +257,9 @@ const ROTULOS_STATUS_PEDIDO = {
 
 const ROTULOS_FORMA_PAGAMENTO = { cartao: 'Cartão', dinheiro: 'Dinheiro', revolut: 'Revolut' };
 
+/** Rótulos pt-BR pros movement_type de stock_movements (tela Estoque > Movimentações recentes) */
+const ROTULOS_TIPO_MOVIMENTACAO_ESTOQUE = { sale: 'Venda', manual_addition: 'Entrada', manual_removal: 'Saída' };
+
 /** Troco = valorPago - total, arredondado a 2 casas; null se valorPago inválido ou menor que o total (nunca negativo) */
 function calcularTroco(valorPago, total) {
   if (typeof valorPago !== 'number' || isNaN(valorPago) || valorPago < total) return null;

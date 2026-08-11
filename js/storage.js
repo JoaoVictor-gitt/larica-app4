@@ -319,37 +319,33 @@ function pesquisarProdutos({ termo, categoria, status } = {}) {
 // ---------------------------------------------------------------------------
 
 /**
- * Ajusta a quantidade em estoque de um produto e registra o movimento no
- * histórico. tipo: 'entrada' (soma), 'saida' ou 'venda' (subtrai, travado em 0),
- * 'ajuste' (define o valor absoluto informado).
+ * Ajusta a quantidade em estoque de um produto via RPC `adjust_stock`
+ * (adjust_stock valida, aplica e grava a movimentação em stock_movements —
+ * ver js/services/products-service.js:ajustarEstoqueNoSupabase). tipo:
+ * 'entrada' (soma), 'saida' (subtrai), 'ajuste' (define o valor absoluto
+ * informado, convertido aqui num delta com sinal antes de chamar a RPC).
  */
 async function ajustarEstoque(produtoId, { tipo, quantidade, observacao } = {}) {
   const produto = obterProdutoPorId(produtoId);
   if (!produto) throw new Error('Produto não encontrado: ' + produtoId);
 
   const qtd = Number(quantidade) || 0;
-  let novaQuantidade = produto.quantidadeEstoque;
+  let delta = 0;
 
-  if (tipo === 'entrada') novaQuantidade = produto.quantidadeEstoque + qtd;
-  else if (tipo === 'saida' || tipo === 'venda') novaQuantidade = Math.max(0, produto.quantidadeEstoque - qtd);
-  else if (tipo === 'ajuste') novaQuantidade = Math.max(0, qtd);
+  if (tipo === 'entrada') delta = qtd;
+  else if (tipo === 'saida') delta = -qtd;
+  else if (tipo === 'ajuste') delta = qtd - produto.quantidadeEstoque;
 
-  await atualizarEstoqueNoSupabase(produto.id, novaQuantidade);
+  if (delta === 0) return produto; // nada a fazer (ex.: "definir total" pro valor que já está)
+
+  const produtoAtualizado = await ajustarEstoqueNoSupabase(produto.id, delta, observacao || null);
   await carregarProdutosCache();
+  return produtoAtualizado;
+}
 
-  return registrarHistorico({
-    tipo: tipo,
-    itens: [
-      {
-        produtoId: produto.id,
-        nome: produto.nome,
-        quantidade: qtd,
-        valorUnitario: produto.preco,
-        valorTotal: produto.preco * qtd,
-      },
-    ],
-    observacao: observacao || '',
-  });
+/** Histórico de movimentações de estoque (tabela stock_movements no Supabase) — mais recentes primeiro */
+async function buscarMovimentacoesEstoque(opcoes) {
+  return buscarMovimentacoesEstoqueDoSupabase(opcoes);
 }
 
 /** Soma quantidadeEstoque * preco de todos os produtos — Combos não são item físico de estoque, não entram na conta */
@@ -462,53 +458,6 @@ function removerItemDoCarrinho(itemId) {
   const carrinho = obterCarrinho().filter((item) => item.itemId !== itemId);
   _gravarChave(CHAVES.carrinho, carrinho);
   return carrinho;
-}
-
-/**
- * Finaliza uma venda a partir do carrinho: abate o estoque de cada produto
- * (travado em 0, mesmo que o carrinho tenha ficado com quantidade acima do
- * estoque real por alguma alteração posterior) e grava UMA única entrada
- * no histórico com todos os itens do pedido e a forma de pagamento. Não
- * mexe no carrinho em si — quem chama é responsável por limparCarrinho()
- * depois. Retorna a entrada de histórico criada.
- */
-async function finalizarVenda(itensCarrinho, formaPagamento) {
-  const itensHistorico = [];
-
-  for (const item of itensCarrinho) {
-    if (item.combo) {
-      // Combos não têm estoque próprio (não há ficha técnica/baixa por ingrediente
-      // hoje) — só entra no histórico com o preço já calculado da personalização.
-      // Ponto certo, no futuro, pra dar baixa nos produtos que compõem o combo
-      // (ex.: item.combo.espetos/acompanhamentos/incluidos) — não implementado ainda.
-      itensHistorico.push({
-        produtoId: item.produtoId,
-        nome: item.combo.nome,
-        quantidade: item.quantidade,
-        valorUnitario: item.precoUnitario,
-        valorTotal: item.precoUnitario * item.quantidade,
-      });
-      continue;
-    }
-
-    const produto = obterProdutoPorId(item.produtoId);
-    if (!produto) continue; // produto pode ter sido excluído nesse meio-tempo
-
-    const quantidadeVendida = Math.min(item.quantidade, produto.quantidadeEstoque);
-    await atualizarEstoqueNoSupabase(produto.id, Math.max(0, produto.quantidadeEstoque - quantidadeVendida));
-
-    itensHistorico.push({
-      produtoId: produto.id,
-      nome: produto.nome,
-      quantidade: quantidadeVendida,
-      valorUnitario: item.precoUnitario,
-      valorTotal: item.precoUnitario * quantidadeVendida,
-    });
-  }
-
-  await carregarProdutosCache();
-
-  return registrarHistorico({ tipo: 'venda', itens: itensHistorico, formaPagamento });
 }
 
 // ---------------------------------------------------------------------------
