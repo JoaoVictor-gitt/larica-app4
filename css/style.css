@@ -370,6 +370,15 @@ body {
   border-color: var(--cor-terracota);
 }
 
+.campo-erro {
+  display: block;
+  min-height: 1em;
+  color: var(--cor-status-vermelho);
+  font-size: 0.8rem;
+}
+
+.titulo-grafico { margin: 0 0 var(--espaco-lg); font-size: 1rem; }
+
 /* Toggle switch (usado no modo escuro em Configurações) */
 .linha-toggle {
   display: flex;

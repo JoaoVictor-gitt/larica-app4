@@ -22,6 +22,7 @@
       <h1>Configurações</h1>
     </div>
 
+    <!-- Aparência: moeda + tema — preferências locais, continuam em localStorage -->
     <div class="card" style="max-width:520px;">
       <div class="linha-toggle">
         <div class="linha-toggle-texto">
@@ -34,12 +35,7 @@
         </label>
       </div>
 
-      <form id="form-configuracoes">
-        <div class="form-grupo">
-          <label for="campo-nome-foodtruck">Nome do Food Truck</label>
-          <input type="text" id="campo-nome-foodtruck" class="input" required />
-        </div>
-
+      <form id="form-configuracoes-locais">
         <div class="form-grupo">
           <label for="campo-moeda">Moeda</label>
           <select id="campo-moeda" class="input">
@@ -50,13 +46,119 @@
           </select>
         </div>
 
-        <div class="form-grupo">
-          <label for="campo-taxa-entrega">Taxa de entrega</label>
-          <input type="number" id="campo-taxa-entrega" class="input" min="0" step="0.01" />
-        </div>
-
-        <button type="submit" class="btn btn-primario">Salvar Configurações</button>
+        <button type="submit" class="btn btn-primario">Salvar</button>
       </form>
+    </div>
+
+    <div class="pagina-titulo" style="margin-top:8px;">
+      <h2 style="margin:0;">Regras de negócio</h2>
+    </div>
+
+    <div class="estado-vazio" id="estado-carregando-config-negocio">Carregando configurações...</div>
+    <div class="estado-vazio" id="estado-erro-config-negocio" style="display:none;"></div>
+
+    <div id="conteudo-config-negocio" style="display:none;">
+      <!-- Pedidos online -->
+      <div class="card" style="max-width:520px;">
+        <h2 class="titulo-grafico" style="margin-top:0;">Pedidos online</h2>
+        <form id="form-configuracoes-pedidos">
+          <div class="linha-toggle">
+            <div class="linha-toggle-texto">
+              <label for="campo-pedidos-ativos">Pedidos abertos</label>
+              <span>Quando desligado, o cliente vê o cardápio mas não consegue finalizar pedido</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="campo-pedidos-ativos" />
+              <span class="toggle-switch-trilho"></span>
+            </label>
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-mensagem-fechado">Mensagem quando fechado</label>
+            <input type="text" id="campo-mensagem-fechado" class="input" maxlength="200" required />
+          </div>
+
+          <button type="submit" class="btn btn-primario">Salvar</button>
+        </form>
+      </div>
+
+      <!-- Entrega e retirada -->
+      <div class="card" style="max-width:520px;">
+        <h2 class="titulo-grafico" style="margin-top:0;">Entrega e retirada</h2>
+        <form id="form-configuracoes-entrega">
+          <div class="linha-toggle">
+            <div class="linha-toggle-texto">
+              <label for="campo-entrega-ativa">Entrega ativa</label>
+              <span>Desligado remove a opção de Entrega no checkout</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="campo-entrega-ativa" />
+              <span class="toggle-switch-trilho"></span>
+            </label>
+          </div>
+
+          <div class="linha-toggle">
+            <div class="linha-toggle-texto">
+              <label for="campo-retirada-ativa">Retirada ativa</label>
+              <span>Desligado remove a opção de Retirada no checkout</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="campo-retirada-ativa" />
+              <span class="toggle-switch-trilho"></span>
+            </label>
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-entrega-taxa-minima">Taxa mínima (€)</label>
+            <input type="number" id="campo-entrega-taxa-minima" class="input" min="0" step="0.01" required />
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-entrega-distancia-minima">Distância mínima coberta pela taxa fixa (km)</label>
+            <input type="number" id="campo-entrega-distancia-minima" class="input" min="0" step="0.01" required />
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-entrega-preco-km">Preço por km acima do mínimo (€)</label>
+            <input type="number" id="campo-entrega-preco-km" class="input" min="0" step="0.01" required />
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-entrega-distancia-maxima">Distância máxima (km) — opcional</label>
+            <input type="number" id="campo-entrega-distancia-maxima" class="input" min="0" step="0.01" placeholder="Sem limite" />
+          </div>
+
+          <div class="form-grupo">
+            <label>Origem da entrega</label>
+            <span id="texto-origem-entrega" style="font-size:0.85rem; color:var(--cor-texto-secundario);"></span>
+          </div>
+
+          <span class="campo-erro" id="erro-configuracoes-entrega"></span>
+
+          <button type="submit" class="btn btn-primario">Salvar</button>
+        </form>
+      </div>
+
+      <!-- Horário de funcionamento -->
+      <div class="card">
+        <h2 class="titulo-grafico" style="margin-top:0;">Horário de funcionamento</h2>
+        <form id="form-configuracoes-horarios">
+          <table class="tabela">
+            <thead>
+              <tr>
+                <th>Dia</th>
+                <th>Aberto</th>
+                <th>Abertura</th>
+                <th>Fechamento</th>
+              </tr>
+            </thead>
+            <tbody id="corpo-tabela-horarios"></tbody>
+          </table>
+          <div style="margin-top:var(--espaco-md);">
+            <button type="submit" class="btn btn-primario">Salvar horários</button>
+          </div>
+        </form>
+      </div>
     </div>
   </main>
 
@@ -64,6 +166,7 @@
   <script src="js/storage.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="js/supabase.js"></script>
+  <script src="js/services/settings-service.js"></script>
   <script src="js/app.js"></script>
   <script src="js/configuracoes.js"></script>
 </body>

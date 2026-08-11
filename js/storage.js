@@ -24,9 +24,7 @@ const CHAVES = {
 };
 
 const CONFIGURACOES_PADRAO = {
-  nomeFoodTruck: 'Larica Food Truck',
   moeda: 'EUR',
-  taxaEntrega: 0,
   tema: 'escuro', // 'claro' | 'escuro'
   atualizadoEm: '',
 };
