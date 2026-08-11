@@ -176,9 +176,11 @@ async function createOrder(pedido, itensPedido) {
     pickup_time: pedido.retirada && pedido.retirada.modo === 'horario' ? pedido.retirada.horario : null,
     area: pedido.endereco ? pedido.endereco.area : null,
     delivery_instructions: pedido.endereco ? pedido.endereco.instrucoes : null,
-    // distance_km vem da cotação real da Edge Function calculate-delivery (pedido.js:calcularEntrega());
-    // por enquanto a RPC trata isso só como dado informativo — a validação/segurança da taxa em si
-    // é a próxima etapa (delivery_quotes), ainda não implementada.
+    // delivery_quote_id é a fonte oficial da taxa/distância pro create_customer_order (tabela
+    // public.delivery_quotes, criada pela Edge Function calculate-delivery) — delivery_fee/
+    // delivery_distance_km abaixo continuam enviados só por compatibilidade, a RPC os ignora
+    // pra pedidos de entrega.
+    delivery_quote_id: pedido.deliveryQuoteId || null,
     delivery_distance_km: pedido.distanciaEntregaKm != null ? pedido.distanciaEntregaKm : null,
     delivery_fee: pedido.taxaEntrega || 0,
     payment_method: PAGAMENTO_PARA_ENUM[pedido.formaPagamento],

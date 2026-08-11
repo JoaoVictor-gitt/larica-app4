@@ -1049,6 +1049,7 @@ async function calcularEntrega() {
     }
 
     estadoPedido.cotacaoEntrega = {
+      quoteId: data.quote_id || null,
       distanciaKm: data.distance_km,
       taxa: data.delivery_fee,
       modoViagem: data.travel_mode || 'BICYCLE',
@@ -1409,6 +1410,7 @@ async function confirmarPedido() {
       retirada: estadoPedido.fulfilment === 'retirada' ? { ...estadoPedido.retirada } : null,
       endereco: estadoPedido.fulfilment === 'entrega' ? { ...estadoPedido.endereco } : null,
       distanciaEntregaKm: distanciaEntregaAtual(),
+      deliveryQuoteId: estadoPedido.fulfilment === 'entrega' && estadoPedido.cotacaoEntrega ? estadoPedido.cotacaoEntrega.quoteId : null,
       formaPagamento: estadoPedido.formaPagamento,
       pagamentoDinheiro: estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro ? { ...estadoPedido.dinheiro } : null,
       subtotal,
