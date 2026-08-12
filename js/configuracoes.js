@@ -10,6 +10,16 @@
  * Depende de storage.js, utils.js e settings-service.js.
  */
 
+// Cache do último config completo de business_settings (pt-BR) — necessário porque
+// atualizarConfiguracoesNegocioNoSupabase() sempre espera o objeto inteiro (ver salvarConfiguracoesRevolut()).
+let configNegocioCache = null;
+
+// Arquivo de QR selecionado (ainda não enviado) — null enquanto não há seleção pendente.
+let arquivoQrRevolutSelecionado = null;
+
+const REVOLUT_QR_MIMES_ACEITOS = ['image/png', 'image/jpeg', 'image/webp'];
+const REVOLUT_QR_TAMANHO_MAXIMO_BYTES = 2 * 1024 * 1024; // 2 MB — mesmo limite validado em uploadQrRevolut() (settings-service.js)
+
 document.addEventListener('DOMContentLoaded', () => {
   preencherConfiguracoesLocais();
   document.getElementById('form-configuracoes-locais').addEventListener('submit', salvarConfiguracoesLocais);
@@ -18,6 +28,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('form-configuracoes-pedidos').addEventListener('submit', salvarConfiguracoesNegocio);
   document.getElementById('form-configuracoes-entrega').addEventListener('submit', salvarConfiguracoesNegocio);
   document.getElementById('form-configuracoes-horarios').addEventListener('submit', salvarHorarios);
+
+  document.getElementById('botao-selecionar-qr-revolut').addEventListener('click', () => {
+    document.getElementById('campo-qr-revolut').click();
+  });
+  document.getElementById('campo-qr-revolut').addEventListener('change', tratarSelecaoQrRevolut);
+  document.getElementById('form-configuracoes-revolut').addEventListener('submit', salvarConfiguracoesRevolut);
 
   carregarConfiguracoesNegocio();
 });
@@ -60,8 +76,10 @@ async function carregarConfiguracoesNegocio() {
 
   try {
     const [config, horarios] = await Promise.all([buscarConfiguracoesNegocioDoSupabase(), buscarHorariosFuncionamentoDoSupabase()]);
+    configNegocioCache = config;
     preencherConfiguracoesPedidos(config);
     preencherConfiguracoesEntrega(config);
+    preencherConfiguracoesRevolut(config);
     preencherHorarios(horarios);
     carregando.style.display = 'none';
     conteudo.style.display = '';
@@ -134,11 +152,121 @@ async function salvarConfiguracoesNegocio(evento) {
 
   try {
     const atualizado = await atualizarConfiguracoesNegocioNoSupabase(config);
+    configNegocioCache = atualizado;
     preencherConfiguracoesPedidos(atualizado);
     preencherConfiguracoesEntrega(atualizado);
     mostrarToast('Configurações salvas.', 'sucesso');
   } catch (erro) {
     mostrarToast(erro.message || 'Não foi possível salvar as configurações.', 'erro');
+  } finally {
+    botao.disabled = false;
+    botao.textContent = textoOriginal;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pagamento Revolut (business_settings.revolut_enabled/revolut_qr_path + Storage)
+// ---------------------------------------------------------------------------
+
+/** Preenche o toggle + preview do QR atual, e limpa qualquer seleção pendente de arquivo novo */
+function preencherConfiguracoesRevolut(config) {
+  document.getElementById('campo-revolut-ativo').checked = !!config.revolutAtivo;
+
+  arquivoQrRevolutSelecionado = null;
+  document.getElementById('campo-qr-revolut').value = '';
+  document.getElementById('preview-qr-revolut-novo-wrap').style.display = 'none';
+
+  atualizarPreviewQrRevolutAtual(config.revolutQrPath);
+}
+
+/** Mostra a imagem atual (via URL pública, sem nova query) ou o estado vazio, conforme revolutQrPath */
+function atualizarPreviewQrRevolutAtual(path) {
+  const img = document.getElementById('preview-qr-revolut-atual');
+  const vazio = document.getElementById('estado-vazio-qr-revolut');
+  const url = getUrlPublicaQrRevolut(path);
+
+  if (url) {
+    img.src = url;
+    img.style.display = '';
+    vazio.style.display = 'none';
+  } else {
+    img.removeAttribute('src');
+    img.style.display = 'none';
+    vazio.style.display = '';
+  }
+}
+
+/** Valida MIME/tamanho (mesmas regras de uploadQrRevolut) e mostra a prévia local — nada é enviado ainda */
+function tratarSelecaoQrRevolut(evento) {
+  const erroEl = document.getElementById('erro-configuracoes-revolut');
+  erroEl.textContent = '';
+
+  const arquivo = evento.target.files[0];
+  if (!arquivo) return;
+
+  if (!REVOLUT_QR_MIMES_ACEITOS.includes(arquivo.type)) {
+    erroEl.textContent = 'Formato de imagem inválido. Envie PNG, JPEG ou WEBP.';
+    evento.target.value = '';
+    return;
+  }
+  if (arquivo.size > REVOLUT_QR_TAMANHO_MAXIMO_BYTES) {
+    erroEl.textContent = 'A imagem precisa ter no máximo 2 MB.';
+    evento.target.value = '';
+    return;
+  }
+
+  arquivoQrRevolutSelecionado = arquivo;
+
+  const leitor = new FileReader();
+  leitor.onload = () => {
+    document.getElementById('preview-qr-revolut-novo').src = leitor.result;
+    document.getElementById('preview-qr-revolut-novo-wrap').style.display = '';
+  };
+  leitor.readAsDataURL(arquivo);
+}
+
+/**
+ * Se houver arquivo novo selecionado: upload primeiro, só então persiste business_settings com o path
+ * novo — se o upload falhar, nada é salvo (path anterior continua oficial). Se não houver arquivo novo,
+ * salva só o toggle, preservando revolutQrPath atual (nunca envia null sem intenção). Sempre manda o
+ * config completo em cache pra atualizarConfiguracoesNegocioNoSupabase() (ver achado da auditoria) —
+ * nunca um objeto parcial, senão os outros campos de negócio seriam zerados.
+ */
+async function salvarConfiguracoesRevolut(evento) {
+  evento.preventDefault();
+
+  const erroEl = document.getElementById('erro-configuracoes-revolut');
+  erroEl.textContent = '';
+
+  const revolutAtivo = document.getElementById('campo-revolut-ativo').checked;
+  const temQrAtual = !!(configNegocioCache && configNegocioCache.revolutQrPath);
+  const temArquivoNovo = !!arquivoQrRevolutSelecionado;
+
+  if (revolutAtivo && !temQrAtual && !temArquivoNovo) {
+    erroEl.textContent = 'Cadastre um QR Code antes de ativar o pagamento via Revolut.';
+    return;
+  }
+
+  const botao = document.getElementById('botao-salvar-revolut');
+  const textoOriginal = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = 'Salvando...';
+
+  try {
+    let novoPath = null;
+    if (temArquivoNovo) {
+      novoPath = await uploadQrRevolut(arquivoQrRevolutSelecionado);
+    }
+
+    const config = { ...configNegocioCache, revolutAtivo };
+    if (novoPath) config.revolutQrPath = novoPath;
+
+    const atualizado = await atualizarConfiguracoesNegocioNoSupabase(config);
+    configNegocioCache = atualizado;
+    preencherConfiguracoesRevolut(atualizado);
+    mostrarToast('Configurações do Revolut salvas.', 'sucesso');
+  } catch (erro) {
+    erroEl.textContent = erro.message || 'Não foi possível salvar as configurações do Revolut.';
   } finally {
     botao.disabled = false;
     botao.textContent = textoOriginal;

@@ -232,7 +232,7 @@
       <h2>Forma de pagamento</h2>
       <div class="opcoes-pagamento" id="opcoes-pagamento-pedido">
         <button type="button" class="opcao-pagamento" data-forma="cartao">
-          <span class="icone-pagamento">💳</span> Cartão
+          <span class="icone-pagamento">💳</span> Cartão na retirada/entrega
         </button>
         <button type="button" class="opcao-pagamento" data-forma="dinheiro">
           <span class="icone-pagamento">💶</span> Dinheiro
@@ -253,7 +253,7 @@
         </div>
 
         <button type="button" class="opcao-pagamento" data-forma="revolut">
-          <span class="icone-pagamento">🔵</span> Revolut
+          <span class="icone-pagamento">🔵</span> Revolut — pagar agora
         </button>
       </div>
       <div class="etapa-pedido-acoes">
@@ -274,14 +274,31 @@
 
     <!-- Etapa 7: Confirmação -->
     <section class="etapa-pedido" data-etapa="confirmacao">
-      <div class="tela-confirmacao">
+      <div class="tela-confirmacao" id="tela-confirmacao-padrao">
         <div class="icone-confirmacao">✅</div>
         <h2>Pedido recebido!</h2>
         <p>Obrigado! Seu pedido foi criado com sucesso.</p>
         <div class="numero-pedido" id="numero-pedido-confirmado"></div>
         <div id="resumo-confirmacao" class="card"></div>
-        <button type="button" class="btn btn-primario" id="botao-novo-pedido">Voltar ao cardápio</button>
       </div>
+
+      <!-- Revolut: pedido já foi criado (estoque reservado), mas payment_status='pending' até um staff
+           confirmar manualmente no Kanban (Etapa 4). Nunca afirma "Pagamento confirmado" aqui. -->
+      <div class="tela-confirmacao" id="tela-confirmacao-revolut" style="display:none;">
+        <div class="icone-confirmacao" id="revolut-icone">⏳</div>
+        <h2 id="revolut-titulo">Aguardando confirmação de pagamento</h2>
+        <p id="revolut-instrucao-transferencia">Faça a transferência de <strong id="revolut-valor-total">—</strong> pelo Revolut usando o QR Code abaixo.</p>
+        <div class="numero-pedido" id="numero-pedido-confirmado-revolut"></div>
+
+        <!-- Preenchido inteiramente por renderizarQrRevolut() (js/pedido.js) a partir do QR real
+             configurado em Configurações — nunca placeholder/QR fictício. -->
+        <div class="card qr-revolut-wrap" id="revolut-qr-wrap"></div>
+
+        <!-- Trocado in-place pela Etapa 5 (Realtime) quando payment_status vira 'paid', sem reconstruir a tela -->
+        <p class="aviso-info" id="status-pagamento-revolut">Após recebermos o pagamento, confirmaremos seu pedido e ele seguirá para preparo.</p>
+      </div>
+
+      <button type="button" class="btn btn-primario" id="botao-novo-pedido">Voltar ao cardápio</button>
     </section>
   </main>
 

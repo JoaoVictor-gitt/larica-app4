@@ -261,6 +261,25 @@ const ROTULOS_STATUS_PEDIDO = {
 
 const ROTULOS_FORMA_PAGAMENTO = { cartao: 'Cartão', dinheiro: 'Dinheiro', revolut: 'Revolut' };
 
+/**
+ * Status do PAGAMENTO de um pedido — conceito separado de STATUS_PEDIDO (esse é o status do fluxo
+ * operacional: Solicitado/Em Preparo/Pronto/Finalizado/Cancelado). 'legado' só existe em pedidos
+ * criados antes desta feature (Fase 9) — nenhum código novo atribui 'legado' a um pedido.
+ */
+const STATUS_PAGAMENTO = {
+  PENDENTE: 'pendente',
+  PAGO: 'pago',
+  PAGAR_NA_ENTREGA: 'pagar_na_entrega',
+  LEGADO: 'legado',
+};
+
+const ROTULOS_STATUS_PAGAMENTO = {
+  pendente: 'Aguardando confirmação',
+  pago: 'Pagamento confirmado',
+  pagar_na_entrega: 'Pagamento na retirada/entrega',
+  legado: 'Pagamento anterior ao novo sistema',
+};
+
 /** Rótulos pt-BR pros movement_type de stock_movements (tela Estoque > Movimentações recentes) */
 const ROTULOS_TIPO_MOVIMENTACAO_ESTOQUE = { sale: 'Venda', manual_addition: 'Entrada', manual_removal: 'Saída' };
 

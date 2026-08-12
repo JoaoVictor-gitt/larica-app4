@@ -49,6 +49,15 @@
     <div class="estado-vazio" id="estado-erro-pedidos" style="display:none;"></div>
 
     <div class="kanban-pedidos" id="kanban-pedidos" style="display:none;">
+      <section class="coluna-kanban" data-status="aguardando_pagamento">
+        <div class="coluna-kanban-cabecalho">
+          <h2>Aguardando pagamento</h2>
+          <span class="badge-coluna-kanban" id="contador-coluna-aguardando_pagamento">0</span>
+        </div>
+        <div class="coluna-kanban-lista" id="lista-pedidos-aguardando_pagamento"></div>
+        <p class="estado-vazio-coluna" id="vazio-coluna-aguardando_pagamento" style="display:none;">Nenhum pedido aqui.</p>
+      </section>
+
       <section class="coluna-kanban" data-status="solicitado">
         <div class="coluna-kanban-cabecalho">
           <h2>Solicitado</h2>

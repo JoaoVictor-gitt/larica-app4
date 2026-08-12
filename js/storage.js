@@ -603,6 +603,17 @@ async function cancelarPedido(id, motivo) {
   return atualizado;
 }
 
+/**
+ * Confirma manualmente o pagamento de um pedido Revolut pendente via RPC confirm_order_payment —
+ * não passa por _atualizarStatusPedido() de propósito, pois pagamento não é status operacional
+ * (orders.status não muda). Mesmo padrão de recarregar o cache depois da mudança.
+ */
+async function confirmarPagamentoPedido(id) {
+  const atualizado = await confirmOrderPaymentNoSupabase(id);
+  await carregarPedidosClientesCache();
+  return atualizado;
+}
+
 // Acompanhamentos e combos não são mais coleções próprias — são produtos
 // (categoria "Acompanhamentos" ou "Combos", esta última com `comboConfig`).
 // Use pesquisarProdutos()/obterProdutoPorId()/salvarProduto() normalmente.

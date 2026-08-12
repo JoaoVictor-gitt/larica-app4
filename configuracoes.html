@@ -139,6 +139,49 @@
         </form>
       </div>
 
+      <!-- Pagamento Revolut -->
+      <div class="card" style="max-width:520px;">
+        <h2 class="titulo-grafico" style="margin-top:0;">Pagamento Revolut</h2>
+        <form id="form-configuracoes-revolut">
+          <div class="linha-toggle">
+            <div class="linha-toggle-texto">
+              <label for="campo-revolut-ativo">Revolut ativo</label>
+              <span>Quando ativo, o cliente poderá escolher Revolut para pagar antecipadamente.</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="campo-revolut-ativo" />
+              <span class="toggle-switch-trilho"></span>
+            </label>
+          </div>
+
+          <div class="form-grupo">
+            <label>QR Code</label>
+            <div id="estado-vazio-qr-revolut" class="estado-vazio" style="display:none;">Nenhum QR Code cadastrado.</div>
+            <img
+              id="preview-qr-revolut-atual"
+              style="display:none; max-width:200px; border-radius:var(--raio-md); margin-bottom:var(--espaco-sm);"
+              alt="QR Code Revolut atual"
+            />
+            <div id="preview-qr-revolut-novo-wrap" style="display:none; margin-bottom:var(--espaco-sm);">
+              <span style="display:block; font-size:0.78rem; color:var(--cor-terracota); font-weight:600; margin-bottom:var(--espaco-xs);">
+                Novo QR selecionado (ainda não salvo)
+              </span>
+              <img
+                id="preview-qr-revolut-novo"
+                style="max-width:200px; border-radius:var(--raio-md); border:2px solid var(--cor-terracota);"
+                alt="Prévia do novo QR Code"
+              />
+            </div>
+            <input type="file" id="campo-qr-revolut" accept="image/png,image/jpeg,image/webp" style="display:none;" />
+            <button type="button" class="btn btn-secundario" id="botao-selecionar-qr-revolut">Selecionar QR Code</button>
+          </div>
+
+          <span class="campo-erro" id="erro-configuracoes-revolut"></span>
+
+          <button type="submit" class="btn btn-primario" id="botao-salvar-revolut">Salvar configurações Revolut</button>
+        </form>
+      </div>
+
       <!-- Horário de funcionamento -->
       <div class="card">
         <h2 class="titulo-grafico" style="margin-top:0;">Horário de funcionamento</h2>

@@ -32,6 +32,11 @@
 
 const CHAVE_PEDIDO_EM_ANDAMENTO = 'caju_pedido_em_andamento';
 
+// Realtime da confirmação Revolut (Fase 9/Etapa 5) — canal isolado, criado diretamente aqui (não em
+// orders-service.js: subscribeToOrders() é moldada pro padrão "recarrega tudo" do admin, sem filtro por
+// id). Nunca mais de um canal ativo por vez — ver assinarConfirmacaoRevolut()/cancelarAssinaturaConfirmacaoRevolut().
+let canalConfirmacaoRevolut = null;
+
 const ROTULOS_ETAPA_PEDIDO = {
   cardapio: 'Cardápio',
   carrinho: 'Carrinho',
@@ -202,8 +207,25 @@ async function carregarDisponibilidadeNegocio() {
     configuracoesNegocioCarregadas = true;
     aplicarDisponibilidadeFulfilment();
     invalidarFulfilmentSeIndisponivel();
+    aplicarDisponibilidadeRevolut();
+    invalidarFormaPagamentoSeIndisponivel();
     atualizarBannerDisponibilidade();
   }
+}
+
+/**
+ * Fonte única de verdade pra saber se Revolut pode ser oferecido/selecionado agora — reaproveitada
+ * pelo botão da etapa de pagamento, pela invalidação de estado restaurado e pelo clique defensivo.
+ * Exige config carregada sem erro, revolut_enabled=true E um QR realmente cadastrado.
+ */
+function revolutDisponivel() {
+  return (
+    configuracoesNegocioCarregadas &&
+    !erroConfiguracoesNegocio &&
+    !!configuracoesNegocio &&
+    !!configuracoesNegocio.revolutAtivo &&
+    !!configuracoesNegocio.revolutQrPath
+  );
 }
 
 /** Dia da semana em Dublin (0=domingo...6=sábado, mesma convenção de business_hours.day_of_week) */
@@ -374,6 +396,27 @@ function invalidarFulfilmentSeIndisponivel() {
   document.getElementById('botao-continuar-recebimento').disabled = true;
   salvarProgressoPedido();
   mostrarToast('A opção de recebimento escolhida não está mais disponível. Escolha novamente.', 'erro');
+}
+
+/** Desabilita + esmaece visualmente o botão Revolut quando revolutDisponivel() for false — mesmo padrão já usado pro fulfilment */
+function aplicarDisponibilidadeRevolut() {
+  const botao = document.querySelector('#opcoes-pagamento-pedido .opcao-pagamento[data-forma="revolut"]');
+  if (!botao) return;
+  const disponivel = revolutDisponivel();
+  botao.disabled = !disponivel;
+  botao.classList.toggle('opcao-indisponivel', !disponivel);
+}
+
+/** Se Revolut estava selecionado (restaurado do localStorage) e agora não está mais disponível, obriga nova escolha */
+function invalidarFormaPagamentoSeIndisponivel() {
+  if (estadoPedido.formaPagamento !== 'revolut') return;
+  if (revolutDisponivel()) return;
+
+  estadoPedido.formaPagamento = '';
+  document.querySelectorAll('#opcoes-pagamento-pedido .opcao-pagamento[data-forma]').forEach((b) => b.classList.remove('selecionada'));
+  document.getElementById('botao-continuar-pagamento').disabled = true;
+  salvarProgressoPedido();
+  mostrarToast('Pagamento via Revolut temporariamente indisponível. Escolha outra forma de pagamento.', 'erro');
 }
 
 // ---------------------------------------------------------------------------
@@ -1310,6 +1353,13 @@ function exibirErroCampo(idElementoErro, mensagem) {
 function ligarEventosPagamento() {
   document.querySelectorAll('#opcoes-pagamento-pedido .opcao-pagamento[data-forma]').forEach((botao) => {
     botao.addEventListener('click', () => {
+      // Defesa client-side além do disabled/opacidade visual — cobre inclusive o período em que
+      // business_settings ainda está carregando (revolutDisponivel() já é false nesse momento).
+      if (botao.dataset.forma === 'revolut' && !revolutDisponivel()) {
+        mostrarToast('Pagamento via Revolut temporariamente indisponível.', 'erro');
+        return;
+      }
+
       estadoPedido.formaPagamento = botao.dataset.forma;
       if (botao.dataset.forma !== 'dinheiro') resetarDadosPagamentoDinheiro();
 
@@ -1638,10 +1688,19 @@ async function confirmarPedido() {
 
     limparCarrinho(); // só depois de confirmado o sucesso no Supabase
     atualizarContadorCarrinho();
-    renderizarConfirmacao(ultimoPedidoConfirmado, config.moeda);
+
+    // Revolut: pedido já foi criado no banco (payment_status='pending', decidido só por
+    // create_customer_order) mas ainda não está "confirmado" — nunca mostrar a mensagem genérica aqui.
+    if (ultimoPedidoConfirmado.formaPagamento === 'revolut') {
+      renderizarConfirmacaoRevolut(ultimoPedidoConfirmado, config.moeda);
+      mostrarToast('Pedido criado! Aguardando confirmação de pagamento.', 'info');
+    } else {
+      renderizarConfirmacao(ultimoPedidoConfirmado, config.moeda);
+      mostrarToast('Pedido confirmado!', 'sucesso');
+    }
+
     irParaEtapaPedido('confirmacao');
     localStorage.removeItem(CHAVE_PEDIDO_EM_ANDAMENTO); // etapa de confirmação nunca deve ser restaurada num refresh
-    mostrarToast('Pedido confirmado!', 'sucesso');
     botaoConfirmar.disabled = false;
     botaoConfirmar.textContent = rotuloOriginalBotao;
   } catch (erro) {
@@ -1653,21 +1712,145 @@ async function confirmarPedido() {
 }
 
 function renderizarConfirmacao(pedido, moeda) {
+  document.getElementById('tela-confirmacao-revolut').style.display = 'none';
+  document.getElementById('tela-confirmacao-padrao').style.display = '';
+
   document.getElementById('numero-pedido-confirmado').textContent = pedido.numero;
 
   const linhasItens = pedido.itens
     .map((item) => `<div class="linha-resumo"><span>${item.quantidade}x ${escaparHtml(item.nome)}</span><span>${formatarMoeda(item.valorTotal, moeda)}</span></div>`)
     .join('');
 
+  // Cartão é sempre presencial (não há pagamento online nesta versão) — reforça isso na confirmação.
+  const avisoCartao =
+    pedido.formaPagamento === 'cartao' ? '<p class="aviso-info">Pagamento na retirada/entrega, presencialmente.</p>' : '';
+
   document.getElementById('resumo-confirmacao').innerHTML = `
     ${linhasItens}
     <div class="linha-resumo"><span>${pedido.fulfilment === 'entrega' ? 'Entrega' : 'Retirada'}</span><span></span></div>
     <div class="linha-resumo"><span>Pagamento</span><span>${escaparHtml(ROTULOS_FORMA_PAGAMENTO[pedido.formaPagamento] || '')}</span></div>
     <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoeda(pedido.total, moeda)}</span></div>
+    ${avisoCartao}
   `;
 }
 
+/**
+ * Tela de confirmação específica pra Revolut — pedido já existe no banco (payment_status='pending'),
+ * mas o pagamento ainda não foi confirmado por um staff, então NUNCA mostra "Pagamento confirmado" nem
+ * o texto genérico de renderizarConfirmacao(). O QR real vem de renderizarQrRevolut() (Fase 10A/Etapa 4).
+ * #status-pagamento-revolut é o ponto que o Realtime (Fase 9/Etapa 5) atualiza depois, sem reconstruir a tela.
+ */
+function renderizarConfirmacaoRevolut(pedido, moeda) {
+  document.getElementById('tela-confirmacao-padrao').style.display = 'none';
+  document.getElementById('tela-confirmacao-revolut').style.display = '';
+
+  // Reseta pro estado "aguardando" — importante se o cliente fizer mais de um pedido Revolut na mesma sessão
+  document.getElementById('revolut-icone').textContent = '⏳';
+  document.getElementById('revolut-titulo').textContent = 'Aguardando confirmação de pagamento';
+  document.getElementById('revolut-instrucao-transferencia').style.display = '';
+  document.getElementById('revolut-qr-wrap').style.display = '';
+  document.getElementById('status-pagamento-revolut').textContent =
+    'Após recebermos o pagamento, confirmaremos seu pedido e ele seguirá para preparo.';
+
+  document.getElementById('numero-pedido-confirmado-revolut').textContent = pedido.numero;
+  document.getElementById('revolut-valor-total').textContent = formatarMoeda(pedido.total, moeda);
+
+  renderizarQrRevolut();
+
+  // Realtime é só visual — nunca confirma pagamento nem chama a RPC. Se o pedido criado não tiver id
+  // (não deveria acontecer) ou a assinatura falhar, o cliente simplesmente continua vendo "Aguardando
+  // confirmação" (nunca finge sucesso por fallback).
+  if (pedido.id) {
+    assinarConfirmacaoRevolut(pedido.id);
+  } else {
+    cancelarAssinaturaConfirmacaoRevolut();
+  }
+}
+
+/**
+ * Substitui o conteúdo de #revolut-qr-wrap pela imagem real do QR, a partir de
+ * configuracoesNegocio.revolutQrPath (já carregado por carregarDisponibilidadeNegocio(), sem nova
+ * consulta). Path já é versionado por natureza (Etapa 1/2) — nenhuma querystring de cache-busting
+ * extra é necessária. Se não houver path, ou a imagem falhar ao carregar, mostra indisponibilidade —
+ * nunca QR fictício/hardcoded, nunca cancela o pedido automaticamente.
+ */
+function renderizarQrRevolut() {
+  const wrap = document.getElementById('revolut-qr-wrap');
+  const path = configuracoesNegocio && configuracoesNegocio.revolutQrPath;
+  const url = path ? getUrlPublicaQrRevolut(path) : null;
+
+  wrap.innerHTML = '';
+
+  if (!url) {
+    exibirQrRevolutIndisponivel(wrap);
+    return;
+  }
+
+  const img = document.createElement('img');
+  img.className = 'qr-revolut-imagem';
+  img.alt = 'QR Code para pagamento via Revolut';
+  img.onerror = () => exibirQrRevolutIndisponivel(wrap);
+  img.src = url;
+
+  const referencia = document.createElement('p');
+  referencia.className = 'qr-revolut-referencia';
+  referencia.textContent = 'Se o Revolut permitir adicionar referência/nota, use o número do pedido acima.';
+
+  wrap.appendChild(img);
+  wrap.appendChild(referencia);
+}
+
+/** O pedido já pode ter sido criado nesse ponto — nunca cancela automaticamente, só orienta contato manual */
+function exibirQrRevolutIndisponivel(wrap) {
+  wrap.innerHTML = '';
+  const aviso = document.createElement('p');
+  aviso.className = 'aviso-info aviso-atencao';
+  aviso.textContent =
+    'Pagamento via Revolut temporariamente indisponível. Entre em contato com a equipe para concluir o pagamento.';
+  wrap.appendChild(aviso);
+}
+
+/**
+ * Assina UPDATE em public.orders filtrado pelo id do pedido Revolut recém-criado — canal isolado,
+ * nome único por pedido, nunca mais de um ativo (ver cancelarAssinaturaConfirmacaoRevolut() logo abaixo).
+ * Só reage quando o próprio evento confirma payment_status='paid' — nunca assume isso localmente.
+ */
+function assinarConfirmacaoRevolut(pedidoId) {
+  cancelarAssinaturaConfirmacaoRevolut();
+  canalConfirmacaoRevolut = supabaseClient
+    .channel('confirmacao-revolut-' + pedidoId)
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'orders', filter: 'id=eq.' + pedidoId },
+      (payload) => {
+        if (payload.new && payload.new.payment_status === 'paid') {
+          exibirPagamentoConfirmadoRevolut();
+        }
+      }
+    )
+    .subscribe();
+}
+
+function cancelarAssinaturaConfirmacaoRevolut() {
+  if (canalConfirmacaoRevolut) {
+    supabaseClient.removeChannel(canalConfirmacaoRevolut);
+    canalConfirmacaoRevolut = null;
+  }
+}
+
+/** Troca a tela pra "Pagamento confirmado" em resposta a um UPDATE real recebido via Realtime — nunca muda orders.status, nunca chama RPC. */
+function exibirPagamentoConfirmadoRevolut() {
+  cancelarAssinaturaConfirmacaoRevolut(); // já confirmado, não precisa mais escutar
+
+  document.getElementById('revolut-icone').textContent = '✅';
+  document.getElementById('revolut-titulo').textContent = 'Pagamento confirmado';
+  document.getElementById('revolut-instrucao-transferencia').style.display = 'none';
+  document.getElementById('revolut-qr-wrap').style.display = 'none';
+  document.getElementById('status-pagamento-revolut').textContent = 'Seu pedido foi recebido e seguirá para preparo.';
+}
+
 function reiniciarPedido() {
+  cancelarAssinaturaConfirmacaoRevolut(); // único caminho de saída da etapa "confirmação" — nunca deixa canal órfão
   pilhaEtapasPedido = ['cardapio'];
   estadoPedido = estadoPedidoInicial();
   ultimoPedidoConfirmado = null;
@@ -1697,3 +1880,5 @@ function reiniciarPedido() {
   renderizarGradePedido();
   mostrarEtapaAtual();
 }
+
+window.addEventListener('beforeunload', cancelarAssinaturaConfirmacaoRevolut);

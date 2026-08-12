@@ -195,7 +195,11 @@ function renderizarQuadroPedidos() {
   // Mais antigo primeiro em todas as colunas — evita esquecer pedido parado (item 12 do briefing)
   pedidos = pedidos.slice().sort((a, b) => new Date(a.criadoEm) - new Date(b.criadoEm));
 
-  renderizarColunaKanban('solicitado', pedidos.filter((p) => p.status === STATUS_PEDIDO.SOLICITADO));
+  renderizarColunaKanban('aguardando_pagamento', pedidos.filter(pedidoAguardandoPagamento));
+  renderizarColunaKanban(
+    'solicitado',
+    pedidos.filter((p) => p.status === STATUS_PEDIDO.SOLICITADO && !pedidoAguardandoPagamento(p))
+  );
   renderizarColunaKanban('em_preparo', pedidos.filter((p) => p.status === STATUS_PEDIDO.EM_PREPARO));
   renderizarColunaKanban('pronto', pedidos.filter((p) => p.status === STATUS_PEDIDO.PRONTO));
   renderizarColunaKanban(
@@ -238,6 +242,22 @@ function renderizarColunaKanban(status, pedidosDaColuna) {
   lista.querySelectorAll('[data-acao="cancelar"]').forEach((botao) => {
     botao.addEventListener('click', () => abrirModalCancelamento(botao.dataset.id));
   });
+  lista.querySelectorAll('[data-acao="confirmar-pagamento"]').forEach((botao) => {
+    botao.addEventListener('click', () => executarAcaoPedido(botao, confirmarPagamentoPedido, 'Pagamento confirmado.'));
+  });
+}
+
+/**
+ * Pedido Revolut ainda não confirmado pela equipe — sai das colunas operacionais normais e vai pra
+ * área própria "Aguardando pagamento" (Fase 9). Pedidos 'legado' nunca batem aqui (statusPagamento
+ * nunca é 'pendente' pra eles), então seguem só pela regra operacional antiga, sem exceção especial.
+ */
+function pedidoAguardandoPagamento(pedido) {
+  return (
+    pedido.formaPagamento === 'revolut' &&
+    pedido.statusPagamento === STATUS_PAGAMENTO.PENDENTE &&
+    pedido.status === STATUS_PEDIDO.SOLICITADO
+  );
 }
 
 /**
@@ -316,6 +336,9 @@ function obterTimestampEtapaAtual(pedido) {
 }
 
 function botaoPrincipalPedidoHtml(pedido) {
+  if (pedidoAguardandoPagamento(pedido)) {
+    return `<button type="button" class="btn btn-primario" data-acao="confirmar-pagamento" data-id="${pedido.id}">Confirmar pagamento</button>`;
+  }
   if (pedido.status === STATUS_PEDIDO.SOLICITADO) {
     return `<button type="button" class="btn btn-primario" data-acao="aceitar" data-id="${pedido.id}">Aceitar pedido</button>`;
   }
@@ -363,7 +386,11 @@ function rotuloPagamentoCompacto(pedido) {
   const icones = { cartao: '💳', dinheiro: '💶', revolut: '🔵' };
   const icone = icones[pedido.formaPagamento] || '';
   const rotulo = ROTULOS_FORMA_PAGAMENTO[pedido.formaPagamento] || '';
-  return `${icone} ${rotulo}${precisaDeTroco(pedido) ? ' · Troco' : ''}`.trim();
+  const statusPendente =
+    pedido.formaPagamento === 'revolut' && pedido.statusPagamento === STATUS_PAGAMENTO.PENDENTE
+      ? ` · ${ROTULOS_STATUS_PAGAMENTO.pendente}`
+      : '';
+  return `${icone} ${rotulo}${statusPendente}${precisaDeTroco(pedido) ? ' · Troco' : ''}`.trim();
 }
 
 /**
@@ -380,7 +407,11 @@ function linhaTrocoNecessarioHtml(pedido) {
 /** Bloco "Pagamento" do modal de detalhes — destaca o troco quando a forma for Dinheiro */
 function blocoPagamentoDetalhePedidoHtml(pedido) {
   const rotulo = `<p>${escaparHtml(ROTULOS_FORMA_PAGAMENTO[pedido.formaPagamento] || '')}</p>`;
-  if (pedido.formaPagamento !== 'dinheiro') return rotulo;
+  const rotuloStatusPagamento = pedido.statusPagamento
+    ? `<p>${escaparHtml(ROTULOS_STATUS_PAGAMENTO[pedido.statusPagamento] || '')}</p>`
+    : '';
+
+  if (pedido.formaPagamento !== 'dinheiro') return rotulo + rotuloStatusPagamento;
 
   const d = pedido.pagamentoDinheiro;
   const moeda = obterConfiguracoes().moeda;
@@ -388,7 +419,7 @@ function blocoPagamentoDetalhePedidoHtml(pedido) {
     d && d.precisaTroco
       ? `<p class="aviso-troco">Troco para: ${formatarMoeda(d.valorPago, moeda)}<br/>Troco necessário: ${formatarMoeda(d.troco, moeda)}</p>`
       : '<p>Não precisa de troco</p>';
-  return rotulo + detalheTroco;
+  return rotulo + rotuloStatusPagamento + detalheTroco;
 }
 
 // ---------------------------------------------------------------------------

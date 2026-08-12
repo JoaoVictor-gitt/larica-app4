@@ -20,6 +20,9 @@ const ENUM_PARA_PAGAMENTO = { card: 'cartao', cash: 'dinheiro', revolut: 'revolu
 const STATUS_PARA_ENUM = { solicitado: 'requested', em_preparo: 'preparing', pronto: 'ready', finalizado: 'completed', cancelado: 'cancelled' };
 const ENUM_PARA_STATUS = { requested: 'solicitado', preparing: 'em_preparo', ready: 'pronto', completed: 'finalizado', cancelled: 'cancelado' };
 
+const STATUS_PAGAMENTO_PARA_ENUM = { pendente: 'pending', pago: 'paid', pagar_na_entrega: 'pay_on_delivery', legado: 'legacy' };
+const ENUM_PARA_STATUS_PAGAMENTO = { pending: 'pendente', paid: 'pago', pay_on_delivery: 'pagar_na_entrega', legacy: 'legado' };
+
 /** Reconstrói o "pedido" no formato de sempre a partir de uma linha de `orders` (com order_items/order_item_selections embutidos) */
 function _linhaSupabaseParaPedido(o) {
   const ehEntrega = o.fulfilment_type === 'delivery';
@@ -33,6 +36,9 @@ function _linhaSupabaseParaPedido(o) {
     finalizadoEm: o.completed_at,
     canceladoEm: o.cancelled_at,
     motivoCancelamento: o.cancel_reason,
+    statusPagamento: ENUM_PARA_STATUS_PAGAMENTO[o.payment_status] || o.payment_status,
+    pagamentoConfirmadoEm: o.payment_confirmed_at,
+    pagamentoConfirmadoPor: o.payment_confirmed_by,
     cliente: { nome: o.customer_name, telefone: o.customer_phone },
     fulfilment: ENUM_PARA_FULFILMENT[o.fulfilment_type] || o.fulfilment_type,
     // pickup_time (coluna `time` do Supabase) vem como "HH:MM:SS" — cortamos os segundos.
@@ -208,6 +214,7 @@ async function createOrder(pedido, itensPedido) {
   if (error) throw new Error(error.message);
 
   return {
+    id: data.id,
     numero: '#LARICA-' + data.order_number,
     status: ENUM_PARA_STATUS[data.status] || data.status,
     criadoEm: data.created_at,
@@ -239,6 +246,18 @@ async function updateOrderStatusNoSupabase(id, novoStatusPt) {
  */
 async function cancelOrderNoSupabase(id, motivo) {
   const { data, error } = await supabaseClient.rpc('cancel_order', { p_order_id: id, p_reason: motivo });
+  if (error) throw new Error(error.message);
+  return _linhaSupabaseParaPedido(data);
+}
+
+/**
+ * Confirma manualmente o pagamento de um pedido Revolut pendente via RPC confirm_order_payment —
+ * toda a validação (payment_method/payment_status/status, quem confirmou) roda no banco; aqui só
+ * chama e mapeia o retorno. Nunca grava payment_status/payment_confirmed_at/payment_confirmed_by
+ * direto na tabela — a única forma de confirmar pagamento é essa RPC.
+ */
+async function confirmOrderPaymentNoSupabase(id) {
+  const { data, error } = await supabaseClient.rpc('confirm_order_payment', { p_order_id: id });
   if (error) throw new Error(error.message);
   return _linhaSupabaseParaPedido(data);
 }

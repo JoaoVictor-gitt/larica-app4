@@ -200,6 +200,43 @@
   padding-bottom: var(--espaco-md);
 }
 
+/* QR Code de pagamento Revolut — centralizado, nunca ultrapassa a largura da tela */
+.qr-revolut-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--espaco-sm);
+  text-align: center;
+}
+
+.qr-revolut-imagem {
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+  border-radius: var(--raio-md);
+}
+
+.qr-revolut-placeholder {
+  width: 100%;
+  max-width: 260px;
+  aspect-ratio: 1 / 1;
+  border: 2px dashed var(--cor-borda);
+  border-radius: var(--raio-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--espaco-md);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--cor-texto-secundario);
+}
+
+.qr-revolut-referencia {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--cor-texto-secundario);
+}
+
 @media (max-width: 480px) {
   .opcoes-recebimento {
     grid-template-columns: 1fr;

@@ -32,7 +32,7 @@
 
 .kanban-pedidos {
   display: grid;
-  grid-template-columns: repeat(4, minmax(280px, 1fr));
+  grid-template-columns: repeat(5, minmax(280px, 1fr));
   gap: var(--espaco-lg);
   align-items: start;
   overflow-x: auto;
