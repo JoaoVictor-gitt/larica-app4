@@ -282,7 +282,9 @@ function unsubscribeFromOrders(canal) {
 async function getOrdersForReport({ desdeUtc, ateUtc } = {}) {
   let consulta = supabaseClient
     .from('orders')
-    .select('id, order_number, created_at, cancelled_at, status, fulfilment_type, payment_method, subtotal, delivery_fee, total')
+    .select(
+      'id, order_number, created_at, cancelled_at, status, fulfilment_type, payment_method, subtotal, delivery_fee, total, cash_amount, change_amount, needs_change'
+    )
     .order('created_at', { ascending: true });
   if (desdeUtc) consulta = consulta.gte('created_at', desdeUtc);
   if (ateUtc) consulta = consulta.lt('created_at', ateUtc);
@@ -300,6 +302,38 @@ async function getOrdersForReport({ desdeUtc, ateUtc } = {}) {
     formaPagamento: ENUM_PARA_PAGAMENTO[o.payment_method] || o.payment_method,
     subtotal: Number(o.subtotal) || 0,
     taxaEntrega: Number(o.delivery_fee) || 0,
+    total: Number(o.total) || 0,
+    // Mesmos nomes pt-BR já usados em _linhaSupabaseParaPedido() (dentro de pagamentoDinheiro) — reaproveitados
+    // aqui de propósito, sem nomenclatura paralela.
+    precisaTroco: !!o.needs_change,
+    valorPago: Number(o.cash_amount) || 0,
+    troco: Number(o.change_amount) || 0,
+  }));
+}
+
+/**
+ * Busca pedidos cancelados pra relatório, filtrados por cancelled_at (não created_at) — fonte oficial
+ * pra métricas de cancelamento por período. Corrige a limitação de getOrdersForReport(): como aquela
+ * consulta filtra por created_at, um pedido criado fora da janela do período mas cancelado dentro dela
+ * nunca aparece ali. Mesmo padrão enxuto: uma única consulta, lista explícita de colunas, sem
+ * order_items/seleções de combo.
+ */
+async function getCancelledOrdersForReport({ desdeUtc, ateUtc } = {}) {
+  let consulta = supabaseClient
+    .from('orders')
+    .select('id, order_number, cancelled_at, total')
+    .eq('status', 'cancelled')
+    .order('cancelled_at', { ascending: true });
+  if (desdeUtc) consulta = consulta.gte('cancelled_at', desdeUtc);
+  if (ateUtc) consulta = consulta.lt('cancelled_at', ateUtc);
+
+  const { data, error } = await consulta;
+  if (error) throw new Error(error.message);
+
+  return (data || []).map((o) => ({
+    id: o.id,
+    numero: '#LARICA-' + o.order_number,
+    canceladoEm: o.cancelled_at,
     total: Number(o.total) || 0,
   }));
 }

@@ -118,6 +118,40 @@
     <div class="estado-vazio" id="estado-erro-relatorios" style="display:none;"></div>
 
     <div id="conteudo-relatorios-dashboard">
+      <div class="card" style="margin-bottom:var(--espaco-lg);">
+        <h2 class="titulo-grafico">Fechamento do período</h2>
+
+        <h3 class="cartao-dashboard-rotulo" style="margin:0 0 var(--espaco-sm);">Resumo</h3>
+        <div class="lista-resumo-relatorio">
+          <div class="linha-resumo"><span>Faturamento válido</span><span id="fechamento-faturamento">—</span></div>
+          <div class="linha-resumo"><span>Pedidos válidos</span><span id="fechamento-pedidos">—</span></div>
+          <div class="linha-resumo"><span>Ticket médio</span><span id="fechamento-ticket-medio">—</span></div>
+          <div class="linha-resumo"><span>Taxas de entrega</span><span id="fechamento-taxas-entrega">—</span></div>
+        </div>
+
+        <h3 class="cartao-dashboard-rotulo" style="margin:var(--espaco-lg) 0 var(--espaco-sm);">Formas de pagamento</h3>
+        <div class="lista-resumo-relatorio">
+          <div class="linha-resumo"><span>Cartão</span><span id="fechamento-cartao">—</span></div>
+          <div class="linha-resumo"><span>Dinheiro</span><span id="fechamento-dinheiro">—</span></div>
+          <div class="linha-resumo"><span>Revolut</span><span id="fechamento-revolut">—</span></div>
+        </div>
+
+        <h3 class="cartao-dashboard-rotulo" style="margin:var(--espaco-lg) 0 var(--espaco-sm);">Recebimento</h3>
+        <div class="lista-resumo-relatorio">
+          <div class="linha-resumo"><span>Delivery</span><span id="fechamento-delivery">—</span></div>
+          <div class="linha-resumo"><span>Retirada</span><span id="fechamento-retirada">—</span></div>
+        </div>
+
+        <h3 class="cartao-dashboard-rotulo" style="margin:var(--espaco-lg) 0 var(--espaco-sm);">Caixa / Informativos</h3>
+        <div class="lista-resumo-relatorio">
+          <div class="linha-resumo"><span>Troco informado</span><span id="fechamento-troco">—</span></div>
+          <p style="margin:0 0 var(--espaco-sm);font-size:0.72rem;color:var(--cor-texto-secundario);">Informativo — não altera o faturamento.</p>
+          <div class="linha-resumo"><span>Cancelamentos</span><span id="fechamento-cancelamentos">—</span></div>
+          <div class="linha-resumo"><span>Valor histórico cancelado</span><span id="fechamento-valor-cancelado">—</span></div>
+          <p style="margin:0;font-size:0.72rem;color:var(--cor-texto-secundario);">Total original dos pedidos cancelados no período.</p>
+        </div>
+      </div>
+
       <div class="grade-graficos-dashboard">
         <div class="card">
           <h2 class="titulo-grafico">Faturamento por dia</h2>

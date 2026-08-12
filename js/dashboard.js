@@ -10,6 +10,7 @@
 
 let periodoAtualDashboard = 'hoje';
 let pedidosHojeCache = null; // preenchido por carregarCardsHoje(), reaproveitado se o período "Hoje" for selecionado logo em seguida
+let canceladosHojeCache = null; // idem, mas para getCancelledOrdersForReport() (filtrado por cancelled_at, não created_at)
 
 document.addEventListener('DOMContentLoaded', async () => {
   try {
@@ -123,6 +124,48 @@ function calcularResumoPedidos(pedidos) {
   return { faturamento, taxaEntrega, totalPedidos, ticketMedio: totalPedidos > 0 ? faturamento / totalPedidos : 0 };
 }
 
+/**
+ * Resumo do bloco "Fechamento" — função pura, sem consulta nenhuma. `pedidosValidos` já vem sem
+ * cancelados (mesma regra do resto do Dashboard); `cancelados` vem de getCancelledOrdersForReport()
+ * (filtrado por cancelled_at). trocoInformado é só informativo — nunca entra em faturamento, nunca
+ * soma valorPago. valorHistoricoCancelado fica sempre separado de faturamento.
+ */
+function calcularResumoFechamento(pedidosValidos, cancelados) {
+  const faturamento = pedidosValidos.reduce((soma, p) => soma + p.total, 0);
+  const totalPedidos = pedidosValidos.length;
+  const ticketMedio = totalPedidos > 0 ? faturamento / totalPedidos : 0;
+  const taxasEntrega = pedidosValidos.reduce((soma, p) => soma + p.taxaEntrega, 0);
+
+  const somaPorFiltro = (predicado) => pedidosValidos.filter(predicado).reduce((soma, p) => soma + p.total, 0);
+  const cartao = somaPorFiltro((p) => p.formaPagamento === 'cartao');
+  const dinheiro = somaPorFiltro((p) => p.formaPagamento === 'dinheiro');
+  const revolut = somaPorFiltro((p) => p.formaPagamento === 'revolut');
+  const delivery = somaPorFiltro((p) => p.fulfilment === 'entrega');
+  const retirada = somaPorFiltro((p) => p.fulfilment === 'retirada');
+
+  const trocoInformado = pedidosValidos
+    .filter((p) => p.formaPagamento === 'dinheiro' && p.precisaTroco === true)
+    .reduce((soma, p) => soma + p.troco, 0);
+
+  const totalCancelamentos = cancelados.length;
+  const valorHistoricoCancelado = cancelados.reduce((soma, c) => soma + c.total, 0);
+
+  return {
+    faturamento,
+    totalPedidos,
+    ticketMedio,
+    taxasEntrega,
+    cartao,
+    dinheiro,
+    revolut,
+    delivery,
+    retirada,
+    trocoInformado,
+    totalCancelamentos,
+    valorHistoricoCancelado,
+  };
+}
+
 async function carregarCardsHoje() {
   const moeda = obterConfiguracoes().moeda;
   try {
@@ -141,16 +184,16 @@ async function carregarCardsHoje() {
     document.getElementById('cartao-taxa-entrega-hoje').textContent = formatarMoeda(resumo.taxaEntrega, moeda);
 
     // "Cancelamentos hoje" é informativo — nunca entra em faturamento/pedidos/ticket médio/taxa.
-    // Conta por canceladoEm (não criadoEm), dentro do array bruto (doDia é filtrado por criadoEm,
-    // então um pedido criado ontem e cancelado hoje não aparece aqui — limitação documentada,
-    // aceita explicitamente para não precisar de uma consulta adicional).
-    const cancelamentosHoje = brutos.filter(
-      (p) => p.status === STATUS_PEDIDO.CANCELADO && p.canceladoEm && dias.includes(chaveDataDublin(p.canceladoEm))
-    ).length;
+    // Fonte oficial: getCancelledOrdersForReport(), filtrada por cancelled_at (não created_at) — assim
+    // um pedido criado dias atrás e cancelado hoje também é contado (getOrdersForReport()/brutos, que
+    // filtra por created_at, não serviria pra isso).
+    const canceladosBrutos = await getCancelledOrdersForReport({ desdeUtc, ateUtc });
+    const canceladosHoje = canceladosBrutos.filter((c) => dias.includes(chaveDataDublin(c.canceladoEm)));
     const cartaoCancelamentos = document.getElementById('cartao-cancelamentos-hoje');
-    if (cartaoCancelamentos) cartaoCancelamentos.textContent = cancelamentosHoje;
+    if (cartaoCancelamentos) cartaoCancelamentos.textContent = canceladosHoje.length;
 
     pedidosHojeCache = pedidos;
+    canceladosHojeCache = canceladosHoje;
   } catch (erro) {
     console.error('Erro ao carregar cards de hoje:', erro);
     ['cartao-faturamento-hoje', 'cartao-pedidos-hoje', 'cartao-ticket-medio-hoje', 'cartao-taxa-entrega-hoje', 'cartao-cancelamentos-hoje'].forEach((id) => {
@@ -206,11 +249,17 @@ async function carregarRelatorioPeriodo(tipo, inicioPersonalizado, fimPersonaliz
     const { dias, desdeUtc, ateUtc } = calcularJanelaPeriodo(tipo, inicioPersonalizado, fimPersonalizado);
 
     let pedidos;
-    if (tipo === 'hoje' && pedidosHojeCache) {
-      pedidos = pedidosHojeCache; // já filtrado sem cancelados em carregarCardsHoje()
+    let cancelados;
+    if (tipo === 'hoje' && pedidosHojeCache && canceladosHojeCache) {
+      // já carregados em carregarCardsHoje() para a mesma janela — evita repetir as duas consultas
+      pedidos = pedidosHojeCache; // já filtrado sem cancelados
+      cancelados = canceladosHojeCache; // já filtrado por cancelled_at
     } else {
       const brutos = await getOrdersForReport({ desdeUtc, ateUtc });
       pedidos = brutos.filter((p) => dias.includes(chaveDataDublin(p.criadoEm)) && p.status !== STATUS_PEDIDO.CANCELADO);
+
+      const canceladosBrutos = await getCancelledOrdersForReport({ desdeUtc, ateUtc });
+      cancelados = canceladosBrutos.filter((c) => dias.includes(chaveDataDublin(c.canceladoEm)));
     }
 
     const topProdutos = await getTopProductsForReport(
@@ -222,6 +271,7 @@ async function carregarRelatorioPeriodo(tipo, inicioPersonalizado, fimPersonaliz
     renderizarFormasPagamento(pedidos);
     renderizarDeliveryCollection(pedidos);
     renderizarTopProdutos(topProdutos);
+    renderizarFechamento(calcularResumoFechamento(pedidos, cancelados));
 
     carregando.style.display = 'none';
     conteudo.style.display = '';
@@ -308,6 +358,33 @@ function renderizarDeliveryCollection(pedidos) {
     <div class="linha-resumo"><span>Delivery</span><span>${porFulfilment.entrega.qtd} pedido${porFulfilment.entrega.qtd === 1 ? '' : 's'} · ${formatarMoeda(porFulfilment.entrega.valor, moeda)}</span></div>
     <div class="linha-resumo"><span>Collection</span><span>${porFulfilment.retirada.qtd} pedido${porFulfilment.retirada.qtd === 1 ? '' : 's'} · ${formatarMoeda(porFulfilment.retirada.valor, moeda)}</span></div>
   `;
+}
+
+/**
+ * Preenche o bloco "Fechamento" (por período) com o resumo de calcularResumoFechamento(). dashboard.html
+ * ainda não tem esses elementos — cada id é procurado individualmente e só preenchido se existir, mesmo
+ * padrão defensivo já usado em cartao-cancelamentos-hoje (ver carregarCardsHoje()), pra não quebrar nada
+ * enquanto o HTML/CSS dessa seção não é criado.
+ */
+function renderizarFechamento(resumo) {
+  const moeda = obterConfiguracoes().moeda;
+  const definir = (id, texto) => {
+    const elemento = document.getElementById(id);
+    if (elemento) elemento.textContent = texto;
+  };
+
+  definir('fechamento-faturamento', formatarMoeda(resumo.faturamento, moeda));
+  definir('fechamento-pedidos', resumo.totalPedidos);
+  definir('fechamento-ticket-medio', formatarMoeda(resumo.ticketMedio, moeda));
+  definir('fechamento-taxas-entrega', formatarMoeda(resumo.taxasEntrega, moeda));
+  definir('fechamento-cartao', formatarMoeda(resumo.cartao, moeda));
+  definir('fechamento-dinheiro', formatarMoeda(resumo.dinheiro, moeda));
+  definir('fechamento-revolut', formatarMoeda(resumo.revolut, moeda));
+  definir('fechamento-delivery', formatarMoeda(resumo.delivery, moeda));
+  definir('fechamento-retirada', formatarMoeda(resumo.retirada, moeda));
+  definir('fechamento-troco', formatarMoeda(resumo.trocoInformado, moeda));
+  definir('fechamento-cancelamentos', resumo.totalCancelamentos);
+  definir('fechamento-valor-cancelado', formatarMoeda(resumo.valorHistoricoCancelado, moeda));
 }
 
 /** Ranking de produtos/combos mais vendidos (por quantidade) no período selecionado */
