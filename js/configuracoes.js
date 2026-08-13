@@ -18,7 +18,7 @@ let configNegocioCache = null;
 let arquivoQrRevolutSelecionado = null;
 
 const REVOLUT_QR_MIMES_ACEITOS = ['image/png', 'image/jpeg', 'image/webp'];
-const REVOLUT_QR_TAMANHO_MAXIMO_BYTES = 2 * 1024 * 1024; // 2 MB — mesmo limite validado em uploadQrRevolut() (settings-service.js)
+// REVOLUT_QR_TAMANHO_MAXIMO_BYTES vem de js/services/settings-service.js (carregado antes deste arquivo) — mesma constante, não redeclarada aqui.
 
 // Cache da última lista de cupons carregada (pt-BR) — usado pra reabrir o modal de edição sem nova consulta.
 let cuponsCache = [];
