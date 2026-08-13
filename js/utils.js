@@ -321,6 +321,100 @@ function formatarTempoDecorrido(iso) {
 }
 
 // ---------------------------------------------------------------------------
+// Cupons: conversão datetime-local <-> Europe/Dublin (validade de cupons)
+// ---------------------------------------------------------------------------
+
+/** timestamptz do Supabase (ISO/UTC) -> valor pronto pro <input type="datetime-local">, no fuso informado. */
+function timestamptzParaDatetimeLocal(isoUtc, fuso) {
+  if (!isoUtc) return '';
+  const data = new Date(isoUtc);
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: fuso || 'Europe/Dublin',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(data);
+  const mapa = Object.fromEntries(partes.map((p) => [p.type, p.value]));
+  return `${mapa.year}-${mapa.month}-${mapa.day}T${mapa.hour}:${mapa.minute}`;
+}
+
+/** Offset (em minutos) do fuso informado num instante específico — formata o instante nesse fuso e reinterpreta como UTC pra medir a diferença. */
+function _offsetMinutosDoFusoEm(instanteMs, fuso) {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: fuso,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(instanteMs));
+  const mapa = Object.fromEntries(partes.map((p) => [p.type, p.value]));
+  const comoUtcMs = Date.UTC(
+    Number(mapa.year),
+    Number(mapa.month) - 1,
+    Number(mapa.day),
+    Number(mapa.hour),
+    Number(mapa.minute),
+    Number(mapa.second)
+  );
+  return Math.round((comoUtcMs - instanteMs) / 60000);
+}
+
+/**
+ * Offsets (minutos) candidatos pra resolver um datetime-local em Europe/Dublin, amostrados em 1º de
+ * janeiro e 1º de julho do ano informado (datas sempre bem distantes de qualquer transição de DST) —
+ * pra Dublin isso dá [0, 60] (GMT e IST). Não é uma solução genérica pra "descobrir todos os offsets
+ * de qualquer fuso": é uma estratégia desenhada especificamente pra Europe/Dublin, que só tem essas
+ * duas transições por ano (não serve como garantia pra fusos com regras de DST diferentes).
+ */
+function _offsetsCandidatosDoAno(ano, fuso) {
+  const offsetJaneiro = _offsetMinutosDoFusoEm(Date.UTC(ano, 0, 1, 12), fuso);
+  const offsetJulho = _offsetMinutosDoFusoEm(Date.UTC(ano, 6, 1, 12), fuso);
+  return Array.from(new Set([offsetJaneiro, offsetJulho]));
+}
+
+/**
+ * "YYYY-MM-DDTHH:MM" (valor de <input type="datetime-local">) -> instante UTC correto no fuso
+ * informado, como ISO string. Necessário porque `new Date('YYYY-MM-DDTHH:MM')` usa o fuso do
+ * navegador, não o do estabelecimento.
+ *
+ * Não assume convergência em 1 passo: testa cada offset que o fuso realmente assume naquele ano
+ * (via _offsetsCandidatosDoAno) e só aceita um candidato se o round-trip (candidato -> fuso alvo ->
+ * datetime-local de novo) bater exatamente com o valor pedido. Se nenhum candidato bater, o horário
+ * local não existe (pulo da mudança pro horário de verão) — erro. Se mais de um candidato bater, o
+ * horário é ambíguo (ocorre duas vezes na volta do horário de verão) — erro pedindo outro horário,
+ * nunca escolhe uma das duas ocorrências arbitrariamente.
+ */
+function datetimeLocalParaUtcIso(valor, fuso) {
+  if (!valor) return null;
+  const fusoAlvo = fuso || 'Europe/Dublin';
+  const ano = Number(valor.slice(0, 4));
+  const alvoComoUtcMs = new Date(valor + ':00.000Z').getTime();
+
+  const candidatosValidos = [];
+  for (const offsetMinutos of _offsetsCandidatosDoAno(ano, fusoAlvo)) {
+    const candidatoUtcMs = alvoComoUtcMs - offsetMinutos * 60000;
+    if (timestamptzParaDatetimeLocal(new Date(candidatoUtcMs).toISOString(), fusoAlvo) === valor) {
+      candidatosValidos.push(candidatoUtcMs);
+    }
+  }
+
+  if (candidatosValidos.length === 0) {
+    throw new Error('Este horário não existe (a mudança para o horário de verão pula essa hora). Escolha outro horário.');
+  }
+  if (candidatosValidos.length > 1) {
+    throw new Error('Este horário é ambíguo — ocorre duas vezes por causa da volta do horário de verão. Escolha outro horário.');
+  }
+
+  return new Date(candidatosValidos[0]).toISOString();
+}
+
+// ---------------------------------------------------------------------------
 // Horário de retirada (Fazer Pedido, etapa "Dados para retirada")
 // ---------------------------------------------------------------------------
 

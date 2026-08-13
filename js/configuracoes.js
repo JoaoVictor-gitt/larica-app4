@@ -20,6 +20,9 @@ let arquivoQrRevolutSelecionado = null;
 const REVOLUT_QR_MIMES_ACEITOS = ['image/png', 'image/jpeg', 'image/webp'];
 const REVOLUT_QR_TAMANHO_MAXIMO_BYTES = 2 * 1024 * 1024; // 2 MB — mesmo limite validado em uploadQrRevolut() (settings-service.js)
 
+// Cache da última lista de cupons carregada (pt-BR) — usado pra reabrir o modal de edição sem nova consulta.
+let cuponsCache = [];
+
 document.addEventListener('DOMContentLoaded', () => {
   preencherConfiguracoesLocais();
   document.getElementById('form-configuracoes-locais').addEventListener('submit', salvarConfiguracoesLocais);
@@ -35,7 +38,16 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('campo-qr-revolut').addEventListener('change', tratarSelecaoQrRevolut);
   document.getElementById('form-configuracoes-revolut').addEventListener('submit', salvarConfiguracoesRevolut);
 
+  document.getElementById('botao-novo-cupom').addEventListener('click', abrirModalCriacaoCupom);
+  document.getElementById('botao-fechar-modal-cupom').addEventListener('click', fecharModalCupom);
+  document.getElementById('botao-cancelar-modal-cupom').addEventListener('click', fecharModalCupom);
+  document.getElementById('modal-cupom-overlay').addEventListener('click', (evento) => {
+    if (evento.target.id === 'modal-cupom-overlay') fecharModalCupom();
+  });
+  document.getElementById('form-cupom').addEventListener('submit', salvarCupom);
+
   carregarConfiguracoesNegocio();
+  carregarCupons(); // independente de carregarConfiguracoesNegocio() — uma falha aqui não pode derrubar o resto de Configurações
 });
 
 // ---------------------------------------------------------------------------
@@ -270,6 +282,226 @@ async function salvarConfiguracoesRevolut(evento) {
   } finally {
     botao.disabled = false;
     botao.textContent = textoOriginal;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cupons e descontos (public.coupons, via js/services/coupons-service.js)
+// ---------------------------------------------------------------------------
+
+/** "YYYY-MM-DDTHH:MM" (Dublin) formatado pra exibição "dd/mm/aaaa HH:MM" — sempre no fuso do estabelecimento, nunca o do navegador */
+function formatarDataHoraCupomDublin(isoUtc) {
+  const localDublin = timestamptzParaDatetimeLocal(isoUtc, 'Europe/Dublin');
+  if (!localDublin) return '';
+  const [data, hora] = localDublin.split('T');
+  const [ano, mes, dia] = data.split('-');
+  return `${dia}/${mes}/${ano} ${hora}`;
+}
+
+function formatarValidadeCupom(cupom) {
+  if (!cupom.inicioEm && !cupom.fimEm) return '—';
+  if (cupom.inicioEm && !cupom.fimEm) return `A partir de ${formatarDataHoraCupomDublin(cupom.inicioEm)}`;
+  if (!cupom.inicioEm && cupom.fimEm) return `Até ${formatarDataHoraCupomDublin(cupom.fimEm)}`;
+  return `${formatarDataHoraCupomDublin(cupom.inicioEm)} – ${formatarDataHoraCupomDublin(cupom.fimEm)}`;
+}
+
+function formatarDescontoCupom(cupom) {
+  if (cupom.tipoDesconto === 'percentage') return `${cupom.valorDesconto}%`;
+  // Defensivo: um cupom 'fixed' criado fora da UI (banco direto) continua listado de forma coerente, sem quebrar.
+  return formatarMoeda(cupom.valorDesconto);
+}
+
+function formatarMinimoCupom(cupom) {
+  return cupom.valorMinimoPedido === null || cupom.valorMinimoPedido === undefined ? '—' : formatarMoeda(cupom.valorMinimoPedido);
+}
+
+function linhaCupomHtml(cupom) {
+  return `
+    <tr data-id="${cupom.id}">
+      <td><code>${escaparHtml(cupom.codigo)}</code></td>
+      <td>${cupom.nome ? escaparHtml(cupom.nome) : '—'}</td>
+      <td>${formatarDescontoCupom(cupom)}</td>
+      <td><span class="badge badge-${cupom.ativo ? 'ativo' : 'inativo'}">${cupom.ativo ? 'Ativo' : 'Inativo'}</span></td>
+      <td>${formatarValidadeCupom(cupom)}</td>
+      <td>${formatarMinimoCupom(cupom)}</td>
+      <td style="white-space:nowrap;">
+        <button type="button" class="btn-icone" data-acao="editar" data-id="${cupom.id}" title="Editar">✏️</button>
+        <button type="button" class="btn-icone" data-acao="alternar-status" data-id="${cupom.id}" title="${cupom.ativo ? 'Desativar' : 'Ativar'}">${cupom.ativo ? '⏸️' : '▶️'}</button>
+      </td>
+    </tr>`;
+}
+
+function renderizarTabelaCupons() {
+  const corpo = document.getElementById('corpo-tabela-cupons');
+  corpo.innerHTML = cuponsCache.map(linhaCupomHtml).join('');
+
+  corpo.querySelectorAll('[data-acao="editar"]').forEach((btn) => {
+    btn.addEventListener('click', () => abrirModalEdicaoCupom(btn.dataset.id));
+  });
+  corpo.querySelectorAll('[data-acao="alternar-status"]').forEach((btn) => {
+    btn.addEventListener('click', () => alternarStatusCupom(btn.dataset.id));
+  });
+}
+
+async function carregarCupons() {
+  const carregando = document.getElementById('estado-carregando-cupons');
+  const erroEl = document.getElementById('estado-erro-cupons');
+  const vazioEl = document.getElementById('estado-vazio-cupons');
+  const tabela = document.querySelector('#corpo-tabela-cupons').closest('table');
+
+  carregando.style.display = '';
+  erroEl.style.display = 'none';
+  vazioEl.style.display = 'none';
+  tabela.style.display = 'none';
+
+  try {
+    cuponsCache = await listarCuponsNoSupabase();
+    carregando.style.display = 'none';
+    if (cuponsCache.length === 0) {
+      vazioEl.style.display = '';
+      return;
+    }
+    tabela.style.display = '';
+    renderizarTabelaCupons();
+  } catch (erro) {
+    carregando.style.display = 'none';
+    erroEl.textContent = 'Não foi possível carregar os cupons: ' + erro.message;
+    erroEl.style.display = '';
+  }
+}
+
+function abrirModalCupom() {
+  document.getElementById('modal-cupom-overlay').classList.add('modal-visivel');
+}
+
+function fecharModalCupom() {
+  document.getElementById('modal-cupom-overlay').classList.remove('modal-visivel');
+}
+
+function limparFormularioCupom() {
+  document.getElementById('erro-modal-cupom').textContent = '';
+  document.getElementById('campo-cupom-id').value = '';
+  document.getElementById('campo-cupom-codigo').value = '';
+  document.getElementById('campo-cupom-nome').value = '';
+  document.getElementById('campo-cupom-desconto').value = '';
+  document.getElementById('campo-cupom-ativo').checked = true;
+  document.getElementById('campo-cupom-inicio').value = '';
+  document.getElementById('campo-cupom-fim').value = '';
+  document.getElementById('campo-cupom-minimo').value = '';
+}
+
+function abrirModalCriacaoCupom() {
+  limparFormularioCupom();
+  document.getElementById('modal-cupom-titulo').textContent = 'Novo cupom';
+  abrirModalCupom();
+}
+
+/**
+ * V1 só sabe editar cupons percentuais — um cupom 'fixed' (só possível hoje via banco direto,
+ * já que a UI nunca cria um) é visualizável na lista, mas a edição é bloqueada aqui com aviso,
+ * em vez de abrir um formulário que assumiria incorretamente um desconto percentual.
+ */
+function abrirModalEdicaoCupom(id) {
+  const cupom = cuponsCache.find((c) => c.id === id);
+  if (!cupom) return;
+
+  if (cupom.tipoDesconto !== 'percentage') {
+    mostrarToast('Este tipo de cupom ainda não pode ser editado nesta versão.', 'info');
+    return;
+  }
+
+  limparFormularioCupom();
+  document.getElementById('modal-cupom-titulo').textContent = 'Editar cupom';
+  document.getElementById('campo-cupom-id').value = cupom.id;
+  document.getElementById('campo-cupom-codigo').value = cupom.codigo;
+  document.getElementById('campo-cupom-nome').value = cupom.nome || '';
+  document.getElementById('campo-cupom-desconto').value = cupom.valorDesconto;
+  document.getElementById('campo-cupom-ativo').checked = cupom.ativo;
+  document.getElementById('campo-cupom-inicio').value = timestamptzParaDatetimeLocal(cupom.inicioEm, 'Europe/Dublin');
+  document.getElementById('campo-cupom-fim').value = timestamptzParaDatetimeLocal(cupom.fimEm, 'Europe/Dublin');
+  document.getElementById('campo-cupom-minimo').value = cupom.valorMinimoPedido === null ? '' : cupom.valorMinimoPedido;
+  abrirModalCupom();
+}
+
+/** Lê o formulário e converte início/fim (datetime-local, Dublin) para UTC — pode lançar (horário inexistente/ambíguo, ver utils.js) */
+function cupomDoFormulario() {
+  const minimoBruto = document.getElementById('campo-cupom-minimo').value;
+  return {
+    codigo: document.getElementById('campo-cupom-codigo').value.trim().toUpperCase(),
+    nome: document.getElementById('campo-cupom-nome').value.trim() || null,
+    tipoDesconto: 'percentage',
+    valorDesconto: Number(document.getElementById('campo-cupom-desconto').value),
+    ativo: document.getElementById('campo-cupom-ativo').checked,
+    inicioEm: datetimeLocalParaUtcIso(document.getElementById('campo-cupom-inicio').value, 'Europe/Dublin'),
+    fimEm: datetimeLocalParaUtcIso(document.getElementById('campo-cupom-fim').value, 'Europe/Dublin'),
+    valorMinimoPedido: minimoBruto === '' ? null : Number(minimoBruto),
+  };
+}
+
+/** Espelha no cliente as constraints do banco (item B da Etapa 1), só para feedback mais rápido — o banco continua a fonte real */
+function validarFormularioCupom(dados) {
+  if (!dados.codigo) return 'Informe o código do cupom.';
+  if (!(dados.valorDesconto > 0) || dados.valorDesconto > 100) return 'O desconto deve ser maior que 0 e no máximo 100%.';
+  if (dados.valorMinimoPedido !== null && dados.valorMinimoPedido < 0) return 'O pedido mínimo não pode ser negativo.';
+  if (dados.inicioEm && dados.fimEm && dados.fimEm <= dados.inicioEm) return 'O fim da validade deve ser depois do início.';
+  return null;
+}
+
+async function salvarCupom(evento) {
+  evento.preventDefault();
+
+  const erroEl = document.getElementById('erro-modal-cupom');
+  erroEl.textContent = '';
+
+  let dados;
+  try {
+    dados = cupomDoFormulario();
+  } catch (erroConversao) {
+    // Horário inexistente/ambíguo na transição de DST (ver datetimeLocalParaUtcIso em utils.js)
+    erroEl.textContent = erroConversao.message;
+    return;
+  }
+
+  const erroValidacao = validarFormularioCupom(dados);
+  if (erroValidacao) {
+    erroEl.textContent = erroValidacao;
+    return;
+  }
+
+  const id = document.getElementById('campo-cupom-id').value;
+  const botao = evento.target.querySelector('button[type="submit"]');
+  const textoOriginal = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = 'Salvando...';
+
+  try {
+    if (id) {
+      await atualizarCupomNoSupabase(id, dados);
+    } else {
+      await criarCupomNoSupabase(dados);
+    }
+    fecharModalCupom();
+    await carregarCupons();
+    mostrarToast('Cupom salvo.', 'sucesso');
+  } catch (erro) {
+    // 23505 = violação de unique(code) — mensagem amigável sem remover a proteção real, que é do banco
+    erroEl.textContent = erro.message && erro.message.includes('duplicate key') ? 'Já existe um cupom com este código.' : erro.message;
+  } finally {
+    botao.disabled = false;
+    botao.textContent = textoOriginal;
+  }
+}
+
+async function alternarStatusCupom(id) {
+  const cupom = cuponsCache.find((c) => c.id === id);
+  if (!cupom) return;
+
+  try {
+    await atualizarCupomNoSupabase(id, { ativo: !cupom.ativo });
+    await carregarCupons();
+    mostrarToast(cupom.ativo ? 'Cupom desativado.' : 'Cupom ativado.', 'sucesso');
+  } catch (erro) {
+    mostrarToast(erro.message || 'Não foi possível atualizar o cupom.', 'erro');
   }
 }
 

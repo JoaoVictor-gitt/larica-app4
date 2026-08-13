@@ -265,6 +265,22 @@
     <!-- Etapa 6: Revisão do pedido -->
     <section class="etapa-pedido" data-etapa="revisao">
       <h2>Revisar pedido</h2>
+
+      <div class="card" id="cartao-cupom-pedido">
+        <h2 style="margin-top:0; font-size:1.05rem;">Cupom de desconto</h2>
+        <div id="grupo-cupom-input">
+          <div style="display:flex; gap:8px;">
+            <input type="text" class="input" id="campo-cupom-codigo-pedido" placeholder="Código do cupom" style="text-transform:uppercase; flex:1;" maxlength="40" />
+            <button type="button" class="btn btn-secundario" id="botao-aplicar-cupom">Aplicar</button>
+          </div>
+          <span class="campo-erro" id="erro-cupom-pedido"></span>
+        </div>
+        <div id="cupom-aplicado-info" style="display:none;">
+          <p id="texto-cupom-aplicado" style="margin:0 0 8px;"></p>
+          <button type="button" class="btn btn-secundario" id="botao-remover-cupom">Remover cupom</button>
+        </div>
+      </div>
+
       <div id="conteudo-revisao"></div>
       <div class="etapa-pedido-acoes">
         <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
@@ -361,6 +377,7 @@
   <script src="js/services/products-service.js"></script>
   <script src="js/services/orders-service.js"></script>
   <script src="js/services/settings-service.js"></script>
+  <script src="js/services/coupons-service.js"></script>
   <script src="js/app.js"></script>
   <script src="js/pedido.js"></script>
 </body>

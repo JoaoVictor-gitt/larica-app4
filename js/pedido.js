@@ -78,6 +78,10 @@ function estadoPedidoInicial() {
     cotacaoEntrega: null,
     formaPagamento: '',
     dinheiro: null, // { precisaTroco, valorPago, troco } — só quando formaPagamento === 'dinheiro'
+    // { codigo, cupomId, tipoDesconto, valorDesconto, valorDescontoCalculado, subtotalValidado } — null até
+    // aplicar um cupom válido (validarCupomNoSupabase). Restaurado do localStorage só com `codigo` (ver
+    // salvarProgressoPedido()) — subtotalValidado ausente força revalidação em renderizarRevisao().
+    cupom: null,
   };
 }
 
@@ -100,7 +104,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderizarFiltroCategoriasPedido();
   renderizarGradePedido();
   renderizarCarrinhoPedido(); // garante a tabela preenchida mesmo se a etapa restaurada não for 'cardapio'
-  if (etapaAtualPedido() === 'revisao') renderizarRevisao();
+  if (etapaAtualPedido() === 'revisao') await renderizarRevisao(); // já revalida um cupom restaurado (ver revalidarCupomSeNecessario)
   atualizarBarraCarrinhoFixa();
   mostrarEtapaAtual();
   ligarEventosGerais();
@@ -110,9 +114,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Persistência local do progresso (não perder dados preenchidos ao atualizar)
 // ---------------------------------------------------------------------------
 
+/**
+ * Persiste o progresso — mas NUNCA o desconto calculado do cupom, só o código digitado (item 17 do
+ * pedido do usuário). O valor/percentual/id são sempre revalidados via validate_coupon depois de um
+ * reload (ver revalidarCupomSeNecessario()), nunca reaproveitados como confiáveis do localStorage.
+ */
 function salvarProgressoPedido() {
   try {
-    localStorage.setItem(CHAVE_PEDIDO_EM_ANDAMENTO, JSON.stringify({ pilhaEtapasPedido, estadoPedido }));
+    const estadoParaPersistir = {
+      ...estadoPedido,
+      cupom: estadoPedido.cupom ? { codigo: estadoPedido.cupom.codigo } : null,
+    };
+    localStorage.setItem(CHAVE_PEDIDO_EM_ANDAMENTO, JSON.stringify({ pilhaEtapasPedido, estadoPedido: estadoParaPersistir }));
   } catch (erro) {}
 }
 
@@ -476,6 +489,7 @@ function ligarEventosGerais() {
   ligarEventosDadosEntrega();
   ligarEventosPagamento();
   ligarEventosModalCombo();
+  ligarEventosCupom();
   document.getElementById('botao-confirmar-pedido').addEventListener('click', confirmarPedido);
   document.getElementById('botao-novo-pedido').addEventListener('click', reiniciarPedido);
 }
@@ -1373,7 +1387,7 @@ function ligarEventosPagamento() {
 
   ligarEventosTroco();
 
-  document.getElementById('botao-continuar-pagamento').addEventListener('click', () => {
+  document.getElementById('botao-continuar-pagamento').addEventListener('click', async () => {
     if (estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro && estadoPedido.dinheiro.precisaTroco) {
       recalcularTroco(); // o total pode ter mudado (ex.: cliente voltou pro carrinho) desde a última digitação
     }
@@ -1385,7 +1399,7 @@ function ligarEventosPagamento() {
       mostrarToast(mensagem, 'erro');
       return;
     }
-    renderizarRevisao();
+    await renderizarRevisao();
     irParaEtapaPedido('revisao');
   });
 }
@@ -1433,13 +1447,165 @@ function ligarEventosTroco() {
   });
 }
 
-/** Subtotal/taxa/total do pedido no ponto atual do fluxo — mesmo cálculo usado na Revisão e na Confirmação */
+/**
+ * Subtotal/desconto/taxa/total do pedido no ponto atual do fluxo — única fonte usada por Carrinho,
+ * Pagamento (troco), Revisão e confirmarPedido(). O desconto nunca incide sobre a taxa de entrega
+ * (item 7 do pedido do usuário: subtotal -> desconto -> +entrega -> total). É só cálculo visual — a
+ * fonte real de verdade continua sendo create_customer_order (item 8).
+ */
 function calcularTotaisPedidoAtual() {
   const carrinho = obterCarrinho();
   const config = obterConfiguracoes();
   const subtotal = calcularSubtotalCarrinho(carrinho);
+  const desconto = valorDescontoCupomAplicado();
   const taxaEntrega = taxaEntregaAtual();
-  return { subtotal, taxaEntrega, total: subtotal + taxaEntrega, moeda: config.moeda };
+  const total = Math.max(0, subtotal - desconto) + taxaEntrega;
+  return { subtotal, desconto, taxaEntrega, total, moeda: config.moeda };
+}
+
+// ---------------------------------------------------------------------------
+// Cupom de desconto (Fase 10B/Etapa 4) — etapa Revisão. Nunca consulta
+// .from('coupons'); só validarCupomNoSupabase() (RPC pública validate_coupon).
+// ---------------------------------------------------------------------------
+
+// Token simples pra descartar respostas de validate_coupon fora de ordem (item 19) — incrementado a
+// cada nova chamada (aplicar/remover/revalidar); uma resposta só é aplicada se ainda for a mais recente.
+let tokenRevalidacaoCupom = 0;
+
+/** Valor (já calculado) do desconto do cupom em memória — 0 se não houver cupom aplicado E validado nesta sessão */
+function valorDescontoCupomAplicado() {
+  const cupom = estadoPedido.cupom;
+  return cupom && typeof cupom.valorDescontoCalculado === 'number' ? cupom.valorDescontoCalculado : 0;
+}
+
+/** Grava o resultado de uma validação bem-sucedida (validarCupomNoSupabase) como o cupom aplicado atual */
+function aplicarResultadoCupomValidado(codigoDigitado, resultado, subtotalValidado) {
+  estadoPedido.cupom = {
+    codigo: resultado.codigo || codigoDigitado,
+    cupomId: resultado.cupomId,
+    tipoDesconto: resultado.tipoDesconto,
+    valorDesconto: resultado.valorDesconto,
+    valorDescontoCalculado: resultado.valorDescontoCalculado,
+    subtotalValidado,
+  };
+}
+
+/** true se há um cupom aplicado cujo desconto foi calculado contra um subtotal diferente do atual (ou nunca validado nesta sessão) */
+function cupomPrecisaRevalidar(subtotalAtual) {
+  const cupom = estadoPedido.cupom;
+  return !!cupom && cupom.subtotalValidado !== subtotalAtual;
+}
+
+/**
+ * Revalida silenciosamente o cupom aplicado contra o subtotal atual quando necessário (item 6 — nunca
+ * deixa o desconto congelado; item 18 — cupom restaurado do localStorage só tem `codigo`, então sempre
+ * cai aqui na primeira vez). Chamado só de dentro de renderizarRevisao(), único ponto de reentrada na
+ * etapa Revisão depois de qualquer mudança no carrinho (a etapa não tem controles de edição — ver
+ * auditoria). Retorna a mensagem de erro se o cupom foi removido por não ser mais válido, ou null.
+ */
+async function revalidarCupomSeNecessario(subtotalAtual) {
+  if (!cupomPrecisaRevalidar(subtotalAtual)) return null;
+
+  const codigo = estadoPedido.cupom.codigo;
+  const meuToken = ++tokenRevalidacaoCupom;
+
+  if (subtotalAtual <= 0) {
+    estadoPedido.cupom = null;
+    return null;
+  }
+
+  try {
+    const resultado = await validarCupomNoSupabase(codigo, subtotalAtual);
+    if (meuToken !== tokenRevalidacaoCupom) return null; // uma revalidação mais nova já assumiu — descarta esta resposta
+    aplicarResultadoCupomValidado(codigo, resultado, subtotalAtual);
+    return null;
+  } catch (erro) {
+    if (meuToken !== tokenRevalidacaoCupom) return null;
+    estadoPedido.cupom = null;
+    return erro.message; // mensagem real da RPC (item 20) — nunca "Erro inesperado"
+  }
+}
+
+/** Sincroniza o card estático "Cupom de desconto" (input vs. info aplicada) com estadoPedido.cupom */
+function atualizarUiCupom() {
+  const grupoInput = document.getElementById('grupo-cupom-input');
+  const infoAplicado = document.getElementById('cupom-aplicado-info');
+  const cupom = estadoPedido.cupom;
+  const aplicadoEValido = cupom && typeof cupom.valorDescontoCalculado === 'number';
+
+  if (!aplicadoEValido) {
+    grupoInput.style.display = '';
+    infoAplicado.style.display = 'none';
+    return;
+  }
+
+  grupoInput.style.display = 'none';
+  infoAplicado.style.display = '';
+  const moeda = obterConfiguracoes().moeda;
+  const rotuloTipo = cupom.tipoDesconto === 'percentage' ? `${cupom.valorDesconto}% de desconto` : `desconto de ${formatarMoeda(cupom.valorDesconto, moeda)}`;
+  document.getElementById('texto-cupom-aplicado').textContent =
+    `${cupom.codigo} aplicado — ${rotuloTipo} (-${formatarMoeda(cupom.valorDescontoCalculado, moeda)})`;
+}
+
+/** Linha "Cupom CODIGO (rótulo) -€X" do resumo de totais — '' quando não há desconto. `rotulo` opcional (ex.: "10%"), null pra omitir. */
+function linhaCupomResumoHtml(codigoCupom, valorDescontoCalculado, moeda, rotulo) {
+  if (!codigoCupom || !valorDescontoCalculado) return '';
+  const parteRotulo = rotulo ? ` (${escaparHtml(rotulo)})` : '';
+  return `<div class="linha-resumo"><span>Cupom ${escaparHtml(codigoCupom)}${parteRotulo}</span><span>-${formatarMoeda(valorDescontoCalculado, moeda)}</span></div>`;
+}
+
+async function aplicarCupomPedido() {
+  const erroEl = document.getElementById('erro-cupom-pedido');
+  erroEl.textContent = '';
+
+  const campo = document.getElementById('campo-cupom-codigo-pedido');
+  const codigo = campo.value.trim().toUpperCase();
+  if (!codigo) {
+    erroEl.textContent = 'Informe o código do cupom.';
+    return;
+  }
+
+  const subtotalAtual = calcularSubtotalCarrinho(obterCarrinho());
+  const botao = document.getElementById('botao-aplicar-cupom');
+  const textoOriginal = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = 'Aplicando...';
+
+  const meuToken = ++tokenRevalidacaoCupom;
+  try {
+    const resultado = await validarCupomNoSupabase(codigo, subtotalAtual);
+    if (meuToken !== tokenRevalidacaoCupom) return;
+    aplicarResultadoCupomValidado(codigo, resultado, subtotalAtual);
+    campo.value = '';
+    salvarProgressoPedido();
+    atualizarUiCupom();
+    await renderizarRevisao();
+    mostrarToast('Cupom aplicado.', 'sucesso');
+  } catch (erro) {
+    if (meuToken !== tokenRevalidacaoCupom) return;
+    erroEl.textContent = erro.message; // mensagem real da RPC (item 20): "Cupom não encontrado.", "Este cupom está inativo.", etc.
+  } finally {
+    if (meuToken === tokenRevalidacaoCupom) {
+      botao.disabled = false;
+      botao.textContent = textoOriginal;
+    }
+  }
+}
+
+/** Remove o cupom aplicado — nunca chama RPC (item 5), só limpa estado local */
+async function removerCupomPedido() {
+  tokenRevalidacaoCupom++; // invalida qualquer aplicar/revalidar em andamento
+  estadoPedido.cupom = null;
+  document.getElementById('erro-cupom-pedido').textContent = '';
+  document.getElementById('campo-cupom-codigo-pedido').value = '';
+  salvarProgressoPedido();
+  atualizarUiCupom();
+  await renderizarRevisao();
+}
+
+function ligarEventosCupom() {
+  document.getElementById('botao-aplicar-cupom').addEventListener('click', aplicarCupomPedido);
+  document.getElementById('botao-remover-cupom').addEventListener('click', removerCupomPedido);
 }
 
 /** Taxa de entrega vinda da cotação real (Edge Function calculate-delivery) — 0 pra Retirada ou se não houver cotação válida. Nunca usa valor fixo/manual. */
@@ -1521,21 +1687,30 @@ function blocoPagamentoRevisaoHtml(moeda) {
   return rotulo + blocoTroco;
 }
 
-function renderizarRevisao() {
+/**
+ * Assíncrona porque, ao entrar na Revisão, pode precisar revalidar um cupom aplicado contra o
+ * subtotal atual (item 6/18/19 — ver revalidarCupomSeNecessario()). Chamadores fazem `await`.
+ */
+async function renderizarRevisao() {
+  const subtotalParaValidacao = calcularSubtotalCarrinho(obterCarrinho());
+  const motivoRemocaoCupom = await revalidarCupomSeNecessario(subtotalParaValidacao);
+  salvarProgressoPedido();
+  atualizarUiCupom();
+  if (motivoRemocaoCupom) {
+    mostrarToast('O cupom não é mais válido: ' + motivoRemocaoCupom, 'info');
+  }
+
   const carrinho = obterCarrinho();
-  const config = obterConfiguracoes();
-  const subtotal = calcularSubtotalCarrinho(carrinho);
-  const taxaEntrega = taxaEntregaAtual();
-  const total = subtotal + taxaEntrega;
+  const { subtotal, desconto, taxaEntrega, total, moeda } = calcularTotaisPedidoAtual();
 
   const linhasItens = carrinho
     .map((item) => {
       if (item.combo) {
-        return `<div class="linha-resumo"><span>${escaparHtml(item.combo.nome)}</span><span>${formatarMoeda(item.precoUnitario * item.quantidade, config.moeda)}</span></div>`;
+        return `<div class="linha-resumo"><span>${escaparHtml(item.combo.nome)}</span><span>${formatarMoeda(item.precoUnitario * item.quantidade, moeda)}</span></div>`;
       }
       const produto = obterProdutoPorId(item.produtoId);
       const nome = produto ? produto.nome : '(produto removido)';
-      return `<div class="linha-resumo"><span>${item.quantidade}x ${escaparHtml(nome)}</span><span>${formatarMoeda(item.precoUnitario * item.quantidade, config.moeda)}</span></div>`;
+      return `<div class="linha-resumo"><span>${item.quantidade}x ${escaparHtml(nome)}</span><span>${formatarMoeda(item.precoUnitario * item.quantidade, moeda)}</span></div>`;
     })
     .join('');
 
@@ -1567,12 +1742,13 @@ function renderizarRevisao() {
     ${blocoEntrega}
     <div class="resumo-revisao-secao">
       <div class="resumo-revisao-titulo">Pagamento</div>
-      ${blocoPagamentoRevisaoHtml(config.moeda)}
+      ${blocoPagamentoRevisaoHtml(moeda)}
     </div>
     <div class="card resumo-carrinho">
-      <div class="linha-resumo"><span>Subtotal</span><span>${formatarMoeda(subtotal, config.moeda)}</span></div>
-      <div class="linha-resumo"><span>Taxa de entrega</span><span>${formatarMoeda(taxaEntrega, config.moeda)}</span></div>
-      <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoeda(total, config.moeda)}</span></div>
+      <div class="linha-resumo"><span>Subtotal</span><span>${formatarMoeda(subtotal, moeda)}</span></div>
+      ${linhaCupomResumoHtml(estadoPedido.cupom ? estadoPedido.cupom.codigo : null, desconto, moeda, estadoPedido.cupom && estadoPedido.cupom.tipoDesconto === 'percentage' ? `${estadoPedido.cupom.valorDesconto}%` : null)}
+      <div class="linha-resumo"><span>Taxa de entrega</span><span>${formatarMoeda(taxaEntrega, moeda)}</span></div>
+      <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoeda(total, moeda)}</span></div>
     </div>
   `;
 }
@@ -1626,9 +1802,7 @@ async function confirmarPedido() {
     }
 
     const config = obterConfiguracoes();
-    const subtotal = calcularSubtotalCarrinho(carrinho);
-    const taxaEntrega = taxaEntregaAtual();
-    const total = subtotal + taxaEntrega;
+    const { subtotal, taxaEntrega, total } = calcularTotaisPedidoAtual();
 
     // Última checagem contra o total atual antes de gastar uma chamada à RPC — o carrinho pode ter
     // mudado desde que o valor pago foi informado (ex.: cliente voltou e editou o pedido).
@@ -1679,6 +1853,9 @@ async function confirmarPedido() {
       deliveryQuoteId: estadoPedido.fulfilment === 'entrega' && estadoPedido.cotacaoEntrega ? estadoPedido.cotacaoEntrega.quoteId : null,
       formaPagamento: estadoPedido.formaPagamento,
       pagamentoDinheiro: estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro ? { ...estadoPedido.dinheiro } : null,
+      // Só o código (texto puro) — orders-service.js decide se inclui no payload; nunca id/tipo/valor/desconto
+      // calculado localmente (item 8/9). create_customer_order é quem recalcula e decide o desconto real.
+      cupomCodigo: estadoPedido.cupom ? estadoPedido.cupom.codigo : null,
       subtotal,
       taxaEntrega,
       total,
@@ -1704,7 +1881,17 @@ async function confirmarPedido() {
     botaoConfirmar.disabled = false;
     botaoConfirmar.textContent = rotuloOriginalBotao;
   } catch (erro) {
+    // Mensagem real da RPC sempre chega ao cliente (item 20) — nunca mascarada, mesmo quando o motivo
+    // é o cupom (ex.: admin desativou/expirou entre a aplicação e a confirmação, item 13). Pedido NÃO é
+    // criado, carrinho continua intacto. Se havia cupom aplicado, ele é limpo defensivamente (pode não
+    // ter sido a causa real da falha — ex. estoque —, mas de qualquer forma exige nova revisão/aplicação
+    // antes de tentar de novo, nunca reaproveita um estado de cupom que pode estar obsoleto).
     mostrarToast(erro && erro.message ? erro.message : 'Não foi possível finalizar o pedido.', 'erro');
+    if (estadoPedido.cupom) {
+      estadoPedido.cupom = null;
+      await renderizarRevisao();
+      mostrarToast('O cupom foi removido — revise seu pedido antes de tentar novamente.', 'info');
+    }
     botaoConfirmar.disabled = false;
     botaoConfirmar.textContent = rotuloOriginalBotao;
     // permanece na etapa de revisão, carrinho e dados intactos — pode corrigir e tentar de novo
@@ -1729,6 +1916,7 @@ function renderizarConfirmacao(pedido, moeda) {
     ${linhasItens}
     <div class="linha-resumo"><span>${pedido.fulfilment === 'entrega' ? 'Entrega' : 'Retirada'}</span><span></span></div>
     <div class="linha-resumo"><span>Pagamento</span><span>${escaparHtml(ROTULOS_FORMA_PAGAMENTO[pedido.formaPagamento] || '')}</span></div>
+    ${linhaCupomResumoHtml(pedido.codigoCupom, pedido.valorDesconto, moeda, null)}
     <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoeda(pedido.total, moeda)}</span></div>
     ${avisoCartao}
   `;
@@ -1867,6 +2055,11 @@ function reiniciarPedido() {
     .forEach((b) => b.classList.remove('selecionada'));
   resetarDadosPagamentoDinheiro();
   atualizarVisibilidadeSecaoTroco();
+  tokenRevalidacaoCupom++; // invalida qualquer aplicar/revalidar de cupom ainda em andamento do pedido anterior
+  document.getElementById('campo-cupom-codigo-pedido').value = '';
+  document.getElementById('erro-cupom-pedido').textContent = '';
+  document.getElementById('grupo-cupom-input').style.display = '';
+  document.getElementById('cupom-aplicado-info').style.display = 'none';
   document.getElementById('botao-continuar-recebimento').disabled = true;
   document.getElementById('botao-continuar-pagamento').disabled = true;
   document.getElementById('botao-continuar-entrega').disabled = false;

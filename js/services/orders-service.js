@@ -210,6 +210,11 @@ async function createOrder(pedido, itensPedido) {
     }),
   };
 
+  // Cupom (Fase 10B/Etapa 4) — só entra no payload quando há um código aplicado; omitido por completo
+  // quando não há (nunca envia coupon_code:null). create_customer_order revalida tudo server-side; o
+  // frontend nunca envia discount_type/discount_value/discount_amount, só o código em texto puro.
+  if (pedido.cupomCodigo) payload.coupon_code = pedido.cupomCodigo;
+
   const { data, error } = await supabaseClient.rpc('create_customer_order', { payload });
   if (error) throw new Error(error.message);
 
@@ -221,6 +226,9 @@ async function createOrder(pedido, itensPedido) {
     subtotal: Number(data.subtotal) || 0,
     taxaEntrega: Number(data.delivery_fee) || 0,
     total: Number(data.total) || 0,
+    // Fonte oficial do desconto realmente aplicado (server-side) — nunca o valor estimado localmente.
+    codigoCupom: data.coupon_code || null,
+    valorDesconto: Number(data.discount_amount) || 0,
     cliente: pedido.cliente,
     fulfilment: pedido.fulfilment,
     retirada: pedido.retirada,
