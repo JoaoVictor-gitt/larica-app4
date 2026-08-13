@@ -19,25 +19,25 @@ a { color: inherit; text-decoration: none; }
 /* Tokens de design                                                        */
 /* ---------------------------------------------------------------------- */
 :root {
-  /* Paleta "fogo" da marca Larica — usada em fundo, acentos e texto principal
-     nos dois temas. #1A0D00, #8B1E1E, #FF4D00, #FFB300, #FFF2CC e #FFFFFF
-     são as 6 cores oficiais; bordas/hover sutis são tons derivados delas,
-     já que a paleta de marca não define neutros de UI.
-     Escuro é o tema PADRÃO do sistema (ver referência visual da marca);
-     [data-tema="claro"] abaixo é o override para quem preferir o claro. */
-  --cor-fundo: #1A0D00;
+  /* Modernização visual (base global) — identidade neutra grafite/laranja.
+     Laranja Larica (#FF4D00) continua o único accent nos dois temas; o resto
+     da paleta agora é neutro (sem o matiz marrom da versão anterior).
+     Escuro continua o tema PADRÃO do sistema; [data-tema="claro"] abaixo é
+     o override — mesma precedência de sempre, só os valores mudaram. */
+  --cor-fundo: #18181A;
   --cor-terracota: #FF4D00;
-  --cor-terracota-escura: #FFB300; /* clareia no hover, convenção de UI escura */
-  --cor-carvao: #1A0D00; /* cor fixa da sidebar/toast — igual nos dois temas */
+  --cor-terracota-escura: #FF6A2B; /* clareia no hover, convenção de UI escura — mesmo matiz do accent, não mais âmbar */
+  --cor-carvao: #1C1D1F; /* fundo fixo de toast/tela inicial — igual nos dois temas, agora grafite neutro em vez de marrom */
+  --cor-sidebar: #232325; /* sidebar responde ao tema (ver bloco [data-tema="claro"]) — token próprio, dissociado de --cor-carvao */
   --cor-sobre-acento: #FFFFFF; /* texto/ícone sobre fundos coloridos ou escuros (botões, badges, toasts) — sempre branco, nos dois temas */
-  --cor-branco: #241610;
-  --cor-cinza-claro: #2E1D10;
-  --cor-texto: #FFF2CC;
-  --cor-texto-secundario: #B39B7A;
-  --cor-borda: #4A3420;
+  --cor-branco: #232325;
+  --cor-cinza-claro: #2B2B2E;
+  --cor-acento-sutil: rgba(255, 77, 0, 0.14); /* fundo tingido de laranja p/ estados selecionados — substitui rgba() hardcoded duplicado */
+  --cor-texto: #EDEDEE;
+  --cor-texto-secundario: #9A9AA0;
+  --cor-borda: #35353A;
 
-  /* Status de estoque — semânticos (verde/amarelo/vermelho = bom/atenção/crítico),
-     mantidos fora da paleta de marca para não colidir com o significado dos acentos */
+  /* Status — semânticos (verde/amarelo/vermelho = bom/atenção/crítico), já eram neutros o suficiente, mantidos */
   --cor-status-verde: #4CA875;
   --cor-status-amarelo: #E0B94E;
   --cor-status-vermelho: #D46262;
@@ -57,10 +57,10 @@ a { color: inherit; text-decoration: none; }
   --raio-lg: 20px;
   --raio-pill: 999px;
 
-  /* Sombras */
-  --sombra-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
-  --sombra-md: 0 4px 14px rgba(0, 0, 0, 0.4);
-  --sombra-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+  /* Sombras — mais sutis que a versão anterior, ainda perceptíveis contra fundo escuro */
+  --sombra-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --sombra-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --sombra-lg: 0 12px 28px rgba(0, 0, 0, 0.45);
 
   /* Transições */
   --transicao-rapida: 150ms ease;
@@ -73,23 +73,25 @@ a { color: inherit; text-decoration: none; }
 
 /* Tema claro — ativado via <html data-tema="claro">, alternado em Configurações */
 :root[data-tema="claro"] {
-  --cor-fundo: #FFF2CC;
+  --cor-fundo: #F7F7F8;
   --cor-terracota: #FF4D00;
-  --cor-terracota-escura: #8B1E1E;
+  --cor-terracota-escura: #E64500; /* clareia -> escurece no claro (convenção de UI clara), mesmo matiz do accent */
+  --cor-sidebar: #FFFFFF; /* sidebar clara, integrada à surface — separada só pela borda direita discreta (.sidebar) */
   --cor-branco: #FFFFFF;
-  --cor-cinza-claro: #FFE6A8;
-  --cor-texto: #1A0D00;
-  --cor-texto-secundario: #7A6A52;
-  --cor-borda: #F0DBA8;
+  --cor-cinza-claro: #F0F1F3;
+  --cor-acento-sutil: rgba(255, 77, 0, 0.08);
+  --cor-texto: #24292E;
+  --cor-texto-secundario: #6B7280;
+  --cor-borda: #E5E7EB;
 
   --cor-status-verde: #3E8E5C;
   --cor-status-amarelo: #D9A93A;
   --cor-status-vermelho: #C24343;
   --cor-status-cinza: #9B968E;
 
-  --sombra-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --sombra-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --sombra-lg: 0 12px 32px rgba(0, 0, 0, 0.14);
+  --sombra-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --sombra-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --sombra-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
 }
 
 body {
@@ -111,8 +113,9 @@ body {
 .sidebar {
   width: var(--largura-sidebar);
   flex-shrink: 0;
-  background: var(--cor-carvao);
-  color: var(--cor-sobre-acento);
+  background: var(--cor-sidebar);
+  color: var(--cor-texto);
+  border-right: 1px solid var(--cor-borda);
   display: flex;
   flex-direction: column;
   padding: var(--espaco-lg) 0;
@@ -161,20 +164,20 @@ body {
 .sidebar-subtitulo {
   padding: 0 var(--espaco-lg) var(--espaco-lg);
   margin-bottom: var(--espaco-md);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 1px solid var(--cor-borda);
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--cor-texto-secundario);
   font-weight: 700;
 }
 
 .sidebar-nav { flex: 1; }
 
 .sidebar-link-inicio {
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid var(--cor-borda);
   padding-top: var(--espaco-md);
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--cor-texto-secundario);
 }
 
 .sidebar-link {
@@ -184,14 +187,13 @@ body {
   padding: var(--espaco-sm) var(--espaco-lg);
   margin: 2px var(--espaco-sm);
   border-radius: var(--raio-md);
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--cor-texto);
   font-weight: 500;
   transition: background var(--transicao-rapida), color var(--transicao-rapida);
 }
 
 .sidebar-link:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #FFFFFF;
+  background: var(--cor-cinza-claro);
 }
 
 .sidebar-link .badge-contador {
@@ -217,8 +219,8 @@ body {
 .sidebar-rodape {
   padding: var(--espaco-md) var(--espaco-lg) 0;
   font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.55);
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--cor-texto-secundario);
+  border-top: 1px solid var(--cor-borda);
 }
 
 .header {
@@ -334,10 +336,10 @@ body {
 .btn-primario:hover:not(:disabled) { background: var(--cor-terracota-escura); }
 
 .btn-secundario { background: var(--cor-cinza-claro); color: var(--cor-texto); }
-.btn-secundario:hover:not(:disabled) { background: #FFD778; }
+.btn-secundario:hover:not(:disabled) { background: var(--cor-borda); }
 
 .btn-perigo { background: var(--cor-status-vermelho); color: var(--cor-sobre-acento); }
-.btn-perigo:hover:not(:disabled) { background: #6E1717; }
+.btn-perigo:hover:not(:disabled) { filter: brightness(0.85); }
 
 .btn-icone {
   background: none;
@@ -634,7 +636,7 @@ body {
 
 .opcao-pagamento.selecionada {
   border-color: var(--cor-terracota);
-  background: rgba(255, 77, 0, 0.08);
+  background: var(--cor-acento-sutil);
 }
 
 .opcao-pagamento .icone-pagamento { font-size: 1.3rem; }
@@ -670,7 +672,7 @@ body[data-area="admin"]:not(.autenticado) {
 
 .tela-inicial-marca { text-align: center; }
 .tela-inicial-logo { margin: 0; font-size: 3rem; line-height: 1; }
-.tela-inicial-marca .tagline-larica { margin-top: var(--espaco-xs); font-size: 0.95rem; color: #FFF2CC; }
+.tela-inicial-marca .tagline-larica { margin-top: var(--espaco-xs); font-size: 0.95rem; color: var(--cor-sobre-acento); }
 
 .opcoes-area-inicial {
   display: grid;

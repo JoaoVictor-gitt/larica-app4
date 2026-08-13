@@ -1,0 +1,10 @@
+# project_id extraído de SUPABASE_URL já usado em js/supabase.js
+# (https://ghntpyqdbgxaisfgytto.supabase.co) — não é segredo, já está no
+# código do cliente. Arquivo mínimo, só o necessário pra supabase/functions/
+# ser reconhecido pela CLI (nada deployado ainda).
+project_id = "ghntpyqdbgxaisfgytto"
+
+[functions.create-staff-user]
+# Verificação de JWT do próprio runtime do Supabase, além da checagem de
+# is_admin() feita dentro da function — camadas complementares, não redundantes.
+verify_jwt = true
