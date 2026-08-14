@@ -41,7 +41,7 @@
     <!-- Etapa 2: Carrinho -->
     <section class="etapa-pedido" data-etapa="carrinho">
       <div class="layout-carrinho">
-        <div class="card tabela-carrinho-wrap" style="padding:0;">
+        <div class="card tabela-carrinho-wrap">
           <table class="tabela" id="tabela-pedido-carrinho">
             <thead>
               <tr>
@@ -266,17 +266,17 @@
     <section class="etapa-pedido" data-etapa="revisao">
       <h2>Revisar pedido</h2>
 
-      <div class="card" id="cartao-cupom-pedido">
-        <h2 style="margin-top:0; font-size:1.05rem;">Cupom de desconto</h2>
+      <div class="card cartao-cupom" id="cartao-cupom-pedido">
+        <h2 class="cartao-cupom-titulo">Cupom de desconto</h2>
         <div id="grupo-cupom-input">
-          <div style="display:flex; gap:8px;">
-            <input type="text" class="input" id="campo-cupom-codigo-pedido" placeholder="Código do cupom" style="text-transform:uppercase; flex:1;" maxlength="40" />
+          <div class="cupom-input-linha">
+            <input type="text" class="input campo-cupom-codigo" id="campo-cupom-codigo-pedido" placeholder="Código do cupom" maxlength="40" />
             <button type="button" class="btn btn-secundario" id="botao-aplicar-cupom">Aplicar</button>
           </div>
           <span class="campo-erro" id="erro-cupom-pedido"></span>
         </div>
         <div id="cupom-aplicado-info" style="display:none;">
-          <p id="texto-cupom-aplicado" style="margin:0 0 8px;"></p>
+          <p class="texto-cupom-aplicado" id="texto-cupom-aplicado"></p>
           <button type="button" class="btn btn-secundario" id="botao-remover-cupom">Remover cupom</button>
         </div>
       </div>

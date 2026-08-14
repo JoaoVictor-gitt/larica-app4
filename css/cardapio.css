@@ -30,6 +30,11 @@
 
 .filtro-categoria-botao:hover { border-color: var(--cor-terracota); }
 
+.filtro-categoria-botao:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: 2px;
+}
+
 .filtro-categoria-botao.ativo {
   background: var(--cor-terracota);
   border-color: var(--cor-terracota);
@@ -38,8 +43,8 @@
 
 .grade-cardapio {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: var(--espaco-lg);
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--espaco-xl);
 }
 
 .card-produto {
@@ -58,17 +63,24 @@
   position: relative;
   aspect-ratio: 4 / 3;
   background: var(--cor-cinza-claro);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .card-produto-foto-wrap img { width: 100%; height: 100%; object-fit: cover; }
 
+/* Emoji de fallback (sem foto) num círculo sutil, em vez de emoji cru direto no fundo */
 .card-produto-foto-vazia {
-  width: 100%;
-  height: 100%;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: var(--cor-branco);
+  box-shadow: var(--sombra-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 2.5rem;
+  font-size: 2rem;
 }
 
 .selo-esgotado {
@@ -97,18 +109,19 @@
 }
 
 .card-produto-corpo {
-  padding: var(--espaco-md);
+  padding: var(--espaco-md) var(--espaco-lg) var(--espaco-lg);
   display: flex;
   flex-direction: column;
   gap: var(--espaco-xs);
   flex: 1;
 }
 
-.card-produto-nome { font-weight: 700; font-size: 1rem; }
+.card-produto-nome { font-weight: 700; font-size: 1.05rem; }
 
 .card-produto-descricao {
   font-size: 0.82rem;
   color: var(--cor-texto-secundario);
+  line-height: 1.4;
   flex: 1;
 }
 
@@ -118,16 +131,18 @@
   justify-content: space-between;
   gap: var(--espaco-sm);
   margin-top: var(--espaco-sm);
+  padding-top: var(--espaco-sm);
+  border-top: 1px solid var(--cor-borda);
 }
 
-.card-produto-preco { font-weight: 700; color: var(--cor-terracota); font-size: 1.05rem; }
+.card-produto-preco { font-weight: 700; color: var(--cor-terracota); font-size: 1.15rem; }
 
 .card-produto-estoque { font-size: 0.75rem; color: var(--cor-texto-secundario); }
 
 .card-produto-acao {
   display: flex;
   align-items: center;
-  gap: var(--espaco-xs);
+  gap: var(--espaco-sm);
   margin-top: var(--espaco-sm);
 }
 
@@ -137,6 +152,8 @@
   border: 1px solid var(--cor-borda);
   border-radius: var(--raio-sm);
   text-align: center;
+  background: var(--cor-branco);
+  color: var(--cor-texto);
 }
 
 .botao-adicionar { flex: 1; }

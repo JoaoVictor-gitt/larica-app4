@@ -15,20 +15,47 @@
   display: flex;
   flex-direction: column;
   gap: var(--espaco-xs);
+  border-top: 3px solid var(--cor-terracota);
 }
 
 .cartao-resumo-rotulo { font-size: 0.82rem; color: var(--cor-texto-secundario); font-weight: 600; }
-.cartao-resumo-valor { font-size: 1.5rem; font-weight: 700; color: var(--cor-texto); }
+.cartao-resumo-valor { font-size: 1.7rem; font-weight: 700; color: var(--cor-texto); }
 
 .filtros-estoque {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--espaco-md);
   margin-bottom: var(--espaco-lg);
 }
 
 .tabela-estoque-wrap { padding: 0; overflow-x: auto; }
 .tabela-estoque-wrap .tabela { min-width: 720px; }
+
+/*
+ * Colunas da tabela de estoque — alinhamento aplicado só nas células do <tbody> (via #corpo-tabela-estoque,
+ * id único desta tabela). A tabela de Movimentações reaproveita a mesma classe .tabela-estoque-wrap no
+ * card em volta, então evitamos seletor por essa classe no <thead> pra não vazar estilo entre as duas.
+ */
+#corpo-tabela-estoque td:nth-child(2) { font-weight: 600; }
+
+#corpo-tabela-estoque td:nth-child(4),
+#corpo-tabela-estoque td:nth-child(7) {
+  text-align: right;
+}
+
+#corpo-tabela-estoque td:nth-child(6) {
+  text-align: center;
+}
+
+/* Quantidade atual — precisa ser fácil de localizar mas sem parecer ação: mais peso/tamanho, sem cor de destaque */
+#corpo-tabela-estoque td:nth-child(5) {
+  text-align: right;
+}
+
+#corpo-tabela-estoque td:nth-child(5) strong {
+  font-size: 1.05rem;
+  color: var(--cor-texto);
+}
 
 .miniatura-estoque {
   width: 40px;
@@ -50,6 +77,19 @@
 }
 
 .acoes-linha-estoque { display: flex; gap: var(--espaco-xs); justify-content: flex-end; }
+
+.acoes-linha-estoque .btn-icone:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: 2px;
+}
+
+/* Movimentações recentes (mesma ordem do <thead> estático e do <tr> gerado por linhaMovimentacaoEstoqueHtml()) */
+#corpo-tabela-movimentacoes td:nth-child(2) { font-weight: 600; }
+
+#corpo-tabela-movimentacoes td:nth-child(4),
+#corpo-tabela-movimentacoes td:nth-child(5) {
+  text-align: right;
+}
 
 /* Seletor de tipo de ajuste dentro do modal */
 .opcoes-tipo-ajuste {
@@ -74,13 +114,14 @@
 
 .opcao-tipo-ajuste.selecionada {
   border-color: var(--cor-terracota);
-  background: rgba(255, 77, 0, 0.08);
+  background: var(--cor-acento-sutil);
 }
 
 .preview-novo-estoque {
   font-size: 0.85rem;
   color: var(--cor-texto-secundario);
   background: var(--cor-cinza-claro);
+  border-left: 3px solid var(--cor-terracota);
   padding: var(--espaco-sm) var(--espaco-md);
   border-radius: var(--raio-sm);
 }

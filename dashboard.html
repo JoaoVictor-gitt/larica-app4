@@ -23,82 +23,86 @@
       <h1>Dashboard</h1>
     </div>
 
-    <div class="grade-cartoes-dashboard">
-      <div class="card cartao-dashboard">
-        <span class="cartao-dashboard-icone">💰</span>
-        <div>
-          <span class="cartao-dashboard-rotulo">Faturamento hoje</span>
-          <span class="cartao-dashboard-valor" id="cartao-faturamento-hoje">—</span>
+    <div class="secao-kpis-dashboard">
+      <div class="grade-kpis-principais">
+        <div class="card cartao-dashboard cartao-kpi-principal">
+          <span class="cartao-dashboard-icone">💰</span>
+          <div>
+            <span class="cartao-dashboard-rotulo">Faturamento hoje</span>
+            <span class="cartao-dashboard-valor" id="cartao-faturamento-hoje">—</span>
+          </div>
+        </div>
+        <div class="card cartao-dashboard cartao-kpi-principal">
+          <span class="cartao-dashboard-icone">🧾</span>
+          <div>
+            <span class="cartao-dashboard-rotulo">Pedidos hoje</span>
+            <span class="cartao-dashboard-valor" id="cartao-pedidos-hoje">—</span>
+          </div>
+        </div>
+        <div class="card cartao-dashboard cartao-kpi-principal">
+          <span class="cartao-dashboard-icone">🎯</span>
+          <div>
+            <span class="cartao-dashboard-rotulo">Ticket médio hoje</span>
+            <span class="cartao-dashboard-valor" id="cartao-ticket-medio-hoje">—</span>
+          </div>
         </div>
       </div>
-      <div class="card cartao-dashboard">
-        <span class="cartao-dashboard-icone">🧾</span>
-        <div>
-          <span class="cartao-dashboard-rotulo">Pedidos hoje</span>
-          <span class="cartao-dashboard-valor" id="cartao-pedidos-hoje">—</span>
+
+      <div class="grade-kpis-operacionais">
+        <div class="card cartao-dashboard cartao-kpi-operacional">
+          <span class="cartao-dashboard-icone">🛵</span>
+          <div>
+            <span class="cartao-dashboard-rotulo">Taxas de entrega hoje</span>
+            <span class="cartao-dashboard-valor" id="cartao-taxa-entrega-hoje">—</span>
+          </div>
         </div>
-      </div>
-      <div class="card cartao-dashboard">
-        <span class="cartao-dashboard-icone">🎯</span>
-        <div>
-          <span class="cartao-dashboard-rotulo">Ticket médio hoje</span>
-          <span class="cartao-dashboard-valor" id="cartao-ticket-medio-hoje">—</span>
+        <div class="card cartao-dashboard cartao-kpi-operacional">
+          <span class="cartao-dashboard-icone">❌</span>
+          <div>
+            <span class="cartao-dashboard-rotulo">Cancelamentos hoje</span>
+            <span class="cartao-dashboard-valor" id="cartao-cancelamentos-hoje">—</span>
+          </div>
         </div>
-      </div>
-      <div class="card cartao-dashboard">
-        <span class="cartao-dashboard-icone">🛵</span>
-        <div>
-          <span class="cartao-dashboard-rotulo">Taxas de entrega hoje</span>
-          <span class="cartao-dashboard-valor" id="cartao-taxa-entrega-hoje">—</span>
+        <div class="card cartao-dashboard cartao-kpi-operacional">
+          <span class="cartao-dashboard-icone">🍡</span>
+          <div>
+            <span class="cartao-dashboard-rotulo">Produtos cadastrados</span>
+            <span class="cartao-dashboard-valor" id="cartao-produtos-cadastrados">—</span>
+          </div>
         </div>
-      </div>
-      <div class="card cartao-dashboard">
-        <span class="cartao-dashboard-icone">❌</span>
-        <div>
-          <span class="cartao-dashboard-rotulo">Cancelamentos hoje</span>
-          <span class="cartao-dashboard-valor" id="cartao-cancelamentos-hoje">—</span>
+        <div class="card cartao-dashboard cartao-kpi-operacional">
+          <span class="cartao-dashboard-icone">⚠️</span>
+          <div>
+            <span class="cartao-dashboard-rotulo">Estoque baixo</span>
+            <span class="cartao-dashboard-valor" id="cartao-estoque-baixo">—</span>
+          </div>
         </div>
-      </div>
-      <div class="card cartao-dashboard">
-        <span class="cartao-dashboard-icone">🍡</span>
-        <div>
-          <span class="cartao-dashboard-rotulo">Produtos cadastrados</span>
-          <span class="cartao-dashboard-valor" id="cartao-produtos-cadastrados">—</span>
+        <div class="card cartao-dashboard cartao-kpi-operacional">
+          <span class="cartao-dashboard-icone">🚫</span>
+          <div>
+            <span class="cartao-dashboard-rotulo">Produtos sem estoque</span>
+            <span class="cartao-dashboard-valor" id="cartao-sem-estoque">—</span>
+          </div>
         </div>
-      </div>
-      <div class="card cartao-dashboard">
-        <span class="cartao-dashboard-icone">⚠️</span>
-        <div>
-          <span class="cartao-dashboard-rotulo">Estoque baixo</span>
-          <span class="cartao-dashboard-valor" id="cartao-estoque-baixo">—</span>
-        </div>
-      </div>
-      <div class="card cartao-dashboard">
-        <span class="cartao-dashboard-icone">🚫</span>
-        <div>
-          <span class="cartao-dashboard-rotulo">Produtos sem estoque</span>
-          <span class="cartao-dashboard-valor" id="cartao-sem-estoque">—</span>
-        </div>
-      </div>
-      <div class="card cartao-dashboard">
-        <span class="cartao-dashboard-icone">📦</span>
-        <div>
-          <span class="cartao-dashboard-rotulo">Valor total em estoque</span>
-          <span class="cartao-dashboard-valor" id="cartao-valor-estoque">—</span>
+        <div class="card cartao-dashboard cartao-kpi-operacional">
+          <span class="cartao-dashboard-icone">📦</span>
+          <div>
+            <span class="cartao-dashboard-rotulo">Valor total em estoque</span>
+            <span class="cartao-dashboard-valor" id="cartao-valor-estoque">—</span>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="pagina-titulo" style="margin-top:8px;">
-      <h2 style="margin:0;">Relatórios</h2>
-    </div>
-
-    <div class="filtro-categorias" id="filtro-periodo-dashboard">
-      <button type="button" class="filtro-categoria-botao ativo" data-periodo="hoje">Hoje</button>
-      <button type="button" class="filtro-categoria-botao" data-periodo="7dias">7 dias</button>
-      <button type="button" class="filtro-categoria-botao" data-periodo="30dias">30 dias</button>
-      <button type="button" class="filtro-categoria-botao" data-periodo="mes">Este mês</button>
-      <button type="button" class="filtro-categoria-botao" data-periodo="personalizado">Personalizado</button>
+    <div class="cabecalho-relatorios">
+      <h2 class="titulo-secao-relatorios">Relatórios</h2>
+      <div class="filtro-categorias" id="filtro-periodo-dashboard">
+        <button type="button" class="filtro-categoria-botao ativo" data-periodo="hoje">Hoje</button>
+        <button type="button" class="filtro-categoria-botao" data-periodo="7dias">7 dias</button>
+        <button type="button" class="filtro-categoria-botao" data-periodo="30dias">30 dias</button>
+        <button type="button" class="filtro-categoria-botao" data-periodo="mes">Este mês</button>
+        <button type="button" class="filtro-categoria-botao" data-periodo="personalizado">Personalizado</button>
+      </div>
     </div>
 
     <div class="card filtro-periodo-personalizado" id="grupo-periodo-personalizado" style="display:none;">
@@ -118,37 +122,45 @@
     <div class="estado-vazio" id="estado-erro-relatorios" style="display:none;"></div>
 
     <div id="conteudo-relatorios-dashboard">
-      <div class="card" style="margin-bottom:var(--espaco-lg);">
+      <div class="card cartao-fechamento">
         <h2 class="titulo-grafico">Fechamento do período</h2>
 
-        <h3 class="cartao-dashboard-rotulo" style="margin:0 0 var(--espaco-sm);">Resumo</h3>
-        <div class="lista-resumo-relatorio">
-          <div class="linha-resumo"><span>Faturamento válido</span><span id="fechamento-faturamento">—</span></div>
-          <div class="linha-resumo"><span>Pedidos válidos</span><span id="fechamento-pedidos">—</span></div>
-          <div class="linha-resumo"><span>Ticket médio</span><span id="fechamento-ticket-medio">—</span></div>
-          <div class="linha-resumo"><span>Taxas de entrega</span><span id="fechamento-taxas-entrega">—</span></div>
+        <div class="bloco-fechamento">
+          <h3 class="bloco-fechamento-titulo">Resumo</h3>
+          <div class="lista-resumo-relatorio lista-resumo-relatorio--destaque">
+            <div class="linha-resumo"><span>Faturamento válido</span><span id="fechamento-faturamento">—</span></div>
+            <div class="linha-resumo"><span>Pedidos válidos</span><span id="fechamento-pedidos">—</span></div>
+            <div class="linha-resumo"><span>Ticket médio</span><span id="fechamento-ticket-medio">—</span></div>
+            <div class="linha-resumo"><span>Taxas de entrega</span><span id="fechamento-taxas-entrega">—</span></div>
+          </div>
         </div>
 
-        <h3 class="cartao-dashboard-rotulo" style="margin:var(--espaco-lg) 0 var(--espaco-sm);">Formas de pagamento</h3>
-        <div class="lista-resumo-relatorio">
-          <div class="linha-resumo"><span>Cartão</span><span id="fechamento-cartao">—</span></div>
-          <div class="linha-resumo"><span>Dinheiro</span><span id="fechamento-dinheiro">—</span></div>
-          <div class="linha-resumo"><span>Revolut</span><span id="fechamento-revolut">—</span></div>
+        <div class="bloco-fechamento">
+          <h3 class="bloco-fechamento-titulo">Formas de pagamento</h3>
+          <div class="lista-resumo-relatorio">
+            <div class="linha-resumo"><span>Cartão</span><span id="fechamento-cartao">—</span></div>
+            <div class="linha-resumo"><span>Dinheiro</span><span id="fechamento-dinheiro">—</span></div>
+            <div class="linha-resumo"><span>Revolut</span><span id="fechamento-revolut">—</span></div>
+          </div>
         </div>
 
-        <h3 class="cartao-dashboard-rotulo" style="margin:var(--espaco-lg) 0 var(--espaco-sm);">Recebimento</h3>
-        <div class="lista-resumo-relatorio">
-          <div class="linha-resumo"><span>Delivery</span><span id="fechamento-delivery">—</span></div>
-          <div class="linha-resumo"><span>Retirada</span><span id="fechamento-retirada">—</span></div>
+        <div class="bloco-fechamento">
+          <h3 class="bloco-fechamento-titulo">Recebimento</h3>
+          <div class="lista-resumo-relatorio">
+            <div class="linha-resumo"><span>Delivery</span><span id="fechamento-delivery">—</span></div>
+            <div class="linha-resumo"><span>Retirada</span><span id="fechamento-retirada">—</span></div>
+          </div>
         </div>
 
-        <h3 class="cartao-dashboard-rotulo" style="margin:var(--espaco-lg) 0 var(--espaco-sm);">Caixa / Informativos</h3>
-        <div class="lista-resumo-relatorio">
-          <div class="linha-resumo"><span>Troco informado</span><span id="fechamento-troco">—</span></div>
-          <p style="margin:0 0 var(--espaco-sm);font-size:0.72rem;color:var(--cor-texto-secundario);">Informativo — não altera o faturamento.</p>
-          <div class="linha-resumo"><span>Cancelamentos</span><span id="fechamento-cancelamentos">—</span></div>
-          <div class="linha-resumo"><span>Valor histórico cancelado</span><span id="fechamento-valor-cancelado">—</span></div>
-          <p style="margin:0;font-size:0.72rem;color:var(--cor-texto-secundario);">Total original dos pedidos cancelados no período.</p>
+        <div class="bloco-fechamento">
+          <h3 class="bloco-fechamento-titulo">Caixa / Informativos</h3>
+          <div class="lista-resumo-relatorio">
+            <div class="linha-resumo"><span>Troco informado</span><span id="fechamento-troco">—</span></div>
+            <p class="texto-informativo-fechamento">Informativo — não altera o faturamento.</p>
+            <div class="linha-resumo"><span>Cancelamentos</span><span id="fechamento-cancelamentos">—</span></div>
+            <div class="linha-resumo"><span>Valor histórico cancelado</span><span id="fechamento-valor-cancelado">—</span></div>
+            <p class="texto-informativo-fechamento">Total original dos pedidos cancelados no período.</p>
+          </div>
         </div>
       </div>
 
@@ -163,7 +175,7 @@
         </div>
       </div>
 
-      <div class="grade-graficos-dashboard" style="margin-top:var(--espaco-lg);">
+      <div class="grade-graficos-dashboard grade-graficos-dashboard-secundaria">
         <div class="card">
           <h2 class="titulo-grafico">Delivery × Collection</h2>
           <div class="lista-resumo-relatorio" id="lista-delivery-collection"></div>

@@ -6,13 +6,41 @@
 
 .filtros-produtos {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--espaco-md);
   margin-bottom: var(--espaco-lg);
 }
 
 .tabela-produtos-wrap { padding: 0; overflow-x: auto; }
 .tabela-produtos-wrap .tabela { min-width: 640px; }
+
+/* Colunas da listagem (mesma ordem do <thead> estático e do <tr> gerado por linhaProdutoHtml()) */
+.tabela-produtos-wrap thead th:nth-child(2),
+#corpo-tabela-produtos td:nth-child(2) {
+  font-weight: 600;
+}
+
+.tabela-produtos-wrap thead th:nth-child(4),
+#corpo-tabela-produtos td:nth-child(4) {
+  text-align: right;
+}
+
+#corpo-tabela-produtos td:nth-child(4) {
+  font-weight: 700;
+  color: var(--cor-terracota);
+}
+
+.tabela-produtos-wrap thead th:nth-child(5),
+#corpo-tabela-produtos td:nth-child(5),
+.tabela-produtos-wrap thead th:nth-child(6),
+#corpo-tabela-produtos td:nth-child(6) {
+  text-align: center;
+}
+
+.acoes-linha .btn-icone:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: 2px;
+}
 
 .miniatura-produto {
   width: 44px;

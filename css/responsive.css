@@ -47,8 +47,7 @@ html, body { overflow-x: hidden; }
   .conteudo-pagina { padding: var(--espaco-md); }
 
   .filtros-produtos,
-  .filtros-estoque,
-  .filtros-historico {
+  .filtros-estoque {
     grid-template-columns: 1fr;
   }
 
@@ -61,6 +60,9 @@ html, body { overflow-x: hidden; }
   .coluna-foto { max-width: 200px; margin: 0 auto; }
 
   .grade-graficos-dashboard { grid-template-columns: 1fr; }
+
+  .grade-kpis-principais { grid-template-columns: 1fr; }
+  .lista-resumo-relatorio--destaque { grid-template-columns: repeat(2, 1fr); }
 
   /* Empilha mais cedo para não apertar os 220px mínimos das duas colunas */
   .opcoes-area-inicial { grid-template-columns: 1fr; max-width: 320px; }
@@ -78,7 +80,10 @@ html, body { overflow-x: hidden; }
   .header-titulo { font-size: 0.95rem; }
 
   .cartoes-resumo-estoque { grid-template-columns: 1fr; }
-  .grade-cartoes-dashboard { grid-template-columns: 1fr; }
+  .grade-kpis-principais { grid-template-columns: 1fr; }
+  .grade-kpis-operacionais { grid-template-columns: repeat(2, 1fr); }
+  .lista-resumo-relatorio--destaque { grid-template-columns: 1fr; }
+  .cabecalho-relatorios { flex-direction: column; align-items: stretch; }
 
   .grade-cardapio { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
 
@@ -88,6 +93,4 @@ html, body { overflow-x: hidden; }
   .tela-inicial-marca h1 { font-size: 1.6rem; }
 
   .modal { max-width: 100% !important; }
-
-  .linha-barra-horizontal { grid-template-columns: 90px 1fr 32px; }
 }

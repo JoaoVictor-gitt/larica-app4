@@ -40,22 +40,29 @@
 }
 
 .coluna-kanban {
+  display: flex;
+  flex-direction: column;
   background: var(--cor-cinza-claro);
   border-radius: var(--raio-md);
   padding: var(--espaco-md);
   min-width: 280px;
+  max-height: calc(100vh - var(--altura-header) - 200px);
+  min-height: 240px; /* rede de segurança em viewport baixo (celular na horizontal) — a página rola como fallback em vez da coluna ficar espremida */
 }
 
 .coluna-kanban-cabecalho {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding-bottom: var(--espaco-sm);
   margin-bottom: var(--espaco-md);
+  border-bottom: 1px solid var(--cor-borda);
 }
 
 .coluna-kanban-cabecalho h2 {
   margin: 0;
   font-size: 0.95rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--cor-texto-secundario);
@@ -79,6 +86,10 @@
   display: flex;
   flex-direction: column;
   gap: var(--espaco-md);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px; /* evita a barra de rolagem colar no conteúdo dos cards */
 }
 
 .estado-vazio-coluna {
@@ -86,6 +97,7 @@
   padding: var(--espaco-lg) var(--espaco-sm);
   color: var(--cor-texto-secundario);
   font-size: 0.85rem;
+  line-height: 1.5;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -97,20 +109,38 @@
   display: flex;
   flex-direction: column;
   gap: var(--espaco-xs);
+  flex-shrink: 0; /* nunca encolhe dentro da lista com scroll da coluna */
 }
 
 .card-pedido-novo {
   border: 2px solid var(--cor-terracota);
 }
 
+/*
+ * Hierarquia visual pedida (número > cliente > tipo > horário > total > pagamento > itens > ações),
+ * aplicada só com `order` sobre os filhos diretos já gerados por cardPedidoHtml() — sem tocar
+ * pedidos.js/HTML. Tipo+horário e itens+total são pares que o template combina num único elemento
+ * cada, então a prioridade é por grupo (reforçando o elemento mais importante de cada par via peso
+ * tipográfico/cor logo abaixo).
+ */
+.card-pedido-cliente { order: 2; }
+.card-pedido-info { order: 3; }
+.card-pedido-rodape { order: 4; }
+.card-pedido-pagamento { order: 5; }
+.bloco-pronto-para { order: 6; }
+.card-pedido-acoes { order: 7; }
+.link-cancelar-pedido { order: 8; }
+
 .card-pedido-cabecalho {
+  order: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
 .card-pedido-cabecalho strong {
-  font-size: 1rem;
+  font-size: 1.05rem;
+  font-weight: 700;
 }
 
 .badge-novo {
@@ -142,10 +172,24 @@
 
 .card-pedido-rodape {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   font-weight: 600;
   margin-top: var(--espaco-xs);
+  padding-top: var(--espaco-xs);
+  border-top: 1px solid var(--cor-borda);
+}
+
+/* Total é o valor mais forte do rodapé — itens fica secundário */
+.card-pedido-rodape span:first-child {
+  color: var(--cor-texto-secundario);
+  font-weight: 400;
+  font-size: 0.8rem;
+}
+
+.card-pedido-rodape span:last-child {
+  color: var(--cor-terracota);
+  font-size: 1.05rem;
 }
 
 .card-pedido-acoes {
@@ -158,6 +202,10 @@
   flex: 1;
   font-size: 0.85rem;
   padding: var(--espaco-sm) var(--espaco-sm);
+}
+
+.card-pedido-acoes .btn-primario {
+  flex: 1.4; /* ação principal do estado atual com mais destaque que "Ver pedido" */
 }
 
 /* Ação de cancelar — discreta de propósito, não pode competir visualmente com Aceitar/Pronto/Concluir */
@@ -232,6 +280,7 @@
 .badge-status-em_preparo { background: var(--cor-status-amarelo); }
 .badge-status-pronto { background: var(--cor-status-verde); }
 .badge-status-finalizado { background: var(--cor-status-cinza); }
+.badge-status-cancelado { background: var(--cor-status-vermelho); }
 
 /* ---------------------------------------------------------------------- */
 /* Modal de detalhes do pedido                                            */
@@ -243,6 +292,8 @@
 
 .detalhe-pedido-secao {
   margin-bottom: var(--espaco-lg);
+  padding-bottom: var(--espaco-lg);
+  border-bottom: 1px solid var(--cor-borda);
 }
 
 .detalhe-pedido-titulo {
@@ -252,6 +303,12 @@
   letter-spacing: 0.03em;
   color: var(--cor-texto-secundario);
   margin-bottom: var(--espaco-xs);
+}
+
+/* Total é o elemento mais forte do resumo de valores, mesmo tratamento usado em Fazer Pedido (pedido.css) */
+.modal-pedido .resumo-carrinho .linha-resumo-total span:last-child {
+  color: var(--cor-terracota);
+  font-size: 1.2rem;
 }
 
 .detalhe-combo-pedido {

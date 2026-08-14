@@ -10,6 +10,13 @@
   margin-bottom: var(--espaco-xl);
 }
 
+/* Título da seção (h2) reaproveita .pagina-titulo (global) só pro layout flex — o h2 em si não tem
+   estilo próprio em style.css (só h1), então fica com o tamanho grande padrão do navegador sem isto */
+.secao-pedidos-finalizados .pagina-titulo h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
 .acoes-pedidos-finalizados {
   display: flex;
   gap: var(--espaco-sm);
@@ -23,6 +30,66 @@
 
 .tabela-pedidos-finalizados-wrap .tabela {
   min-width: 560px;
+}
+
+/*
+ * Colunas da tabela — o <thead> e o <tbody> mudam de estrutura por aba (ver renderizarCabecalhoTabelaHistorico()
+ * em historico.js): Finalizados tem 6 colunas [checkbox, Pedido, Data, Total, Status, Ações], Cancelados tem 7
+ * [Pedido, Cliente, Tipo, Total, Cancelado em, Motivo, Ações]. Cada regra abaixo foi conferida nas duas
+ * estruturas antes de entrar — só nth-child(6) foi propositalmente deixado de fora (ver comentário lá embaixo).
+ */
+
+/* Número do pedido — âncora visual principal nas duas abas (posição 1 em Cancelados, 2 em Finalizados;
+   na posição "errada" de cada aba cai sobre o checkbox — sem efeito visual — ou sobre o Cliente, que só
+   fica um pouco mais forte que o "peso moderado" pedido, efeito colateral aceitável) */
+#cabecalho-tabela-historico th:nth-child(1),
+#cabecalho-tabela-historico th:nth-child(2),
+#corpo-tabela-pedidos-finalizados td:nth-child(1),
+#corpo-tabela-pedidos-finalizados td:nth-child(2) {
+  font-weight: 700;
+}
+
+/* Data (Finalizados) / Tipo (Cancelados) — ambos são metadado secundário */
+#corpo-tabela-pedidos-finalizados td:nth-child(3) {
+  color: var(--cor-texto-secundario);
+  font-size: 0.85rem;
+}
+
+/* Total — mesma posição (4ª coluna) nas duas abas; mesmo destaque monetário usado em Dashboard/Pedido/Pedidos/Produtos */
+#cabecalho-tabela-historico th:nth-child(4),
+#corpo-tabela-pedidos-finalizados td:nth-child(4) {
+  text-align: right;
+}
+
+#corpo-tabela-pedidos-finalizados td:nth-child(4) {
+  font-weight: 700;
+  color: var(--cor-terracota);
+}
+
+/* Status (badge, Finalizados) / Cancelado em (Cancelados) — o badge tem color próprio (mais específico
+   que a herança), então fica intocado; a data em Cancelados ganha o tom secundário */
+#corpo-tabela-pedidos-finalizados td:nth-child(5) {
+  color: var(--cor-texto-secundario);
+}
+
+/* nth-child(6) deliberadamente sem regra: é Ações em Finalizados (não pode ficar acinzentado) e Motivo em
+   Cancelados (fica no estilo padrão — não está na lista de prioridade pedida, sem necessidade de destaque) */
+
+.acoes-linha {
+  display: flex;
+  gap: var(--espaco-xs);
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.acoes-linha .btn-icone:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: 2px;
+}
+
+.checkbox-pedido-historico,
+#cabecalho-tabela-historico input[type="checkbox"] {
+  accent-color: var(--cor-terracota);
 }
 
 /* Abas Finalizados/Cancelados — mesmo padrão de pill button já usado no Dashboard/Cardápio, duplicado
@@ -47,6 +114,11 @@
 
 .filtro-categoria-botao:hover { border-color: var(--cor-terracota); }
 
+.filtro-categoria-botao:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: 2px;
+}
+
 .filtro-categoria-botao.ativo {
   background: var(--cor-terracota);
   border-color: var(--cor-terracota);
@@ -57,20 +129,13 @@
    (css/pedido.css), duplicado aqui pelo mesmo motivo (página não carrega aquele CSS) */
 .aviso-info {
   background: var(--cor-cinza-claro);
-  border-left: 4px solid var(--cor-terracota);
+  border-left: 3px solid var(--cor-terracota);
   border-radius: var(--raio-sm);
-  padding: var(--espaco-sm) var(--espaco-md);
+  padding: var(--espaco-md);
   font-size: 0.85rem;
+  line-height: 1.5;
   color: var(--cor-texto);
   margin-bottom: var(--espaco-md);
-}
-
-.titulo-secao-historico {
-  font-size: 1rem;
-  color: var(--cor-texto-secundario);
-  margin: 0 0 var(--espaco-md);
-  padding-top: var(--espaco-sm);
-  border-top: 1px solid var(--cor-borda);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -84,6 +149,14 @@
 
 .detalhe-pedido-secao {
   margin-bottom: var(--espaco-lg);
+  padding-bottom: var(--espaco-lg);
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+/* Total é o elemento mais forte do resumo de valores, mesmo tratamento usado em Pedidos/Kanban (pedidos.css) */
+.modal-pedido .resumo-carrinho .linha-resumo-total span:last-child {
+  color: var(--cor-terracota);
+  font-size: 1.2rem;
 }
 
 .detalhe-pedido-titulo {

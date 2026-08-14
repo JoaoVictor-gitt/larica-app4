@@ -11,6 +11,38 @@
   padding-bottom: 96px; /* espaço para a barra fixa do carrinho não cobrir o conteúdo */
 }
 
+/* Carrinho (Etapa 2): tabela encostada nas bordas do card, cabeçalho discreto, quantidade/subtotal com hierarquia */
+.tabela-carrinho-wrap {
+  padding: 0;
+}
+
+#tabela-pedido-carrinho th {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cor-texto-secundario);
+}
+
+#tabela-pedido-carrinho td:nth-child(2) {
+  font-weight: 600;
+}
+
+#tabela-pedido-carrinho td:nth-child(5) {
+  font-weight: 700;
+  color: var(--cor-terracota);
+}
+
+.quantidade-pedido-carrinho {
+  width: 64px;
+  padding: 6px;
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-sm);
+  text-align: center;
+  background: var(--cor-branco);
+  color: var(--cor-texto);
+}
+
 /* Navegação por etapas: cada <section> vira uma "tela" dentro da mesma página */
 .etapa-pedido {
   display: none;
@@ -27,11 +59,15 @@
 }
 
 .indicador-etapa-pedido {
-  font-size: 0.8rem;
+  display: inline-block;
+  font-size: 0.72rem;
   font-weight: 700;
-  color: var(--cor-texto-secundario);
+  color: var(--cor-terracota);
+  background: var(--cor-acento-sutil);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
+  padding: var(--espaco-xs) var(--espaco-md);
+  border-radius: var(--raio-pill);
   margin-bottom: var(--espaco-lg);
 }
 
@@ -66,6 +102,10 @@
   min-height: 140px;
 }
 
+.opcao-pagamento.opcao-grande:hover {
+  box-shadow: var(--sombra-sm);
+}
+
 .opcao-pagamento.opcao-grande .icone-pagamento {
   font-size: 2rem;
 }
@@ -73,7 +113,6 @@
 .opcao-pagamento.opcao-grande strong {
   display: block;
   font-size: 1.05rem;
-  color: var(--cor-sobre-acento);
 }
 
 .opcao-pagamento.opcao-grande small {
@@ -87,10 +126,11 @@
 /* Aviso informativo (Dublin only, endereço de retirada, etc.) */
 .aviso-info {
   background: var(--cor-cinza-claro);
-  border-left: 4px solid var(--cor-terracota);
+  border-left: 3px solid var(--cor-terracota);
   border-radius: var(--raio-sm);
-  padding: var(--espaco-sm) var(--espaco-md);
+  padding: var(--espaco-md);
   font-size: 0.85rem;
+  line-height: 1.5;
   color: var(--cor-texto);
   margin-bottom: var(--espaco-md);
 }
@@ -123,6 +163,18 @@
   color: var(--cor-status-vermelho);
   font-size: 0.8rem;
   margin-top: 2px;
+}
+
+/* Resumo do carrinho — o Total é o elemento visual mais forte do card (Etapa 2 e Etapa 6 reaproveitam a mesma classe) */
+.resumo-carrinho .linha-resumo-total span:last-child {
+  color: var(--cor-terracota);
+  font-size: 1.3rem;
+}
+
+/* Dentro do modal de Combo, o Total fica no mesmo tamanho dos outros modais (Pedidos/Histórico, .modal-pedido) —
+   só a página cheia do Carrinho mantém o 1.3rem acima */
+.modal-combo .resumo-carrinho .linha-resumo-total span:last-child {
+  font-size: 1.2rem;
 }
 
 /* Barra fixa inferior com o resumo do carrinho, visível durante o cardápio */
@@ -158,6 +210,26 @@
 /* Revisão do pedido */
 .resumo-revisao-secao {
   margin-bottom: var(--espaco-lg);
+}
+
+/* Cupom de desconto (Etapa 6) */
+.cartao-cupom-titulo {
+  margin-top: 0;
+  font-size: 1.05rem;
+}
+
+.cupom-input-linha {
+  display: flex;
+  gap: var(--espaco-sm);
+}
+
+.campo-cupom-codigo {
+  text-transform: uppercase;
+  flex: 1;
+}
+
+.texto-cupom-aplicado {
+  margin: 0 0 var(--espaco-sm);
 }
 
 .resumo-revisao-titulo {
@@ -263,6 +335,8 @@
 
 .secao-combo {
   margin-bottom: var(--espaco-lg);
+  padding-bottom: var(--espaco-lg);
+  border-bottom: 1px solid var(--cor-borda);
 }
 
 .secao-combo-cabecalho {
@@ -283,7 +357,7 @@
   font-size: 0.75rem;
   font-weight: 700;
   color: var(--cor-terracota);
-  background: rgba(255, 77, 0, 0.1);
+  background: var(--cor-acento-sutil);
   border-radius: var(--raio-pill);
   padding: 2px var(--espaco-sm);
 }
@@ -299,6 +373,7 @@
 .opcao-combo-item {
   justify-content: space-between;
   padding: var(--espaco-sm) var(--espaco-md);
+  border-width: 1px;
 }
 
 .combo-item-acrescimo {
@@ -327,19 +402,6 @@
 .linha-escolha-combo-nome {
   font-weight: 600;
   font-size: 0.92rem;
-}
-
-/* Nome do espeto/acompanhamento sempre em branco, legível sobre o fundo escuro do card (não afeta os valores de acréscimo) */
-#combo-lista-espetos .opcao-combo-item > span:first-child,
-#combo-lista-espetos .linha-escolha-combo-nome,
-#combo-lista-acompanhamentos .opcao-combo-item > span:first-child,
-#combo-lista-acompanhamentos .linha-escolha-combo-nome {
-  color: var(--cor-sobre-acento);
-}
-
-/* Texto das opções de forma de pagamento sempre em branco (mesmo padrão dos espetos/acompanhamentos) */
-#opcoes-pagamento-pedido .opcao-pagamento {
-  color: var(--cor-sobre-acento);
 }
 
 .linha-escolha-combo-acrescimo {
@@ -384,6 +446,8 @@
 
 .combo-resumo-total {
   margin-top: var(--espaco-md);
+  background: var(--cor-cinza-claro);
+  box-shadow: none;
 }
 
 /* Aviso discreto quando algum item incluso do combo ficou indisponível (produto inativo/excluído) */
@@ -410,8 +474,15 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--espaco-sm);
-  font-size: 1rem;
+  font-size: 1.05rem;
   margin-bottom: var(--espaco-xs);
+}
+
+.resumo-combo-carrinho-cabecalho strong { font-weight: 700; }
+
+.resumo-combo-carrinho-cabecalho span:last-child {
+  font-weight: 700;
+  color: var(--cor-terracota);
 }
 
 .resumo-combo-carrinho-grupo {

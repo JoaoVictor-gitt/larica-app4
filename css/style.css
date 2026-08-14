@@ -213,7 +213,7 @@ body {
 
 .sidebar-link.ativo {
   background: linear-gradient(90deg, var(--cor-terracota), var(--cor-terracota-escura));
-  color: #FFFFFF;
+  color: var(--cor-sobre-acento);
 }
 
 .sidebar-rodape {
@@ -348,6 +348,7 @@ body {
   color: var(--cor-texto-secundario);
 }
 .btn-icone:hover { background: var(--cor-cinza-claro); color: var(--cor-texto); }
+.btn-icone:focus-visible { outline: 2px solid var(--cor-terracota); outline-offset: 2px; }
 
 .form-grupo {
   display: flex;
@@ -432,6 +433,12 @@ body {
 
 .toggle-switch input:checked + .toggle-switch-trilho { background: var(--cor-terracota); border-color: var(--cor-terracota); }
 .toggle-switch input:checked + .toggle-switch-trilho::before { transform: translateX(20px); }
+.toggle-switch input:focus-visible + .toggle-switch-trilho { outline: 2px solid var(--cor-terracota); outline-offset: 2px; }
+
+/* Checkbox nativo (fora do .toggle-switch) na cor da marca — o input do .toggle-switch é opacity:0/0x0,
+   então accent-color não tem nenhum efeito visual nele; afeta só checkboxes "de verdade" (ex.: horários em
+   Configurações, checklist de itens inclusos em Produtos, seleção em massa no Histórico). */
+input[type="checkbox"] { accent-color: var(--cor-terracota); }
 
 .tabela { width: 100%; border-collapse: collapse; background: var(--cor-branco); }
 .tabela th, .tabela td { padding: var(--espaco-sm) var(--espaco-md); text-align: left; border-bottom: 1px solid var(--cor-borda); }
@@ -697,24 +704,3 @@ body[data-area="admin"]:not(.autenticado) {
 .opcao-area-icone { font-size: 2.2rem; }
 .opcao-area h2 { margin: var(--espaco-xs) 0 0; font-size: 1.05rem; }
 .opcao-area p { margin: 0; font-size: 0.85rem; color: var(--cor-texto-secundario); }
-
-/* ---------------------------------------------------------------------- */
-/* Histórico (não tem CSS próprio — usa os componentes genéricos daqui)   */
-/* ---------------------------------------------------------------------- */
-.filtros-historico {
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr;
-  gap: var(--espaco-md);
-  margin-bottom: var(--espaco-lg);
-}
-
-.tabela-historico-wrap { padding: 0; overflow-x: auto; }
-.tabela-historico-wrap .tabela { min-width: 760px; }
-
-.lista-itens-historico { margin: 0; padding: 0; list-style: none; font-size: 0.85rem; }
-.lista-itens-historico li { white-space: nowrap; }
-
-.badge-tipo-venda { background: var(--cor-status-verde); }
-.badge-tipo-entrada { background: var(--cor-status-amarelo); }
-.badge-tipo-saida { background: var(--cor-status-vermelho); }
-.badge-tipo-ajuste { background: var(--cor-status-cinza); }
