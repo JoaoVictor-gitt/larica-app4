@@ -207,9 +207,10 @@ async function salvarConfiguracoesNegocio(evento) {
 // Pagamento Revolut (business_settings.revolut_enabled/revolut_qr_path + Storage)
 // ---------------------------------------------------------------------------
 
-/** Preenche o toggle + preview do QR atual, e limpa qualquer seleção pendente de arquivo novo */
+/** Preenche o toggle + código copiável + preview do QR atual, e limpa qualquer seleção pendente de arquivo novo */
 function preencherConfiguracoesRevolut(config) {
   document.getElementById('campo-revolut-ativo').checked = !!config.revolutAtivo;
+  document.getElementById('campo-revolut-codigo').value = config.revolutPaymentCode || '';
 
   arquivoQrRevolutSelecionado = null;
   document.getElementById('campo-qr-revolut').value = '';
@@ -267,9 +268,11 @@ function tratarSelecaoQrRevolut(evento) {
 /**
  * Se houver arquivo novo selecionado: upload primeiro, só então persiste business_settings com o path
  * novo — se o upload falhar, nada é salvo (path anterior continua oficial). Se não houver arquivo novo,
- * salva só o toggle, preservando revolutQrPath atual (nunca envia null sem intenção). Sempre manda o
- * config completo em cache pra atualizarConfiguracoesNegocioNoSupabase() (ver achado da auditoria) —
- * nunca um objeto parcial, senão os outros campos de negócio seriam zerados.
+ * salva só o toggle, preservando revolutQrPath atual (nunca envia null sem intenção). O código/link
+ * copiável (revolutPaymentCode) é sempre enviado com o valor atual do campo — sem a mesma ambiguidade
+ * do upload de arquivo, então não precisa da mesma proteção condicional. Sempre manda o config completo
+ * em cache pra atualizarConfiguracoesNegocioNoSupabase() (ver achado da auditoria) — nunca um objeto
+ * parcial, senão os outros campos de negócio seriam zerados.
  */
 async function salvarConfiguracoesRevolut(evento) {
   evento.preventDefault();
@@ -297,7 +300,8 @@ async function salvarConfiguracoesRevolut(evento) {
       novoPath = await uploadQrRevolut(arquivoQrRevolutSelecionado);
     }
 
-    const config = { ...configNegocioCache, revolutAtivo };
+    const revolutPaymentCode = document.getElementById('campo-revolut-codigo').value.trim();
+    const config = { ...configNegocioCache, revolutAtivo, revolutPaymentCode };
     if (novoPath) config.revolutQrPath = novoPath;
 
     const atualizado = await atualizarConfiguracoesNegocioNoSupabase(config);

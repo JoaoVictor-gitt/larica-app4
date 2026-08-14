@@ -96,3 +96,10 @@
   outline: 2px solid var(--cor-terracota);
   outline-offset: 2px;
 }
+
+/* Texto de ajuda abaixo de um campo — mesmo padrão já usado em produtos.css (página não carrega aquele CSS) */
+.dica-campo {
+  margin: 0 0 var(--espaco-xs);
+  font-size: 0.78rem;
+  color: var(--cor-texto-secundario);
+}

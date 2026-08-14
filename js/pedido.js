@@ -484,6 +484,8 @@ function ligarEventosGerais() {
     irParaEtapaPedido('recebimento');
   });
 
+  document.getElementById('botao-copiar-codigo-revolut').addEventListener('click', copiarCodigoRevolut);
+
   ligarEventosRecebimento();
   ligarEventosDadosRetirada();
   ligarEventosDadosEntrega();
@@ -1944,6 +1946,7 @@ function renderizarConfirmacaoRevolut(pedido, moeda) {
   document.getElementById('revolut-valor-total').textContent = formatarMoeda(pedido.total, moeda);
 
   renderizarQrRevolut();
+  atualizarBotaoCopiarCodigoRevolut();
 
   // Realtime é só visual — nunca confirma pagamento nem chama a RPC. Se o pedido criado não tiver id
   // (não deveria acontecer) ou a assinatura falhar, o cliente simplesmente continua vendo "Aguardando
@@ -1996,6 +1999,42 @@ function exibirQrRevolutIndisponivel(wrap) {
   aviso.textContent =
     'Pagamento via Revolut temporariamente indisponível. Entre em contato com a equipe para concluir o pagamento.';
   wrap.appendChild(aviso);
+}
+
+/**
+ * Mostra/esconde a alternativa "Copiar código Revolut" conforme configuracoesNegocio.revolutPaymentCode
+ * existir ou não (mesmo cache já carregado por carregarDisponibilidadeNegocio(), sem nova consulta).
+ * Compatibilidade com configuração antiga: sem código cadastrado, o bloco simplesmente não aparece — a
+ * tela continua mostrando só o QR Code, exatamente como antes desta melhoria.
+ */
+function atualizarBotaoCopiarCodigoRevolut() {
+  const wrap = document.getElementById('revolut-copiar-codigo-wrap');
+  const codigo = configuracoesNegocio && configuracoesNegocio.revolutPaymentCode;
+  wrap.style.display = codigo ? '' : 'none';
+}
+
+/**
+ * Copia o código/link Revolut cadastrado em Configurações pro clipboard do cliente — só facilita a
+ * transferência manual, nunca confirma pagamento nem substitui o fluxo de confirmação no Kanban.
+ */
+async function copiarCodigoRevolut() {
+  const codigo = (configuracoesNegocio && configuracoesNegocio.revolutPaymentCode) || '';
+  if (!codigo) return;
+
+  const botao = document.getElementById('botao-copiar-codigo-revolut');
+  const rotuloOriginal = botao.textContent;
+
+  try {
+    await copiarTextoParaClipboard(codigo);
+    botao.textContent = '✓ Código copiado';
+    mostrarToast('Código Revolut copiado.', 'sucesso');
+  } catch (erro) {
+    mostrarToast('Não foi possível copiar o código. Copie manualmente.', 'erro');
+  } finally {
+    setTimeout(() => {
+      botao.textContent = rotuloOriginal;
+    }, 2000);
+  }
 }
 
 /**

@@ -13,7 +13,7 @@ const DIAS_SEMANA = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira',
 // Listas explícitas das colunas com GRANT de SELECT pra anon/authenticated — nunca '*'/select() vazio,
 // que pediriam também `updated_by` (sem grant público) e derrubariam a consulta inteira.
 const BUSINESS_SETTINGS_COLUNAS_PUBLICAS =
-  'id, orders_enabled, closed_message, delivery_enabled, collection_enabled, delivery_minimum_fee, delivery_minimum_distance_km, delivery_price_per_km, delivery_max_distance_km, delivery_origin_lat, delivery_origin_lng, timezone, updated_at, revolut_enabled, revolut_qr_path';
+  'id, orders_enabled, closed_message, delivery_enabled, collection_enabled, delivery_minimum_fee, delivery_minimum_distance_km, delivery_price_per_km, delivery_max_distance_km, delivery_origin_lat, delivery_origin_lng, timezone, updated_at, revolut_enabled, revolut_qr_path, revolut_payment_code';
 const BUSINESS_HOURS_COLUNAS_PUBLICAS = 'day_of_week, enabled, opening_time, closing_time, updated_at';
 
 function _linhaSupabaseParaConfiguracaoNegocio(linha) {
@@ -32,6 +32,7 @@ function _linhaSupabaseParaConfiguracaoNegocio(linha) {
     atualizadoEm: linha.updated_at,
     revolutAtivo: linha.revolut_enabled,
     revolutQrPath: linha.revolut_qr_path,
+    revolutPaymentCode: linha.revolut_payment_code || '',
   };
 }
 
@@ -46,12 +47,13 @@ async function buscarConfiguracoesNegocioDoSupabase() {
  * Atualiza a linha única de configurações de negócio (id=1). Nunca envia
  * updated_at/updated_by — isso é responsabilidade do trigger no banco.
  *
- * revolutAtivo/revolutQrPath só entram no UPDATE quando a própria chamada os inclui
- * explicitamente em `config` (via hasOwnProperty) — os 2 formulários existentes de
- * Configurações (Pedidos online / Entrega e retirada) nunca os enviam, e se eles
- * fossem tratados como os demais campos (sempre incondicionais), qualquer salvamento
- * desses formulários apagaria silenciosamente o QR Revolut já cadastrado (undefined
- * vira false/null). Assim o QR só muda quando alguém realmente pede pra mudar.
+ * revolutAtivo/revolutQrPath/revolutPaymentCode só entram no UPDATE quando a própria
+ * chamada os inclui explicitamente em `config` (via hasOwnProperty) — os 2 formulários
+ * existentes de Configurações (Pedidos online / Entrega e retirada) nunca os enviam, e
+ * se eles fossem tratados como os demais campos (sempre incondicionais), qualquer
+ * salvamento desses formulários apagaria silenciosamente o QR/código Revolut já
+ * cadastrados (undefined vira false/null). Assim o Revolut só muda quando alguém
+ * realmente pede pra mudar.
  */
 async function atualizarConfiguracoesNegocioNoSupabase(config) {
   const linha = {
@@ -72,6 +74,9 @@ async function atualizarConfiguracoesNegocioNoSupabase(config) {
   }
   if (Object.prototype.hasOwnProperty.call(config, 'revolutQrPath')) {
     linha.revolut_qr_path = config.revolutQrPath || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(config, 'revolutPaymentCode')) {
+    linha.revolut_payment_code = config.revolutPaymentCode || null;
   }
   const { data, error } = await supabaseClient
     .from('business_settings')

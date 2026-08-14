@@ -309,6 +309,32 @@
   color: var(--cor-texto-secundario);
 }
 
+/* Alternativa "copiar código" ao QR Revolut — divisor "ou" + botão + texto de apoio */
+.separador-ou {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  margin: var(--espaco-md) 0;
+  color: var(--cor-texto-secundario);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.separador-ou::before,
+.separador-ou::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--cor-borda);
+}
+
+.texto-auxiliar-copiar-revolut {
+  margin: var(--espaco-sm) 0 0;
+  font-size: 0.8rem;
+  color: var(--cor-texto-secundario);
+}
+
 @media (max-width: 480px) {
   .opcoes-recebimento {
     grid-template-columns: 1fr;

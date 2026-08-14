@@ -173,6 +173,36 @@ function criarContainerToast() {
 }
 
 /**
+ * Copia texto pro clipboard — Clipboard API quando disponível (contexto seguro/HTTPS), com fallback via
+ * <textarea> temporário + document.execCommand('copy') pra navegadores/contextos sem suporte. Nunca falha
+ * em silêncio: lança erro se as duas estratégias não funcionarem, pra quem chama poder avisar o usuário.
+ */
+async function copiarTextoParaClipboard(texto) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(texto);
+    return;
+  }
+
+  const campoTemporario = document.createElement('textarea');
+  campoTemporario.value = texto;
+  campoTemporario.style.position = 'fixed';
+  campoTemporario.style.opacity = '0';
+  document.body.appendChild(campoTemporario);
+  campoTemporario.focus();
+  campoTemporario.select();
+
+  let sucesso = false;
+  try {
+    sucesso = document.execCommand('copy');
+  } catch (erro) {
+    sucesso = false;
+  }
+  document.body.removeChild(campoTemporario);
+
+  if (!sucesso) throw new Error('Não foi possível copiar automaticamente.');
+}
+
+/**
  * Formata um Eircode enquanto o usuário digita: maiúsculas + espaço na
  * posição certa (3 caracteres + espaço + 4 caracteres). Ex.: "d03fx92" -> "D03 FX92".
  */

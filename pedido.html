@@ -310,6 +310,14 @@
              configurado em Configurações — nunca placeholder/QR fictício. -->
         <div class="card qr-revolut-wrap" id="revolut-qr-wrap"></div>
 
+        <!-- Alternativa ao QR para quem está fazendo o pedido pelo mesmo celular — só aparece quando
+             há um código/link cadastrado em Configurações (ver atualizarBotaoCopiarCodigoRevolut()). -->
+        <div id="revolut-copiar-codigo-wrap" style="display:none;">
+          <div class="separador-ou"><span>ou</span></div>
+          <button type="button" class="btn btn-secundario" id="botao-copiar-codigo-revolut">Copiar código Revolut</button>
+          <p class="texto-auxiliar-copiar-revolut">Use esta opção se você estiver fazendo o pedido pelo mesmo celular.</p>
+        </div>
+
         <!-- Trocado in-place pela Etapa 5 (Realtime) quando payment_status vira 'paid', sem reconstruir a tela -->
         <p class="aviso-info" id="status-pagamento-revolut">Após recebermos o pagamento, confirmaremos seu pedido e ele seguirá para preparo.</p>
       </div>
