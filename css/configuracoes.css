@@ -1,0 +1,98 @@
+/*
+ * configuracoes.css
+ * Central de Configurações: grade de cards de categoria + navegação interna
+ * entre a central e cada seção (mostrar/esconder via classe, sem recriar
+ * nenhum formulário). Reaproveita tokens/componentes genéricos de style.css.
+ */
+
+.config-central {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-xl);
+}
+
+.config-card {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-md);
+  padding: var(--espaco-lg);
+  background: var(--cor-branco);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-md);
+  box-shadow: var(--sombra-sm);
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  transition: box-shadow var(--transicao-padrao), transform var(--transicao-padrao), border-color var(--transicao-rapida);
+}
+
+.config-card:hover {
+  box-shadow: var(--sombra-md);
+  transform: translateY(-2px);
+  border-color: var(--cor-terracota);
+}
+
+.config-card:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: 2px;
+}
+
+.config-card-icone {
+  font-size: 1.6rem;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: var(--raio-md);
+  background: var(--cor-cinza-claro);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.config-card-texto {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.config-card-texto strong { font-size: 0.98rem; color: var(--cor-texto); }
+.config-card-texto span { font-size: 0.82rem; color: var(--cor-texto-secundario); }
+
+.config-card-seta {
+  font-size: 1.1rem;
+  color: var(--cor-texto-secundario);
+  flex-shrink: 0;
+}
+
+/* Seções (subtelas) — escondidas por padrão; a central some quando uma abre */
+.config-secao {
+  display: none;
+}
+
+.config-secao.config-secao-ativa {
+  display: block;
+}
+
+.config-botao-voltar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--espaco-xs);
+  background: none;
+  border: none;
+  padding: 0;
+  margin-bottom: var(--espaco-md);
+  color: var(--cor-texto-secundario);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.config-botao-voltar:hover { color: var(--cor-terracota); }
+
+.config-botao-voltar:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: 2px;
+}

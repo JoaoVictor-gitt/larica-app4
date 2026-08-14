@@ -13,6 +13,7 @@
   </script>
   <title>Configurações | Larica Food Truck</title>
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/configuracoes.css" />
   <link rel="stylesheet" href="css/responsive.css" />
 </head>
 <body data-pagina="configuracoes" data-area="admin">
@@ -22,43 +23,96 @@
       <h1>Configurações</h1>
     </div>
 
+    <div class="config-central" id="config-central">
+      <button type="button" class="config-card" data-config-abrir="aparencia">
+        <span class="config-card-icone">🎨</span>
+        <span class="config-card-texto">
+          <strong>Aparência</strong>
+          <span>Tema e preferências do sistema</span>
+        </span>
+        <span class="config-card-seta">→</span>
+      </button>
+      <button type="button" class="config-card" data-config-abrir="pedidos">
+        <span class="config-card-icone">🛒</span>
+        <span class="config-card-texto">
+          <strong>Pedidos online</strong>
+          <span>Controle quando clientes podem realizar pedidos</span>
+        </span>
+        <span class="config-card-seta">→</span>
+      </button>
+      <button type="button" class="config-card" data-config-abrir="entrega">
+        <span class="config-card-icone">🚚</span>
+        <span class="config-card-texto">
+          <strong>Entrega e retirada</strong>
+          <span>Configure modalidades, taxas e distância</span>
+        </span>
+        <span class="config-card-seta">→</span>
+      </button>
+      <button type="button" class="config-card" data-config-abrir="revolut">
+        <span class="config-card-icone">💳</span>
+        <span class="config-card-texto">
+          <strong>Pagamento Revolut</strong>
+          <span>Configure o QR Code para pagamentos</span>
+        </span>
+        <span class="config-card-seta">→</span>
+      </button>
+      <button type="button" class="config-card" data-config-abrir="cupons">
+        <span class="config-card-icone">🏷</span>
+        <span class="config-card-texto">
+          <strong>Cupons e descontos</strong>
+          <span>Crie e administre promoções</span>
+        </span>
+        <span class="config-card-seta">→</span>
+      </button>
+      <button type="button" class="config-card" data-config-abrir="horarios">
+        <span class="config-card-icone">🕐</span>
+        <span class="config-card-texto">
+          <strong>Horário de funcionamento</strong>
+          <span>Defina dias e horários de atendimento</span>
+        </span>
+        <span class="config-card-seta">→</span>
+      </button>
+    </div>
+
     <!-- Aparência: moeda + tema — preferências locais, continuam em localStorage -->
-    <div class="card" style="max-width:520px;">
-      <div class="linha-toggle">
-        <div class="linha-toggle-texto">
-          <label for="campo-modo-escuro">Modo escuro</label>
-          <span>Muda a aparência do sistema imediatamente</span>
+    <section class="config-secao" data-config-secao="aparencia">
+      <button type="button" class="config-botao-voltar" data-config-voltar>← Voltar para Configurações</button>
+      <div class="card" style="max-width:520px;">
+        <h2 class="titulo-grafico" style="margin-top:0;">Aparência</h2>
+        <div class="linha-toggle">
+          <div class="linha-toggle-texto">
+            <label for="campo-modo-escuro">Modo escuro</label>
+            <span>Muda a aparência do sistema imediatamente</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="campo-modo-escuro" />
+            <span class="toggle-switch-trilho"></span>
+          </label>
         </div>
-        <label class="toggle-switch">
-          <input type="checkbox" id="campo-modo-escuro" />
-          <span class="toggle-switch-trilho"></span>
-        </label>
+
+        <form id="form-configuracoes-locais">
+          <div class="form-grupo">
+            <label for="campo-moeda">Moeda</label>
+            <select id="campo-moeda" class="input">
+              <option value="EUR">Euro (€)</option>
+              <option value="BRL">Real brasileiro (R$)</option>
+              <option value="USD">Dólar americano ($)</option>
+              <option value="GBP">Libra esterlina (£)</option>
+            </select>
+          </div>
+
+          <button type="submit" class="btn btn-primario">Salvar</button>
+        </form>
       </div>
-
-      <form id="form-configuracoes-locais">
-        <div class="form-grupo">
-          <label for="campo-moeda">Moeda</label>
-          <select id="campo-moeda" class="input">
-            <option value="EUR">Euro (€)</option>
-            <option value="BRL">Real brasileiro (R$)</option>
-            <option value="USD">Dólar americano ($)</option>
-            <option value="GBP">Libra esterlina (£)</option>
-          </select>
-        </div>
-
-        <button type="submit" class="btn btn-primario">Salvar</button>
-      </form>
-    </div>
-
-    <div class="pagina-titulo" style="margin-top:8px;">
-      <h2 style="margin:0;">Regras de negócio</h2>
-    </div>
+    </section>
 
     <div class="estado-vazio" id="estado-carregando-config-negocio">Carregando configurações...</div>
     <div class="estado-vazio" id="estado-erro-config-negocio" style="display:none;"></div>
 
     <div id="conteudo-config-negocio" style="display:none;">
       <!-- Pedidos online -->
+      <section class="config-secao" data-config-secao="pedidos">
+      <button type="button" class="config-botao-voltar" data-config-voltar>← Voltar para Configurações</button>
       <div class="card" style="max-width:520px;">
         <h2 class="titulo-grafico" style="margin-top:0;">Pedidos online</h2>
         <form id="form-configuracoes-pedidos">
@@ -81,8 +135,11 @@
           <button type="submit" class="btn btn-primario">Salvar</button>
         </form>
       </div>
+      </section>
 
       <!-- Entrega e retirada -->
+      <section class="config-secao" data-config-secao="entrega">
+      <button type="button" class="config-botao-voltar" data-config-voltar>← Voltar para Configurações</button>
       <div class="card" style="max-width:520px;">
         <h2 class="titulo-grafico" style="margin-top:0;">Entrega e retirada</h2>
         <form id="form-configuracoes-entrega">
@@ -138,8 +195,11 @@
           <button type="submit" class="btn btn-primario">Salvar</button>
         </form>
       </div>
+      </section>
 
       <!-- Pagamento Revolut -->
+      <section class="config-secao" data-config-secao="revolut">
+      <button type="button" class="config-botao-voltar" data-config-voltar>← Voltar para Configurações</button>
       <div class="card" style="max-width:520px;">
         <h2 class="titulo-grafico" style="margin-top:0;">Pagamento Revolut</h2>
         <form id="form-configuracoes-revolut">
@@ -181,8 +241,11 @@
           <button type="submit" class="btn btn-primario" id="botao-salvar-revolut">Salvar configurações Revolut</button>
         </form>
       </div>
+      </section>
 
       <!-- Cupons e descontos -->
+      <section class="config-secao" data-config-secao="cupons">
+      <button type="button" class="config-botao-voltar" data-config-voltar>← Voltar para Configurações</button>
       <div class="card">
         <div class="pagina-titulo" style="margin:0 0 4px;">
           <h2 class="titulo-grafico" style="margin:0;">Cupons e descontos</h2>
@@ -210,8 +273,11 @@
         <div class="estado-vazio" id="estado-erro-cupons" style="display:none;"></div>
         <div class="estado-vazio" id="estado-vazio-cupons" style="display:none;">Nenhum cupom cadastrado.</div>
       </div>
+      </section>
 
       <!-- Horário de funcionamento -->
+      <section class="config-secao" data-config-secao="horarios">
+      <button type="button" class="config-botao-voltar" data-config-voltar>← Voltar para Configurações</button>
       <div class="card">
         <h2 class="titulo-grafico" style="margin-top:0;">Horário de funcionamento</h2>
         <form id="form-configuracoes-horarios">
@@ -231,6 +297,7 @@
           </div>
         </form>
       </div>
+      </section>
     </div>
   </main>
 

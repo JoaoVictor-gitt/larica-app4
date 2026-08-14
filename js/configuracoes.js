@@ -23,7 +23,34 @@ const REVOLUT_QR_MIMES_ACEITOS = ['image/png', 'image/jpeg', 'image/webp'];
 // Cache da última lista de cupons carregada (pt-BR) — usado pra reabrir o modal de edição sem nova consulta.
 let cuponsCache = [];
 
+// ---------------------------------------------------------------------------
+// Navegação da central de Configurações (mostrar/esconder, sem recriar nada)
+// ---------------------------------------------------------------------------
+
+function ligarEventosNavegacaoConfig() {
+  document.querySelectorAll('[data-config-abrir]').forEach((botao) => {
+    botao.addEventListener('click', () => abrirSecaoConfig(botao.dataset.configAbrir));
+  });
+  document.querySelectorAll('[data-config-voltar]').forEach((botao) => {
+    botao.addEventListener('click', fecharSecaoConfig);
+  });
+}
+
+function abrirSecaoConfig(chave) {
+  document.getElementById('config-central').style.display = 'none';
+  document.querySelectorAll('.config-secao').forEach((secao) => {
+    secao.classList.toggle('config-secao-ativa', secao.dataset.configSecao === chave);
+  });
+}
+
+function fecharSecaoConfig() {
+  document.querySelectorAll('.config-secao').forEach((secao) => secao.classList.remove('config-secao-ativa'));
+  document.getElementById('config-central').style.display = '';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  ligarEventosNavegacaoConfig();
+
   preencherConfiguracoesLocais();
   document.getElementById('form-configuracoes-locais').addEventListener('submit', salvarConfiguracoesLocais);
   document.getElementById('campo-modo-escuro').addEventListener('change', alternarModoEscuro);
