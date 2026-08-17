@@ -27,3 +27,24 @@
 #rd-texto-cancelamentos-valor {
   margin: var(--espaco-sm) 0 0;
 }
+
+/* Etapa 2 — Detalhamento das vendas */
+
+.rd-secao-detalhamento + .rd-secao-detalhamento {
+  margin-top: var(--espaco-lg);
+}
+
+/* Subtítulos dentro do card "Consumo dos combos" (Espetos/Acompanhamentos/Itens inclusos) —
+   mesmo tom visual de .bloco-fechamento-titulo (css/dashboard.css), só que como <h3> aqui */
+.rd-subtitulo-consumo {
+  margin: var(--espaco-md) 0 var(--espaco-sm);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--cor-texto-secundario);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.rd-subtitulo-consumo:first-of-type {
+  margin-top: 0;
+}

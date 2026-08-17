@@ -29,7 +29,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   ligarEventosRelatorio();
 
   try {
-    const config = await buscarConfiguracoesNegocioDoSupabase();
+    // carregarProdutosCache() (Etapa 2) só é usada aqui pra resolver categoria de produtos vendidos
+    // diretamente (nome/preço/quantidade continuam vindo do snapshot em order_items, nunca daqui).
+    const [config] = await Promise.all([buscarConfiguracoesNegocioDoSupabase(), carregarProdutosCache()]);
     fusoHorarioRelatorio = config.fusoHorario || 'Europe/Dublin';
   } catch (erro) {
     // Sem o fuso real do estabelecimento não dá pra garantir que "o dia" está certo — melhor mostrar
@@ -127,9 +129,33 @@ async function carregarRelatorioDoDia(yyyyMmDd) {
     // pedido do faturamento nesta V1. desdeUtc/ateUtc já são os limites exatos do dia (não uma janela
     // larga), então não precisa de filtro adicional por chave de data em JS.
     const pedidos = brutos.filter((p) => p.status !== STATUS_PEDIDO.CANCELADO);
+    const idsPedidosValidos = new Set(pedidos.map((p) => p.id));
+
+    // Etapa 2 — detalhamento das vendas. Só busca order_items/selections dos pedidos já sem cancelados
+    // (item 16): nenhum item de pedido cancelado entra aqui, orders continua sendo a única fonte de
+    // status. Sequência de 2 consultas em lote (nunca uma por pedido — item 15).
+    const orderIds = pedidos.map((p) => p.id);
+    const itensBrutos = await getOrderItemsForReport(orderIds);
+    const itens = itensBrutos.filter((i) => idsPedidosValidos.has(i.orderId)); // defensivo, reforça a regra do item 16
+    const selecoes = await getOrderItemSelectionsForReport(itens.map((i) => i.id));
 
     const resumo = calcularResumoRelatorioDiario(pedidos, cancelados);
+    const produtosVendidos = calcularProdutosVendidos(itens);
+    const combosVendidos = calcularCombosVendidos(itens);
+    const consumoCombos = calcularConsumoCombos(itens, selecoes);
+    const acrescimosCombos = calcularAcrescimosCombos(itens, selecoes);
+    const vendasPorCategoria = calcularVendasPorCategoria(itens);
+    const cuponsUtilizados = calcularCuponsUtilizados(pedidos);
+
+    verificarReconciliacoes({ resumo, itens, produtosVendidos, combosVendidos, acrescimosCombos, cuponsUtilizados });
+
     renderizarRelatorioDiario(resumo);
+    renderizarVendasPorCategoria(vendasPorCategoria);
+    renderizarProdutosVendidos(produtosVendidos);
+    renderizarCombosVendidos(combosVendidos);
+    renderizarConsumoCombos(consumoCombos);
+    renderizarAcrescimosCombos(acrescimosCombos);
+    renderizarCuponsUtilizados(cuponsUtilizados);
 
     carregando.style.display = 'none';
     conteudo.style.display = '';
@@ -203,6 +229,225 @@ function calcularResumoRelatorioDiario(pedidos, cancelados) {
     porStatusPagamento,
     porAtendimento,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Etapa 2 — Detalhamento das vendas (cálculo, funções puras sem I/O)
+//
+// Regra de ouro (snapshot histórico): nome/preço vêm sempre de order_items/
+// order_item_selections, nunca de `products` — só usamos a categoria do
+// cache de produtos (categoriaDoProduto), porque isso não reprecifica nada,
+// só agrupa visualmente. Um pedido antigo continua com os valores de quando
+// foi feito mesmo que o produto tenha mudado de preço/nome/sumido depois.
+//
+// Fórmula de consumo/receita real de componente de combo (confirmada linha
+// a linha no corpo de create_customer_order, não é suposição — ver plano):
+//   consumo_real = order_item_selections.quantity × order_items.quantity
+//   receita_real = order_item_selections.extra_price × quantity_da_selecao × quantity_do_item_pai
+// ---------------------------------------------------------------------------
+
+/** Categoria pt-BR de um produto pelo cache já carregado (carregarProdutosCache) — "Não identificado" se o produto não existe mais */
+function categoriaDoProduto(produtoId) {
+  if (!produtoId) return 'Não identificado';
+  const produto = obterProdutos().find((p) => p.id === produtoId);
+  return produto ? produto.categoria : 'Não identificado';
+}
+
+/** Produtos vendidos diretamente (item_type='product') — nunca inclui componentes escolhidos dentro de combos (item 9 do pedido) */
+function calcularProdutosVendidos(itens) {
+  const porProduto = new Map();
+
+  itens
+    .filter((i) => i.tipoItem === 'product')
+    .forEach((i) => {
+      const chave = i.produtoId || i.nome;
+      const atual = porProduto.get(chave) || { produtoId: i.produtoId, nome: i.nome, quantidade: 0, valorVendido: 0 };
+      atual.quantidade += i.quantidade;
+      atual.valorVendido += i.valorTotal;
+      porProduto.set(chave, atual);
+    });
+
+  return Array.from(porProduto.values())
+    .map((p) => ({
+      ...p,
+      categoria: categoriaDoProduto(p.produtoId),
+      precoMedio: p.quantidade > 0 ? p.valorVendido / p.quantidade : 0,
+    }))
+    .sort((a, b) => b.valorVendido - a.valorVendido);
+}
+
+/** Combos vendidos (item_type='combo'), agrupados por product_id. Valor vendido = receita base + acréscimos, sempre (reconciliação B) */
+function calcularCombosVendidos(itens) {
+  const porCombo = new Map();
+
+  itens
+    .filter((i) => i.tipoItem === 'combo')
+    .forEach((i) => {
+      const chave = i.produtoId || i.nome;
+      const atual = porCombo.get(chave) || { produtoId: i.produtoId, nome: i.nome, quantidade: 0, receitaBase: 0, acrescimos: 0, valorVendido: 0 };
+      atual.quantidade += i.quantidade;
+      atual.receitaBase += i.precoUnitario * i.quantidade;
+      atual.acrescimos += i.extrasTotal;
+      atual.valorVendido += i.valorTotal;
+      porCombo.set(chave, atual);
+    });
+
+  return Array.from(porCombo.values())
+    .map((c) => ({ ...c, precoBaseMedio: c.quantidade > 0 ? c.receitaBase / c.quantidade : 0 }))
+    .sort((a, b) => b.valorVendido - a.valorVendido);
+}
+
+/** { skewer, side, included }: consumo real de cada componente (SUM(selection.quantity × item_pai.quantity)) — nunca a quantidade crua da seleção */
+function calcularConsumoCombos(itens, selecoes) {
+  const quantidadePorItemCombo = new Map(itens.filter((i) => i.tipoItem === 'combo').map((i) => [i.id, i.quantidade]));
+
+  const grupos = { skewer: new Map(), side: new Map(), included: new Map() };
+
+  selecoes.forEach((s) => {
+    const quantidadePai = quantidadePorItemCombo.get(s.orderItemId);
+    if (quantidadePai === undefined) return; // seleção de um order_item fora do conjunto de pedidos válidos do dia
+    const grupo = grupos[s.tipoSelecao];
+    if (!grupo) return;
+
+    const chave = s.produtoId || s.nome;
+    const atual = grupo.get(chave) || { produtoId: s.produtoId, nome: s.nome, consumo: 0 };
+    atual.consumo += s.quantidade * quantidadePai;
+    grupo.set(chave, atual);
+  });
+
+  const paraLista = (mapa) => Array.from(mapa.values()).sort((a, b) => b.consumo - a.consumo);
+  return { skewer: paraLista(grupos.skewer), side: paraLista(grupos.side), included: paraLista(grupos.included) };
+}
+
+/** Acréscimos com receita real (só selection_type='skewer' com extra_price > 0) — mesma fórmula de consumo, multiplicada pelo acréscimo unitário */
+function calcularAcrescimosCombos(itens, selecoes) {
+  const quantidadePorItemCombo = new Map(itens.filter((i) => i.tipoItem === 'combo').map((i) => [i.id, i.quantidade]));
+
+  const porProduto = new Map();
+
+  selecoes
+    .filter((s) => s.tipoSelecao === 'skewer' && s.acrescimoUnitario > 0)
+    .forEach((s) => {
+      const quantidadePai = quantidadePorItemCombo.get(s.orderItemId);
+      if (quantidadePai === undefined) return;
+
+      const consumoReal = s.quantidade * quantidadePai;
+      const chave = s.produtoId || s.nome;
+      const atual = porProduto.get(chave) || { produtoId: s.produtoId, nome: s.nome, quantidadeComAcrescimo: 0, receitaAdicional: 0 };
+      atual.quantidadeComAcrescimo += consumoReal;
+      atual.receitaAdicional += s.acrescimoUnitario * consumoReal;
+      porProduto.set(chave, atual);
+    });
+
+  return Array.from(porProduto.values())
+    .map((p) => ({ ...p, acrescimoUnitarioMedio: p.quantidadeComAcrescimo > 0 ? p.receitaAdicional / p.quantidadeComAcrescimo : 0 }))
+    .sort((a, b) => b.receitaAdicional - a.receitaAdicional);
+}
+
+/**
+ * Mix de vendas por categoria — combo sempre entra como "Combos" (nunca decompõe componentes aqui de
+ * novo, item 9/11). % é sobre SUM(order_items.total_price) do dia, nunca orders.total (que já inclui
+ * entrega e já desconta cupom) — por isso o rótulo explícito na UI.
+ */
+function calcularVendasPorCategoria(itens) {
+  const porCategoria = new Map();
+  let totalItens = 0;
+
+  itens.forEach((i) => {
+    const categoria = i.tipoItem === 'combo' ? 'Combos' : categoriaDoProduto(i.produtoId);
+    const atual = porCategoria.get(categoria) || { categoria, quantidade: 0, valorVendido: 0 };
+    atual.quantidade += i.quantidade;
+    atual.valorVendido += i.valorTotal;
+    porCategoria.set(categoria, atual);
+    totalItens += i.valorTotal;
+  });
+
+  return Array.from(porCategoria.values())
+    .map((c) => ({ ...c, percentual: totalItens > 0 ? (c.valorVendido / totalItens) * 100 : 0 }))
+    .sort((a, b) => b.valorVendido - a.valorVendido);
+}
+
+/** Agrupa descontos por coupon_code (snapshot em orders, nunca a tabela coupons) — descontos sem código caem em "Sem cupom / Ajuste manual" (item 13) */
+function calcularCuponsUtilizados(pedidos) {
+  const porCupom = new Map();
+
+  pedidos
+    .filter((p) => p.descontoAmount > 0)
+    .forEach((p) => {
+      const chave = p.cupomCodigo || '__sem_cupom__';
+      const atual = porCupom.get(chave) || { codigo: p.cupomCodigo, pedidos: 0, desconto: 0 };
+      atual.pedidos += 1;
+      atual.desconto += p.descontoAmount;
+      porCupom.set(chave, atual);
+    });
+
+  return Array.from(porCupom.values()).sort((a, b) => b.desconto - a.desconto);
+}
+
+/**
+ * Reconciliações internas (item 14 do pedido) — nunca bloqueiam a tela nem lançam erro; uma diferença
+ * > €0,01 vira console.warn com os dois valores e a diferença exata, pra diagnóstico.
+ */
+function verificarReconciliacoes({ resumo, itens, produtosVendidos, combosVendidos, acrescimosCombos, cuponsUtilizados }) {
+  const EPSILON = 0.01;
+  const diverge = (a, b) => Math.abs(a - b) > EPSILON;
+
+  // A) Produtos vendidos + Combos vendidos === SUM(order_items.total_price)
+  const somaItens = itens.reduce((soma, i) => soma + i.valorTotal, 0);
+  const somaProdutosECombos =
+    produtosVendidos.reduce((s, p) => s + p.valorVendido, 0) + combosVendidos.reduce((s, c) => s + c.valorVendido, 0);
+  if (diverge(somaItens, somaProdutosECombos)) {
+    console.warn(
+      '[Relatório Diário] Reconciliação A divergente — SUM(order_items.total_price) =',
+      somaItens,
+      'vs. Produtos+Combos vendidos =',
+      somaProdutosECombos,
+      'diferença =',
+      somaItens - somaProdutosECombos
+    );
+  }
+
+  // B) por combo: receita base + acréscimos === valor vendido
+  combosVendidos.forEach((c) => {
+    const soma = c.receitaBase + c.acrescimos;
+    if (diverge(soma, c.valorVendido)) {
+      console.warn(
+        '[Relatório Diário] Reconciliação B divergente pro combo',
+        c.nome,
+        '— receitaBase + acrescimos =',
+        soma,
+        'vs. valorVendido =',
+        c.valorVendido
+      );
+    }
+  });
+
+  // C) total de acréscimos detalhados === SUM(order_items.extras_total) dos combos
+  const extrasTotalCombos = itens.filter((i) => i.tipoItem === 'combo').reduce((s, i) => s + i.extrasTotal, 0);
+  const somaAcrescimosDetalhados = acrescimosCombos.reduce((s, a) => s + a.receitaAdicional, 0);
+  if (diverge(extrasTotalCombos, somaAcrescimosDetalhados)) {
+    console.warn(
+      '[Relatório Diário] Reconciliação C divergente — SUM(order_items.extras_total) =',
+      extrasTotalCombos,
+      'vs. acréscimos detalhados =',
+      somaAcrescimosDetalhados,
+      'diferença =',
+      extrasTotalCombos - somaAcrescimosDetalhados
+    );
+  }
+
+  // D) cupons + "sem cupom" === card Descontos da Etapa 1 (SUM(orders.discount_amount))
+  const somaCupons = cuponsUtilizados.reduce((s, c) => s + c.desconto, 0);
+  if (diverge(somaCupons, resumo.descontos)) {
+    console.warn(
+      '[Relatório Diário] Reconciliação D divergente — total por cupom/sem cupom =',
+      somaCupons,
+      'vs. card Descontos (Etapa 1) =',
+      resumo.descontos,
+      'diferença =',
+      somaCupons - resumo.descontos
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -287,4 +532,183 @@ function renderizarAtendimentoRelatorio(resumo) {
     <div class="linha-resumo"><span>Entrega</span><span>${entrega.qtd} pedido${entrega.qtd === 1 ? '' : 's'} · ${formatarMoeda(entrega.valor, moeda)}</span></div>
     <div class="linha-resumo"><span>Taxas de entrega arrecadadas</span><span>${formatarMoeda(entrega.taxas, moeda)}</span></div>
   `;
+}
+
+// ---------------------------------------------------------------------------
+// Etapa 2 — Renderização do detalhamento das vendas
+// ---------------------------------------------------------------------------
+
+function renderizarVendasPorCategoria(lista) {
+  const corpo = document.getElementById('rd-corpo-categorias');
+  const vazio = document.getElementById('rd-vazio-categorias');
+
+  if (lista.length === 0) {
+    corpo.innerHTML = '';
+    vazio.style.display = 'block';
+    return;
+  }
+  vazio.style.display = 'none';
+
+  const moeda = obterConfiguracoes().moeda;
+  corpo.innerHTML = lista
+    .map(
+      (c) => `
+      <tr>
+        <td>${escaparHtml(c.categoria)}</td>
+        <td>${c.quantidade}</td>
+        <td>${formatarMoeda(c.valorVendido, moeda)}</td>
+        <td>${c.percentual.toFixed(1)}%</td>
+      </tr>`
+    )
+    .join('');
+}
+
+function renderizarProdutosVendidos(lista) {
+  const corpo = document.getElementById('rd-corpo-produtos-vendidos');
+  const vazio = document.getElementById('rd-vazio-produtos-vendidos');
+
+  if (lista.length === 0) {
+    corpo.innerHTML = '';
+    vazio.style.display = 'block';
+    return;
+  }
+  vazio.style.display = 'none';
+
+  const moeda = obterConfiguracoes().moeda;
+  corpo.innerHTML = lista
+    .map(
+      (p) => `
+      <tr>
+        <td>${escaparHtml(p.nome)}</td>
+        <td>${escaparHtml(p.categoria)}</td>
+        <td>${p.quantidade}</td>
+        <td>${formatarMoeda(p.precoMedio, moeda)}</td>
+        <td>${formatarMoeda(p.valorVendido, moeda)}</td>
+      </tr>`
+    )
+    .join('');
+}
+
+function renderizarCombosVendidos(lista) {
+  const corpo = document.getElementById('rd-corpo-combos-vendidos');
+  const vazio = document.getElementById('rd-vazio-combos-vendidos');
+
+  if (lista.length === 0) {
+    corpo.innerHTML = '';
+    vazio.style.display = 'block';
+    return;
+  }
+  vazio.style.display = 'none';
+
+  const moeda = obterConfiguracoes().moeda;
+  corpo.innerHTML = lista
+    .map(
+      (c) => `
+      <tr>
+        <td>${escaparHtml(c.nome)}</td>
+        <td>${c.quantidade}</td>
+        <td>${formatarMoeda(c.precoBaseMedio, moeda)}</td>
+        <td>${formatarMoeda(c.acrescimos, moeda)}</td>
+        <td>${formatarMoeda(c.valorVendido, moeda)}</td>
+      </tr>`
+    )
+    .join('');
+}
+
+/** { skewer, side, included } — mostra os 3 subgrupos; se o dia inteiro não teve consumo, mostra só o aviso geral e esconde os subtítulos */
+function renderizarConsumoCombos(consumo) {
+  const totalConsumo = consumo.skewer.length + consumo.side.length + consumo.included.length;
+  const vazioGeral = document.getElementById('rd-vazio-consumo');
+  const subtitulos = document.querySelectorAll('.rd-subtitulo-consumo');
+
+  if (totalConsumo === 0) {
+    vazioGeral.style.display = 'block';
+    subtitulos.forEach((el) => (el.style.display = 'none'));
+    document.getElementById('rd-lista-consumo-skewer').innerHTML = '';
+    document.getElementById('rd-lista-consumo-side').innerHTML = '';
+    document.getElementById('rd-lista-consumo-included').innerHTML = '';
+    return;
+  }
+
+  vazioGeral.style.display = 'none';
+  subtitulos.forEach((el) => (el.style.display = ''));
+
+  const preencherGrupo = (id, lista) => {
+    const container = document.getElementById(id);
+    container.innerHTML =
+      lista.length === 0
+        ? '<div class="estado-vazio">Nenhum item neste grupo.</div>'
+        : lista.map((item) => `<div class="linha-resumo"><span>${escaparHtml(item.nome)}</span><span>${item.consumo}</span></div>`).join('');
+  };
+
+  preencherGrupo('rd-lista-consumo-skewer', consumo.skewer);
+  preencherGrupo('rd-lista-consumo-side', consumo.side);
+  preencherGrupo('rd-lista-consumo-included', consumo.included);
+}
+
+function renderizarAcrescimosCombos(lista) {
+  const corpo = document.getElementById('rd-corpo-acrescimos');
+  const vazio = document.getElementById('rd-vazio-acrescimos');
+  const totalEl = document.getElementById('rd-total-acrescimos');
+  const totalValorEl = document.getElementById('rd-total-acrescimos-valor');
+
+  if (lista.length === 0) {
+    corpo.innerHTML = '';
+    vazio.style.display = 'block';
+    totalEl.style.display = 'none';
+    return;
+  }
+  vazio.style.display = 'none';
+
+  const moeda = obterConfiguracoes().moeda;
+  corpo.innerHTML = lista
+    .map(
+      (a) => `
+      <tr>
+        <td>${escaparHtml(a.nome)}</td>
+        <td>${a.quantidadeComAcrescimo}</td>
+        <td>${formatarMoeda(a.acrescimoUnitarioMedio, moeda)}</td>
+        <td>${formatarMoeda(a.receitaAdicional, moeda)}</td>
+      </tr>`
+    )
+    .join('');
+
+  totalValorEl.textContent = formatarMoeda(
+    lista.reduce((s, a) => s + a.receitaAdicional, 0),
+    moeda
+  );
+  totalEl.style.display = '';
+}
+
+function renderizarCuponsUtilizados(lista) {
+  const corpo = document.getElementById('rd-corpo-cupons');
+  const vazio = document.getElementById('rd-vazio-cupons');
+  const totalEl = document.getElementById('rd-total-cupons');
+  const totalValorEl = document.getElementById('rd-total-cupons-valor');
+
+  if (lista.length === 0) {
+    corpo.innerHTML = '';
+    vazio.style.display = 'block';
+    totalEl.style.display = 'none';
+    return;
+  }
+  vazio.style.display = 'none';
+
+  const moeda = obterConfiguracoes().moeda;
+  corpo.innerHTML = lista
+    .map(
+      (c) => `
+      <tr>
+        <td>${escaparHtml(c.codigo || 'Sem cupom / Ajuste manual')}</td>
+        <td>${c.pedidos}</td>
+        <td>${formatarMoeda(c.desconto, moeda)}</td>
+      </tr>`
+    )
+    .join('');
+
+  totalValorEl.textContent = formatarMoeda(
+    lista.reduce((s, c) => s + c.desconto, 0),
+    moeda
+  );
+  totalEl.style.display = '';
 }

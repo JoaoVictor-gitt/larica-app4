@@ -399,3 +399,59 @@ async function getTopProductsForReport(orderIds, limite = 10) {
     .sort((a, b) => b.quantidade - a.quantidade)
     .slice(0, limite);
 }
+
+/**
+ * Busca as linhas de order_items de um conjunto de pedidos já carregado (Relatório Diário, Etapa 2) —
+ * uma única consulta em lote por orderIds, sem N+1. Nomes/preços vêm 100% do snapshot histórico da
+ * própria linha (product_name/unit_price/extras_total/total_price), nunca de `products` — um pedido
+ * antigo continua aparecendo com os valores de quando foi feito, mesmo que o produto tenha mudado de
+ * preço ou nome depois. `produtoId` é preservado à parte (não pro preço, só pra permitir lookup de
+ * categoria agora e, futuramente, custo/margem por id).
+ */
+async function getOrderItemsForReport(orderIds) {
+  if (!orderIds || orderIds.length === 0) return [];
+
+  const { data, error } = await supabaseClient
+    .from('order_items')
+    .select('id, order_id, product_id, product_name, item_type, quantity, unit_price, extras_total, total_price')
+    .in('order_id', orderIds);
+  if (error) throw new Error(error.message);
+
+  return (data || []).map((i) => ({
+    id: i.id,
+    orderId: i.order_id,
+    produtoId: i.product_id,
+    nome: i.product_name,
+    tipoItem: i.item_type,
+    quantidade: Number(i.quantity) || 0,
+    precoUnitario: Number(i.unit_price) || 0,
+    extrasTotal: Number(i.extras_total) || 0,
+    valorTotal: Number(i.total_price) || 0,
+  }));
+}
+
+/**
+ * Busca as escolhas (espeto/acompanhamento/incluso) de um conjunto de order_items já carregado
+ * (Relatório Diário, Etapa 2) — uma única consulta em lote por orderItemIds, sem N+1. `quantidade` e
+ * `acrescimoUnitario` aqui são sempre "por combo" (não multiplicados pela quantidade de combos da
+ * linha-mãe) — quem chama precisa multiplicar por order_items.quantidade pra obter consumo/receita
+ * reais (confirmado direto no corpo de create_customer_order).
+ */
+async function getOrderItemSelectionsForReport(orderItemIds) {
+  if (!orderItemIds || orderItemIds.length === 0) return [];
+
+  const { data, error } = await supabaseClient
+    .from('order_item_selections')
+    .select('order_item_id, selection_type, selected_product_id, selected_product_name, quantity, extra_price')
+    .in('order_item_id', orderItemIds);
+  if (error) throw new Error(error.message);
+
+  return (data || []).map((s) => ({
+    orderItemId: s.order_item_id,
+    tipoSelecao: s.selection_type,
+    produtoId: s.selected_product_id,
+    nome: s.selected_product_name,
+    quantidade: Number(s.quantity) || 0,
+    acrescimoUnitario: Number(s.extra_price) || 0,
+  }));
+}

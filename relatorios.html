@@ -120,6 +120,118 @@
           <div class="lista-resumo-relatorio" id="rd-lista-atendimento"></div>
         </div>
       </div>
+
+      <!-- Etapa 2 — Detalhamento das vendas -->
+
+      <div class="card rd-secao-detalhamento">
+        <h2 class="titulo-grafico">Vendas por categoria</h2>
+        <p class="texto-informativo-fechamento">% sobre vendas de itens antes de descontos e entrega.</p>
+        <div class="tabela-estoque-wrap">
+          <table class="tabela">
+            <thead>
+              <tr>
+                <th>Categoria</th>
+                <th>Quantidade</th>
+                <th>Valor vendido</th>
+                <th>%</th>
+              </tr>
+            </thead>
+            <tbody id="rd-corpo-categorias"></tbody>
+          </table>
+        </div>
+        <div class="estado-vazio" id="rd-vazio-categorias" style="display:none;">Nenhuma venda neste dia.</div>
+      </div>
+
+      <div class="card rd-secao-detalhamento">
+        <h2 class="titulo-grafico">Produtos vendidos</h2>
+        <div class="tabela-estoque-wrap">
+          <table class="tabela">
+            <thead>
+              <tr>
+                <th>Produto</th>
+                <th>Categoria</th>
+                <th>Quantidade</th>
+                <th>Preço médio/unidade</th>
+                <th>Valor vendido</th>
+              </tr>
+            </thead>
+            <tbody id="rd-corpo-produtos-vendidos"></tbody>
+          </table>
+        </div>
+        <div class="estado-vazio" id="rd-vazio-produtos-vendidos" style="display:none;">Nenhum produto vendido neste dia.</div>
+      </div>
+
+      <div class="card rd-secao-detalhamento">
+        <h2 class="titulo-grafico">Combos vendidos</h2>
+        <div class="tabela-estoque-wrap">
+          <table class="tabela">
+            <thead>
+              <tr>
+                <th>Combo</th>
+                <th>Quantidade</th>
+                <th>Preço base médio</th>
+                <th>Acréscimos</th>
+                <th>Valor vendido</th>
+              </tr>
+            </thead>
+            <tbody id="rd-corpo-combos-vendidos"></tbody>
+          </table>
+        </div>
+        <div class="estado-vazio" id="rd-vazio-combos-vendidos" style="display:none;">Nenhum combo vendido neste dia.</div>
+      </div>
+
+      <div class="card rd-secao-detalhamento">
+        <h2 class="titulo-grafico">Consumo dos combos</h2>
+        <p class="texto-informativo-fechamento">Quantidade real consumida como componente de combo — não é venda direta.</p>
+
+        <h3 class="rd-subtitulo-consumo">Espetos</h3>
+        <div class="lista-resumo-relatorio" id="rd-lista-consumo-skewer"></div>
+
+        <h3 class="rd-subtitulo-consumo">Acompanhamentos</h3>
+        <div class="lista-resumo-relatorio" id="rd-lista-consumo-side"></div>
+
+        <h3 class="rd-subtitulo-consumo">Itens inclusos</h3>
+        <div class="lista-resumo-relatorio" id="rd-lista-consumo-included"></div>
+
+        <div class="estado-vazio" id="rd-vazio-consumo" style="display:none;">Nenhum componente de combo consumido neste dia.</div>
+      </div>
+
+      <div class="card rd-secao-detalhamento">
+        <h2 class="titulo-grafico">Acréscimos dos combos</h2>
+        <div class="tabela-estoque-wrap">
+          <table class="tabela">
+            <thead>
+              <tr>
+                <th>Produto</th>
+                <th>Quantidade com acréscimo</th>
+                <th>Acréscimo unitário</th>
+                <th>Receita adicional</th>
+              </tr>
+            </thead>
+            <tbody id="rd-corpo-acrescimos"></tbody>
+          </table>
+        </div>
+        <p class="linha-resumo linha-resumo-total" id="rd-total-acrescimos" style="display:none;"><span>Total de acréscimos</span><span id="rd-total-acrescimos-valor">—</span></p>
+        <div class="estado-vazio" id="rd-vazio-acrescimos" style="display:none;">Nenhum acréscimo neste dia.</div>
+      </div>
+
+      <div class="card rd-secao-detalhamento">
+        <h2 class="titulo-grafico">Cupons utilizados</h2>
+        <div class="tabela-estoque-wrap">
+          <table class="tabela">
+            <thead>
+              <tr>
+                <th>Cupom</th>
+                <th>Pedidos</th>
+                <th>Desconto concedido</th>
+              </tr>
+            </thead>
+            <tbody id="rd-corpo-cupons"></tbody>
+          </table>
+        </div>
+        <p class="linha-resumo linha-resumo-total" id="rd-total-cupons" style="display:none;"><span>Total de descontos</span><span id="rd-total-cupons-valor">—</span></p>
+        <div class="estado-vazio" id="rd-vazio-cupons" style="display:none;">Nenhum cupom utilizado neste dia.</div>
+      </div>
     </div>
   </main>
 
