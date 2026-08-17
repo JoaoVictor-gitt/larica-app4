@@ -350,6 +350,28 @@ function formatarTempoDecorrido(iso) {
   return resto > 0 ? `há ${horas}h ${resto}min` : `há ${horas}h`;
 }
 
+/**
+ * Formata uma DURAÇÃO (não um "há X" a partir de agora) em segundos, de forma compacta e sem
+ * timestamps crus/frações de hora — usada pelo Tempo de Preparo (Etapa 1, Pedidos). `segundos` null/
+ * inválido/negativo devolve "—" (nunca quebra a tela, nunca mostra duração negativa — timestamps
+ * inconsistentes já são filtrados antes de chegar aqui, ver calcularTemposPedido() em pedidos.js).
+ * Regra: <1min mostra só segundos; <1h mostra minutos, e só acrescenta segundos se sobrar resto
+ * (não mostra "4 min 0s"); >=1h mostra horas+minutos, nunca segundos (granularidade grossa o
+ * suficiente pra não precisar).
+ */
+function formatarDuracao(segundos) {
+  if (segundos === null || segundos === undefined || !Number.isFinite(segundos) || segundos < 0) return '—';
+
+  const totalSegundos = Math.floor(segundos);
+  const horas = Math.floor(totalSegundos / 3600);
+  const minutos = Math.floor((totalSegundos % 3600) / 60);
+  const segundosRestantes = totalSegundos % 60;
+
+  if (horas > 0) return `${horas}h ${minutos}min`;
+  if (totalSegundos < 60) return `${segundosRestantes}s`;
+  return segundosRestantes > 0 ? `${minutos} min ${segundosRestantes}s` : `${minutos} min`;
+}
+
 // ---------------------------------------------------------------------------
 // Cupons: conversão datetime-local <-> Europe/Dublin (validade de cupons)
 // ---------------------------------------------------------------------------

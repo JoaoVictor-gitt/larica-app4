@@ -125,11 +125,12 @@
  */
 .card-pedido-cliente { order: 2; }
 .card-pedido-info { order: 3; }
-.card-pedido-rodape { order: 4; }
-.card-pedido-pagamento { order: 5; }
-.bloco-pronto-para { order: 6; }
-.card-pedido-acoes { order: 7; }
-.link-cancelar-pedido { order: 8; }
+.card-pedido-tempos { order: 4; } /* Etapa 1 — Tempo de Preparo */
+.card-pedido-rodape { order: 5; }
+.card-pedido-pagamento { order: 6; }
+.bloco-pronto-para { order: 7; }
+.card-pedido-acoes { order: 8; }
+.link-cancelar-pedido { order: 9; }
 
 .card-pedido-cabecalho {
   order: 1;
@@ -168,6 +169,48 @@
 .card-pedido-pagamento {
   font-size: 0.78rem;
   color: var(--cor-texto-secundario);
+}
+
+/* Tempo de Preparo (Etapa 1) — Espera/Preparo/Até pronto lado a lado, compacto o bastante pra caber
+   no card mobile sem alargar; "Até finalizar" (finalizado) ocupa a linha inteira, separado por um
+   traço fino, pra deixar claro que é secundário em relação aos outros 3. */
+.card-pedido-tempos {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px var(--espaco-xs);
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-xs) var(--espaco-sm);
+}
+
+.card-pedido-tempo-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.card-pedido-tempo-rotulo {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--cor-texto-secundario);
+}
+
+.card-pedido-tempo-valor {
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.card-pedido-tempo-secundario {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px dashed var(--cor-borda);
 }
 
 .card-pedido-rodape {

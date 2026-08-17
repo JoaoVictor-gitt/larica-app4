@@ -309,6 +309,7 @@ function cardPedidoHtml(pedido) {
         <span>${tipoRotulo}</span>
       </div>
       <div class="card-pedido-cliente">${escaparHtml((pedido.cliente || {}).nome || '(sem nome)')}</div>
+      ${blocoTemposPedidoHtml(pedido)}
       <div class="card-pedido-pagamento">${rotuloPagamentoCompacto(pedido)}</div>
       ${pedido.status === STATUS_PEDIDO.PRONTO ? blocoProntoParaHtml(pedido) : ''}
       <div class="card-pedido-rodape">
@@ -334,6 +335,104 @@ function obterTimestampEtapaAtual(pedido) {
   if (pedido.status === STATUS_PEDIDO.PRONTO) return pedido.prontoEm || pedido.criadoEm;
   if (pedido.status === STATUS_PEDIDO.FINALIZADO) return pedido.finalizadoEm || pedido.criadoEm;
   return pedido.criadoEm;
+}
+
+// ---------------------------------------------------------------------------
+// Tempo de Preparo (Etapa 1) — accepted_at/ready_at/completed_at já são
+// gravados server-side por update_order_status() (confirmado no diagnóstico:
+// FOR UPDATE, sem regressão de status, sem trigger customizado). Aqui só
+// calculamos e exibimos a diferença — nunca gravamos hora nenhuma pelo
+// navegador. O timer "ao vivo" pra requested/preparing é só a re-renderização
+// já existente (setInterval(renderizarQuadroPedidos, 30000) em init() e o
+// reload do Realtime), que já roda pra atualizar "há X min" — não criamos
+// um segundo timer.
+// ---------------------------------------------------------------------------
+
+/**
+ * Diferença em segundos entre dois instantes ISO, ou null se algum estiver ausente, for inválido, ou
+ * se `fimIso` vier antes de `inicioIso` (item 21 — timestamp historicamente inconsistente nunca vira
+ * duração negativa na tela; console.warn técnico pra diagnóstico, sem quebrar nada). Nunca usa o
+ * fallback aceitoEm||criadoEm de obterTimestampEtapaAtual() — aqui os campos crus entram direto,
+ * porque um accepted_at NULL precisa continuar sendo "sem dado" (—), nunca virar "0s de espera"
+ * (item 22).
+ */
+function diferencaSegundos(inicioIso, fimIso) {
+  if (!inicioIso || !fimIso) return null;
+  const inicio = new Date(inicioIso).getTime();
+  const fim = new Date(fimIso).getTime();
+  if (isNaN(inicio) || isNaN(fim)) return null;
+
+  const diffSegundos = (fim - inicio) / 1000;
+  if (diffSegundos < 0) {
+    console.warn('[Pedidos] Timestamp inconsistente ao calcular tempo de preparo — fim anterior ao início.', { inicioIso, fimIso });
+    return null;
+  }
+  return diffSegundos;
+}
+
+/**
+ * Tempos operacionais do pedido (item 1): espera (criadoEm->aceitoEm), preparo (aceitoEm->prontoEm) e
+ * ateFicarPronto (criadoEm->prontoEm), mais ateFinalizar (criadoEm->finalizadoEm, secundário, só
+ * quando finalizado). requested/preparing usam "agora" pro lado ainda aberto — dinâmico, recalculado a
+ * cada chamada, nunca gravado; ready/completed usam só timestamps fechados do banco, nunca mais mudam.
+ * Não é chamado para pedido cancelado (a coluna Kanban nunca renderiza cancelados, ver
+ * renderizarQuadroPedidos) — decisão deliberada de não criar UI especial de cancelamento nesta etapa.
+ */
+function calcularTemposPedido(pedido) {
+  const agoraIso = new Date().toISOString();
+
+  if (pedido.status === STATUS_PEDIDO.SOLICITADO) {
+    return { espera: diferencaSegundos(pedido.criadoEm, agoraIso), preparo: null, ateFicarPronto: null, ateFinalizar: null };
+  }
+
+  if (pedido.status === STATUS_PEDIDO.EM_PREPARO) {
+    return {
+      espera: diferencaSegundos(pedido.criadoEm, pedido.aceitoEm),
+      preparo: diferencaSegundos(pedido.aceitoEm, agoraIso),
+      ateFicarPronto: null,
+      ateFinalizar: null,
+    };
+  }
+
+  if (pedido.status === STATUS_PEDIDO.PRONTO || pedido.status === STATUS_PEDIDO.FINALIZADO) {
+    return {
+      espera: diferencaSegundos(pedido.criadoEm, pedido.aceitoEm),
+      preparo: diferencaSegundos(pedido.aceitoEm, pedido.prontoEm),
+      ateFicarPronto: diferencaSegundos(pedido.criadoEm, pedido.prontoEm),
+      ateFinalizar: pedido.status === STATUS_PEDIDO.FINALIZADO ? diferencaSegundos(pedido.criadoEm, pedido.finalizadoEm) : null,
+    };
+  }
+
+  return { espera: null, preparo: null, ateFicarPronto: null, ateFinalizar: null };
+}
+
+/** Bloco compacto "⏱ Tempos" do card — Espera/Preparo/Até pronto sempre; Até finalizar só quando finalizado e calculável */
+function blocoTemposPedidoHtml(pedido) {
+  const t = calcularTemposPedido(pedido);
+  const secundario =
+    pedido.status === STATUS_PEDIDO.FINALIZADO && t.ateFinalizar !== null
+      ? `<div class="card-pedido-tempo-item card-pedido-tempo-secundario">
+          <span class="card-pedido-tempo-rotulo">Até finalizar</span>
+          <span class="card-pedido-tempo-valor">${formatarDuracao(t.ateFinalizar)}</span>
+        </div>`
+      : '';
+
+  return `
+    <div class="card-pedido-tempos">
+      <div class="card-pedido-tempo-item">
+        <span class="card-pedido-tempo-rotulo">Espera</span>
+        <span class="card-pedido-tempo-valor">${formatarDuracao(t.espera)}</span>
+      </div>
+      <div class="card-pedido-tempo-item">
+        <span class="card-pedido-tempo-rotulo">Preparo</span>
+        <span class="card-pedido-tempo-valor">${formatarDuracao(t.preparo)}</span>
+      </div>
+      <div class="card-pedido-tempo-item">
+        <span class="card-pedido-tempo-rotulo">Até pronto</span>
+        <span class="card-pedido-tempo-valor">${formatarDuracao(t.ateFicarPronto)}</span>
+      </div>
+      ${secundario}
+    </div>`;
 }
 
 function botaoPrincipalPedidoHtml(pedido) {
