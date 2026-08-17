@@ -1,0 +1,173 @@
+/*
+ * producao.css
+ * Área Produção: grade de cards (Ingredientes / Fichas Técnicas) + navegação
+ * interna entre a central e cada seção (mesmo padrão de configuracoes.css,
+ * classes próprias porque as páginas não compartilham CSS), tabela de
+ * ingredientes e detalhes do modal de cadastro.
+ */
+
+.producao-central {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-xl);
+}
+
+.producao-card {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-md);
+  padding: var(--espaco-lg);
+  background: var(--cor-branco);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-md);
+  box-shadow: var(--sombra-sm);
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  transition: box-shadow var(--transicao-padrao), transform var(--transicao-padrao), border-color var(--transicao-rapida);
+}
+
+.producao-card:hover {
+  box-shadow: var(--sombra-md);
+  transform: translateY(-2px);
+  border-color: var(--cor-terracota);
+}
+
+.producao-card:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: 2px;
+}
+
+.producao-card-desabilitado {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.producao-card-desabilitado:hover {
+  box-shadow: var(--sombra-sm);
+  transform: none;
+  border-color: var(--cor-borda);
+}
+
+.producao-card-icone {
+  font-size: 1.6rem;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: var(--raio-md);
+  background: var(--cor-cinza-claro);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.producao-card-texto {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.producao-card-texto strong { font-size: 0.98rem; color: var(--cor-texto); }
+.producao-card-texto span { font-size: 0.82rem; color: var(--cor-texto-secundario); }
+
+.producao-card-seta {
+  font-size: 1.1rem;
+  color: var(--cor-texto-secundario);
+  flex-shrink: 0;
+}
+
+/* Seções (subtelas) — escondidas por padrão; a central some quando uma abre */
+.producao-secao {
+  display: none;
+}
+
+.producao-secao.producao-secao-ativa {
+  display: block;
+}
+
+.producao-botao-voltar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--espaco-xs);
+  background: none;
+  border: none;
+  padding: 0;
+  margin-bottom: var(--espaco-md);
+  color: var(--cor-texto-secundario);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.producao-botao-voltar:hover { color: var(--cor-terracota); }
+
+.producao-botao-voltar:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: 2px;
+}
+
+.producao-secao-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-sm);
+}
+
+.producao-secao-cabecalho h2 { margin: 0; }
+
+.dica-campo {
+  margin: 0 0 var(--espaco-md);
+  font-size: 0.78rem;
+  color: var(--cor-texto-secundario);
+}
+
+.tabela-producao-wrap { padding: 0; overflow-x: auto; }
+.tabela-producao-wrap .tabela { min-width: 760px; }
+
+#corpo-tabela-ingredientes td:nth-child(1) { font-weight: 600; }
+
+#corpo-tabela-ingredientes td:nth-child(3),
+#corpo-tabela-ingredientes td:nth-child(4) {
+  text-align: right;
+}
+
+#corpo-tabela-ingredientes td:nth-child(7) {
+  text-align: center;
+}
+
+#corpo-tabela-ingredientes td:last-child {
+  text-align: right;
+}
+
+/* Modal de ingrediente */
+.producao-detalhe-embalagem {
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  margin-bottom: var(--espaco-md);
+}
+
+.producao-detalhe-embalagem summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--cor-texto-secundario);
+}
+
+.producao-detalhe-embalagem[open] summary {
+  margin-bottom: var(--espaco-sm);
+}
+
+.producao-preview-custo {
+  font-size: 0.85rem;
+  color: var(--cor-texto-secundario);
+  background: var(--cor-cinza-claro);
+  border-left: 3px solid var(--cor-terracota);
+  padding: var(--espaco-sm) var(--espaco-md);
+  border-radius: var(--raio-sm);
+  min-height: 1.2em;
+}
