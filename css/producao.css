@@ -171,3 +171,97 @@
   border-radius: var(--raio-sm);
   min-height: 1.2em;
 }
+
+/*
+ * Fichas Técnicas — tabela de listagem (mesma estrutura de #corpo-tabela-ingredientes)
+ */
+#corpo-tabela-receitas td:nth-child(1) { font-weight: 600; }
+
+#corpo-tabela-receitas td:nth-child(3),
+#corpo-tabela-receitas td:nth-child(4) {
+  text-align: right;
+}
+
+#corpo-tabela-receitas td:nth-child(5) {
+  text-align: center;
+}
+
+#corpo-tabela-receitas td:last-child {
+  text-align: right;
+}
+
+/*
+ * Modal alto (Detalhe da Ficha, e opcionalmente o de Ingrediente) — modificador
+ * escopado só a esta página. Não altera css/style.css (usado por Produtos/
+ * Estoque/Carrinho) — o .modal genérico rola o bloco inteiro (cabeçalho+corpo+
+ * rodapé juntos); aqui só o corpo rola, cabeçalho e rodapé ficam sempre visíveis.
+ */
+.modal.producao-modal-rolavel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.producao-modal-rolavel .modal-corpo {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.producao-modal-rolavel .modal-cabecalho,
+.producao-modal-rolavel .modal-rodape {
+  flex-shrink: 0;
+}
+
+/* Modal de detalhe da ficha técnica */
+.producao-detalhe-receita-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-md);
+}
+
+.producao-detalhe-receita-cabecalho p { margin: 0; color: var(--cor-texto-secundario); }
+
+.producao-subtitulo {
+  font-size: 0.95rem;
+  margin: var(--espaco-lg) 0 var(--espaco-sm);
+}
+
+.tabela-itens-receita-wrap { padding: 0; overflow-x: auto; }
+
+#corpo-tabela-itens-receita td:nth-child(1) { font-weight: 600; }
+
+#corpo-tabela-itens-receita td:nth-child(2),
+#corpo-tabela-itens-receita td:nth-child(3) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+#corpo-tabela-itens-receita td:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.producao-resumo-custo-receita {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espaco-md) var(--espaco-lg);
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  margin-bottom: var(--espaco-md);
+  font-size: 0.9rem;
+}
+
+.producao-item-receita-edicao {
+  display: flex;
+  gap: var(--espaco-xs);
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.producao-item-receita-edicao input {
+  width: 90px;
+}
