@@ -407,13 +407,19 @@ async function getTopProductsForReport(orderIds, limite = 10) {
  * antigo continua aparecendo com os valores de quando foi feito, mesmo que o produto tenha mudado de
  * preço ou nome depois. `produtoId` é preservado à parte (não pro preço, só pra permitir lookup de
  * categoria agora e, futuramente, custo/margem por id).
+ *
+ * `custoUnitarioSnapshot` (Etapa 3 — Custos/Margem): snapshot histórico de custo gravado no momento do
+ * pedido (nunca o custo atual de product_costs). `null` = custo não cadastrado naquele pedido (pedidos
+ * anteriores à feature, ou produto sem custo cadastrado no momento da venda) — nunca tratado como 0.
+ * Para item_type='combo' este campo é sempre NULL de propósito (o custo real do combo vem das
+ * selections, ver getOrderItemSelectionsForReport) — nunca usar este campo pra CMV de combo.
  */
 async function getOrderItemsForReport(orderIds) {
   if (!orderIds || orderIds.length === 0) return [];
 
   const { data, error } = await supabaseClient
     .from('order_items')
-    .select('id, order_id, product_id, product_name, item_type, quantity, unit_price, extras_total, total_price')
+    .select('id, order_id, product_id, product_name, item_type, quantity, unit_price, extras_total, total_price, unit_cost_snapshot')
     .in('order_id', orderIds);
   if (error) throw new Error(error.message);
 
@@ -427,6 +433,7 @@ async function getOrderItemsForReport(orderIds) {
     precoUnitario: Number(i.unit_price) || 0,
     extrasTotal: Number(i.extras_total) || 0,
     valorTotal: Number(i.total_price) || 0,
+    custoUnitarioSnapshot: i.unit_cost_snapshot === null || i.unit_cost_snapshot === undefined ? null : Number(i.unit_cost_snapshot),
   }));
 }
 
@@ -436,13 +443,19 @@ async function getOrderItemsForReport(orderIds) {
  * `acrescimoUnitario` aqui são sempre "por combo" (não multiplicados pela quantidade de combos da
  * linha-mãe) — quem chama precisa multiplicar por order_items.quantidade pra obter consumo/receita
  * reais (confirmado direto no corpo de create_customer_order).
+ *
+ * `custoUnitarioSnapshot` (Etapa 3): snapshot histórico de custo de UMA unidade deste componente,
+ * gravado no momento do pedido — `null` = não cadastrado naquele pedido, nunca tratado como 0. É a
+ * fonte real do CMV de combo (nunca order_items.unit_cost_snapshot do combo em si, que fica sempre
+ * NULL de propósito). `acrescimoUnitario` (extra_price) continua sendo só receita — nunca usado como
+ * custo.
  */
 async function getOrderItemSelectionsForReport(orderItemIds) {
   if (!orderItemIds || orderItemIds.length === 0) return [];
 
   const { data, error } = await supabaseClient
     .from('order_item_selections')
-    .select('order_item_id, selection_type, selected_product_id, selected_product_name, quantity, extra_price')
+    .select('order_item_id, selection_type, selected_product_id, selected_product_name, quantity, extra_price, unit_cost_snapshot')
     .in('order_item_id', orderItemIds);
   if (error) throw new Error(error.message);
 
@@ -453,5 +466,6 @@ async function getOrderItemSelectionsForReport(orderItemIds) {
     nome: s.selected_product_name,
     quantidade: Number(s.quantity) || 0,
     acrescimoUnitario: Number(s.extra_price) || 0,
+    custoUnitarioSnapshot: s.unit_cost_snapshot === null || s.unit_cost_snapshot === undefined ? null : Number(s.unit_cost_snapshot),
   }));
 }

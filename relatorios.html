@@ -104,6 +104,34 @@
         <p class="texto-informativo-fechamento" id="rd-texto-cancelamentos-valor">
           Valor histórico dos pedidos cancelados: <strong id="rd-valor-cancelado">—</strong> — informativo, não integra o faturamento.
         </p>
+
+        <!-- Etapa 3 — CMV / Lucro bruto / Margem bruta -->
+        <div class="grade-kpis-operacionais grade-kpis-custo">
+          <div class="card cartao-dashboard cartao-kpi-operacional">
+            <span class="cartao-dashboard-icone">🧮</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">CMV</span>
+              <span class="cartao-dashboard-valor" id="rd-cmv">—</span>
+            </div>
+          </div>
+          <div class="card cartao-dashboard cartao-kpi-operacional">
+            <span class="cartao-dashboard-icone">📈</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Lucro bruto</span>
+              <span class="cartao-dashboard-valor" id="rd-lucro-bruto">—</span>
+            </div>
+          </div>
+          <div class="card cartao-dashboard cartao-kpi-operacional">
+            <span class="cartao-dashboard-icone">🎚</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Margem bruta</span>
+              <span class="cartao-dashboard-valor" id="rd-margem-bruta">—</span>
+            </div>
+          </div>
+        </div>
+        <p class="texto-informativo-fechamento rd-aviso-custo-incompleto" id="rd-aviso-custos-incompletos" style="display:none;">
+          ⚠ Custos incompletos para alguns itens vendidos neste dia — CMV e lucro bruto mostrados são os valores conhecidos (parciais), e a margem bruta não é exibida enquanto houver custo não cadastrado.
+        </p>
       </div>
 
       <div class="grade-graficos-dashboard">
@@ -147,15 +175,21 @@
 
       <div class="card rd-secao-detalhamento">
         <h2 class="titulo-grafico">Produtos vendidos</h2>
+        <p class="texto-informativo-fechamento">Custo/CMV/Lucro/Margem usam o custo histórico gravado em cada pedido (nunca o custo atual cadastrado em Produtos) — "—" quando não houver custo registrado para aquela venda.</p>
         <div class="tabela-estoque-wrap">
           <table class="tabela">
             <thead>
               <tr>
                 <th>Produto</th>
                 <th>Categoria</th>
-                <th>Quantidade</th>
-                <th>Preço médio/unidade</th>
-                <th>Valor vendido</th>
+                <th>Qtd</th>
+                <th>Preço médio</th>
+                <th>Receita bruta</th>
+                <th>Receita líquida</th>
+                <th>Custo méd. histórico</th>
+                <th>CMV</th>
+                <th>Lucro bruto</th>
+                <th>Margem</th>
               </tr>
             </thead>
             <tbody id="rd-corpo-produtos-vendidos"></tbody>
@@ -166,15 +200,20 @@
 
       <div class="card rd-secao-detalhamento">
         <h2 class="titulo-grafico">Combos vendidos</h2>
+        <p class="texto-informativo-fechamento">CMV do combo vem dos componentes efetivamente escolhidos (espetos/acompanhamentos/inclusos), nunca de um custo fixo do combo.</p>
         <div class="tabela-estoque-wrap">
           <table class="tabela">
             <thead>
               <tr>
                 <th>Combo</th>
-                <th>Quantidade</th>
+                <th>Qtd</th>
                 <th>Preço base médio</th>
                 <th>Acréscimos</th>
                 <th>Valor vendido</th>
+                <th>Receita líquida</th>
+                <th>CMV</th>
+                <th>Lucro bruto</th>
+                <th>Margem</th>
               </tr>
             </thead>
             <tbody id="rd-corpo-combos-vendidos"></tbody>

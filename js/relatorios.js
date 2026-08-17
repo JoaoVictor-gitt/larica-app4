@@ -159,16 +159,33 @@ async function carregarRelatorioDoDia(yyyyMmDd) {
     const selecoes = await getOrderItemSelectionsForReport(itens.map((i) => i.id));
 
     const resumo = calcularResumoRelatorioDiario(pedidos, cancelados);
-    const produtosVendidos = calcularProdutosVendidos(itens);
-    const combosVendidos = calcularCombosVendidos(itens);
+
+    // Etapa 3 — Custos/Margem: rateio de desconto por linha e CMV por item-combo, calculados uma vez
+    // (nunca uma consulta nova) e reaproveitados por calcularProdutosVendidos/calcularCombosVendidos/
+    // calcularResumoCustoMargem/verificarReconciliacoes — mesmos dados já carregados (itens/selecoes).
+    const descontoPorItemId = calcularDescontoRateadoPorItem(pedidos, itens);
+    const cmvPorItemCombo = calcularCmvPorItemCombo(itens, selecoes);
+
+    const produtosVendidos = calcularProdutosVendidos(itens, descontoPorItemId);
+    const combosVendidos = calcularCombosVendidos(itens, cmvPorItemCombo, descontoPorItemId);
     const consumoCombos = calcularConsumoCombos(itens, selecoes);
     const acrescimosCombos = calcularAcrescimosCombos(itens, selecoes);
     const vendasPorCategoria = calcularVendasPorCategoria(itens);
     const cuponsUtilizados = calcularCuponsUtilizados(pedidos);
+    const resumoCustoMargem = calcularResumoCustoMargem(itens, cmvPorItemCombo, resumo);
 
-    verificarReconciliacoes({ resumo, itens, produtosVendidos, combosVendidos, acrescimosCombos, cuponsUtilizados });
+    verificarReconciliacoes({
+      resumo,
+      itens,
+      produtosVendidos,
+      combosVendidos,
+      acrescimosCombos,
+      cuponsUtilizados,
+      descontoPorItemId,
+      resumoCustoMargem,
+    });
 
-    renderizarRelatorioDiario(resumo);
+    renderizarRelatorioDiario(resumo, resumoCustoMargem);
     renderizarVendasPorCategoria(vendasPorCategoria);
     renderizarProdutosVendidos(produtosVendidos);
     renderizarCombosVendidos(combosVendidos);
@@ -182,6 +199,7 @@ async function carregarRelatorioDoDia(yyyyMmDd) {
     relatorioAtual = {
       data: yyyyMmDd,
       resumo,
+      resumoCustoMargem,
       produtosVendidos,
       combosVendidos,
       consumoCombos,
@@ -287,47 +305,115 @@ function categoriaDoProduto(produtoId) {
   return produto ? produto.categoria : 'Não identificado';
 }
 
-/** Produtos vendidos diretamente (item_type='product') — nunca inclui componentes escolhidos dentro de combos (item 9 do pedido) */
-function calcularProdutosVendidos(itens) {
+/**
+ * Produtos vendidos diretamente (item_type='product') — nunca inclui componentes escolhidos dentro de
+ * combos (item 9 do pedido). `descontoPorItemId` (Etapa 3): Map<orderItemId, descontoRateado>, já
+ * calculado uma vez por calcularDescontoRateadoPorItem() pro pedido inteiro — usado aqui só pra somar
+ * receitaLiquida por produto. custoCompleto=false se QUALQUER venda daquele produto no dia não tiver
+ * unit_cost_snapshot — nesse caso cmvConhecido/lucroBruto continuam sendo a soma do que É conhecido
+ * (nunca 0 silencioso), mas margemPercentual fica null (renderizado como "—", nunca calculada com CMV
+ * parcial). custoMedioConhecido = CMV conhecido / quantidade COM custo (não a quantidade total — dividir
+ * pela quantidade total sub-estimaria o custo médio real ao diluir com unidades sem dado).
+ */
+function calcularProdutosVendidos(itens, descontoPorItemId) {
   const porProduto = new Map();
 
   itens
     .filter((i) => i.tipoItem === 'product')
     .forEach((i) => {
       const chave = i.produtoId || i.nome;
-      const atual = porProduto.get(chave) || { produtoId: i.produtoId, nome: i.nome, quantidade: 0, valorVendido: 0 };
+      const atual =
+        porProduto.get(chave) ||
+        {
+          produtoId: i.produtoId,
+          nome: i.nome,
+          quantidade: 0,
+          valorVendido: 0,
+          receitaLiquida: 0,
+          cmvConhecido: 0,
+          quantidadeComCusto: 0,
+          custoCompleto: true,
+        };
       atual.quantidade += i.quantidade;
       atual.valorVendido += i.valorTotal;
+      atual.receitaLiquida += i.valorTotal - (descontoPorItemId.get(i.id) || 0);
+
+      if (i.custoUnitarioSnapshot === null) {
+        atual.custoCompleto = false;
+      } else {
+        atual.cmvConhecido += i.quantidade * i.custoUnitarioSnapshot;
+        atual.quantidadeComCusto += i.quantidade;
+      }
+
       porProduto.set(chave, atual);
     });
 
   return Array.from(porProduto.values())
-    .map((p) => ({
-      ...p,
-      categoria: categoriaDoProduto(p.produtoId),
-      precoMedio: p.quantidade > 0 ? p.valorVendido / p.quantidade : 0,
-    }))
+    .map((p) => {
+      const lucroBruto = p.receitaLiquida - p.cmvConhecido;
+      return {
+        ...p,
+        categoria: categoriaDoProduto(p.produtoId),
+        precoMedio: p.quantidade > 0 ? p.valorVendido / p.quantidade : 0,
+        custoMedioConhecido: p.quantidadeComCusto > 0 ? p.cmvConhecido / p.quantidadeComCusto : null,
+        lucroBruto,
+        margemPercentual: p.custoCompleto && p.receitaLiquida > 0 ? (lucroBruto / p.receitaLiquida) * 100 : null,
+      };
+    })
     .sort((a, b) => b.valorVendido - a.valorVendido);
 }
 
-/** Combos vendidos (item_type='combo'), agrupados por product_id. Valor vendido = receita base + acréscimos, sempre (reconciliação B) */
-function calcularCombosVendidos(itens) {
+/**
+ * Combos vendidos (item_type='combo'), agrupados por product_id. Valor vendido = receita base +
+ * acréscimos, sempre (reconciliação B). `cmvPorItemCombo` (Etapa 3): Map<orderItemId, {cmvConhecido,
+ * completo}> de calcularCmvPorItemCombo() — CMV real do combo vem das selections, nunca do
+ * unit_cost_snapshot do próprio order_item combo (sempre NULL de propósito). Mesmo tratamento de
+ * incompletude de calcularProdutosVendidos: cmvConhecido/lucroBruto somam só o conhecido,
+ * margemPercentual fica null se qualquer linha desse combo tiver componente sem custo.
+ */
+function calcularCombosVendidos(itens, cmvPorItemCombo, descontoPorItemId) {
   const porCombo = new Map();
 
   itens
     .filter((i) => i.tipoItem === 'combo')
     .forEach((i) => {
       const chave = i.produtoId || i.nome;
-      const atual = porCombo.get(chave) || { produtoId: i.produtoId, nome: i.nome, quantidade: 0, receitaBase: 0, acrescimos: 0, valorVendido: 0 };
+      const atual =
+        porCombo.get(chave) ||
+        {
+          produtoId: i.produtoId,
+          nome: i.nome,
+          quantidade: 0,
+          receitaBase: 0,
+          acrescimos: 0,
+          valorVendido: 0,
+          receitaLiquida: 0,
+          cmvConhecido: 0,
+          custoCompleto: true,
+        };
       atual.quantidade += i.quantidade;
       atual.receitaBase += i.precoUnitario * i.quantidade;
       atual.acrescimos += i.extrasTotal;
       atual.valorVendido += i.valorTotal;
+      atual.receitaLiquida += i.valorTotal - (descontoPorItemId.get(i.id) || 0);
+
+      const cmvItem = cmvPorItemCombo.get(i.id) || { cmvConhecido: 0, completo: true };
+      atual.cmvConhecido += cmvItem.cmvConhecido;
+      if (!cmvItem.completo) atual.custoCompleto = false;
+
       porCombo.set(chave, atual);
     });
 
   return Array.from(porCombo.values())
-    .map((c) => ({ ...c, precoBaseMedio: c.quantidade > 0 ? c.receitaBase / c.quantidade : 0 }))
+    .map((c) => {
+      const lucroBruto = c.receitaLiquida - c.cmvConhecido;
+      return {
+        ...c,
+        precoBaseMedio: c.quantidade > 0 ? c.receitaBase / c.quantidade : 0,
+        lucroBruto,
+        margemPercentual: c.custoCompleto && c.receitaLiquida > 0 ? (lucroBruto / c.receitaLiquida) * 100 : null,
+      };
+    })
     .sort((a, b) => b.valorVendido - a.valorVendido);
 }
 
@@ -418,11 +504,156 @@ function calcularCuponsUtilizados(pedidos) {
   return Array.from(porCupom.values()).sort((a, b) => b.desconto - a.desconto);
 }
 
+// ---------------------------------------------------------------------------
+// Etapa 3 — CMV / Lucro bruto / Margem bruta (cálculo, funções puras sem I/O)
+//
+// Regra de ouro (histórico): CMV usa exclusivamente order_items.unit_cost_snapshot/
+// order_item_selections.unit_cost_snapshot — nunca o custo atual de product_costs.
+// unit_cost_snapshot NULL = "custo não cadastrado naquele pedido", nunca tratado como 0
+// (um produto sem custo contribui 0 ao CMV *conhecido*, mas marca o grupo/dia inteiro
+// como custosCompletos=false — nunca fica implícito que o custo real era zero).
+//
+// CMV de combo NUNCA usa order_items.unit_cost_snapshot do próprio combo (fica sempre
+// NULL de propósito, ver migration da Etapa 1) — vem da soma das selections
+// (espeto/acompanhamento/incluso), cada uma com seu próprio custoUnitarioSnapshot,
+// multiplicado por selection.quantidade × order_item.quantidade (mesma fórmula de
+// consumo já usada em calcularConsumoCombos/calcularAcrescimosCombos).
+// ---------------------------------------------------------------------------
+
+/**
+ * Rateia `valorTotal` (ex.: discount_amount de um pedido) entre `linhas`, proporcional ao valor de
+ * `obterBase(linha)` — método do maior resto, em centavos inteiros, garantindo soma final exata (item
+ * 13 do pedido: nunca Math.round independente por linha, que pode fechar errado por arredondamento
+ * acumulado). Retorna um Map linha->valor (em euros). totalBase<=0 ou valorTotal<=0: todas as linhas
+ * recebem 0 (nunca divide por zero, item 14).
+ */
+function ratearPorLinhas(valorTotal, linhas, obterBase) {
+  if (!linhas || linhas.length === 0) return new Map();
+
+  const totalBase = linhas.reduce((soma, l) => soma + obterBase(l), 0);
+  if (totalBase <= 0 || valorTotal <= 0) {
+    return new Map(linhas.map((l) => [l, 0]));
+  }
+
+  const valorTotalCentavos = Math.round(valorTotal * 100);
+  const cotas = linhas.map((l) => {
+    const exata = (obterBase(l) / totalBase) * valorTotalCentavos;
+    const inteira = Math.floor(exata);
+    return { linha: l, inteira, resto: exata - inteira };
+  });
+
+  const somaInteira = cotas.reduce((s, c) => s + c.inteira, 0);
+  const restantes = valorTotalCentavos - somaInteira;
+
+  // Distribui os centavos que sobraram do floor pelas linhas de maior resíduo fracionário primeiro —
+  // restantes é sempre < linhas.length (soma de N restos < 1 cada é sempre < N), nunca estoura o array.
+  [...cotas]
+    .sort((a, b) => b.resto - a.resto)
+    .slice(0, restantes)
+    .forEach((c) => (c.inteira += 1));
+
+  return new Map(cotas.map((c) => [c.linha, c.inteira / 100]));
+}
+
+/**
+ * Desconto rateado por order_item.id, pro pedido inteiro (item 12) — peso da linha =
+ * order_item.total_price / soma dos total_price do pedido. Uma chamada de ratearPorLinhas por pedido
+ * (nunca uma consulta nova; opera só sobre `itens`, já carregado). Retorna Map<orderItemId, desconto>.
+ */
+function calcularDescontoRateadoPorItem(pedidos, itens) {
+  const itensPorPedido = new Map();
+  itens.forEach((i) => {
+    if (!itensPorPedido.has(i.orderId)) itensPorPedido.set(i.orderId, []);
+    itensPorPedido.get(i.orderId).push(i);
+  });
+
+  const descontoPorItemId = new Map();
+  pedidos.forEach((p) => {
+    const linhas = itensPorPedido.get(p.id) || [];
+    if (linhas.length === 0) return;
+    const rateio = ratearPorLinhas(p.descontoAmount, linhas, (l) => l.valorTotal);
+    rateio.forEach((valor, linha) => descontoPorItemId.set(linha.id, valor));
+  });
+
+  return descontoPorItemId;
+}
+
+/**
+ * CMV de cada order_item tipo combo (item 5-6 do pedido), a partir das selections — nunca do
+ * unit_cost_snapshot do próprio order_item combo. Retorna Map<orderItemId, { cmvConhecido, completo }>
+ * — completo=false se QUALQUER selection daquele item não tiver custoUnitarioSnapshot (o valor
+ * conhecido continua somado, mas o item/combo agregado é marcado incompleto, nunca a lacuna é tratada
+ * como custo zero).
+ */
+function calcularCmvPorItemCombo(itens, selecoes) {
+  const quantidadePorItemCombo = new Map(itens.filter((i) => i.tipoItem === 'combo').map((i) => [i.id, i.quantidade]));
+  const resultado = new Map();
+
+  selecoes.forEach((s) => {
+    const quantidadePai = quantidadePorItemCombo.get(s.orderItemId);
+    if (quantidadePai === undefined) return; // seleção fora do conjunto de pedidos válidos do dia
+
+    const atual = resultado.get(s.orderItemId) || { cmvConhecido: 0, completo: true };
+    const consumoReal = s.quantidade * quantidadePai;
+
+    if (s.custoUnitarioSnapshot === null) {
+      atual.completo = false;
+    } else {
+      atual.cmvConhecido += s.custoUnitarioSnapshot * consumoReal;
+    }
+    resultado.set(s.orderItemId, atual);
+  });
+
+  return resultado;
+}
+
+/**
+ * Resumo de custo/margem do dia inteiro (cards do topo, item 7-10). Receita líquida de itens reaproveita
+ * resumo.vendasAposDescontos (já = SUM(subtotal - discount_amount), Etapa 1) em vez de recalcular — uma
+ * segunda fonte de verdade a mais só criaria risco de divergência; a reconciliação E confirma
+ * independentemente que a soma por linha bate com esse valor. margemBruta fica `null` (renderizado como
+ * "—") sempre que custosCompletos=false ou receita líquida <= 0 — nunca calculada a partir de CMV
+ * parcial (item 10).
+ */
+function calcularResumoCustoMargem(itens, cmvPorItemCombo, resumo) {
+  let cmvConhecido = 0;
+  let custosCompletos = true;
+
+  itens.forEach((i) => {
+    if (i.tipoItem === 'product') {
+      if (i.custoUnitarioSnapshot === null) {
+        custosCompletos = false;
+      } else {
+        cmvConhecido += i.quantidade * i.custoUnitarioSnapshot;
+      }
+    } else if (i.tipoItem === 'combo') {
+      const cmvItem = cmvPorItemCombo.get(i.id) || { cmvConhecido: 0, completo: true };
+      cmvConhecido += cmvItem.cmvConhecido;
+      if (!cmvItem.completo) custosCompletos = false;
+    }
+  });
+
+  const receitaLiquidaItens = resumo.vendasAposDescontos;
+  const lucroBruto = receitaLiquidaItens - cmvConhecido;
+  const margemBruta = custosCompletos && receitaLiquidaItens > 0 ? (lucroBruto / receitaLiquidaItens) * 100 : null;
+
+  return { cmvConhecido, receitaLiquidaItens, lucroBruto, margemBruta, custosCompletos };
+}
+
 /**
  * Reconciliações internas (item 14 do pedido) — nunca bloqueiam a tela nem lançam erro; uma diferença
  * > €0,01 vira console.warn com os dois valores e a diferença exata, pra diagnóstico.
  */
-function verificarReconciliacoes({ resumo, itens, produtosVendidos, combosVendidos, acrescimosCombos, cuponsUtilizados }) {
+function verificarReconciliacoes({
+  resumo,
+  itens,
+  produtosVendidos,
+  combosVendidos,
+  acrescimosCombos,
+  cuponsUtilizados,
+  descontoPorItemId,
+  resumoCustoMargem,
+}) {
   const EPSILON = 0.01;
   const diverge = (a, b) => Math.abs(a - b) > EPSILON;
 
@@ -482,17 +713,89 @@ function verificarReconciliacoes({ resumo, itens, produtosVendidos, combosVendid
       somaCupons - resumo.descontos
     );
   }
+
+  // E) Soma da receita líquida rateada das linhas === vendas após descontos (subtotal - discount_amount)
+  const somaReceitaLiquidaLinhas = itens.reduce((s, i) => s + (i.valorTotal - (descontoPorItemId.get(i.id) || 0)), 0);
+  if (diverge(somaReceitaLiquidaLinhas, resumo.vendasAposDescontos)) {
+    console.warn(
+      '[Relatório Diário] Reconciliação E divergente — receita líquida rateada das linhas =',
+      somaReceitaLiquidaLinhas,
+      'vs. Vendas após descontos (Etapa 1) =',
+      resumo.vendasAposDescontos,
+      'diferença =',
+      somaReceitaLiquidaLinhas - resumo.vendasAposDescontos
+    );
+  }
+
+  // F) Soma dos descontos rateados por linha === card Descontos da Etapa 1
+  const somaDescontosRateados = itens.reduce((s, i) => s + (descontoPorItemId.get(i.id) || 0), 0);
+  if (diverge(somaDescontosRateados, resumo.descontos)) {
+    console.warn(
+      '[Relatório Diário] Reconciliação F divergente — descontos rateados por linha =',
+      somaDescontosRateados,
+      'vs. card Descontos (Etapa 1) =',
+      resumo.descontos,
+      'diferença =',
+      somaDescontosRateados - resumo.descontos
+    );
+  }
+
+  // G) CMV conhecido do dia === SUM(cmvConhecido de Produtos vendidos) + SUM(cmvConhecido de Combos vendidos)
+  const somaCmvProdutosECombos =
+    produtosVendidos.reduce((s, p) => s + p.cmvConhecido, 0) + combosVendidos.reduce((s, c) => s + c.cmvConhecido, 0);
+  if (diverge(somaCmvProdutosECombos, resumoCustoMargem.cmvConhecido)) {
+    console.warn(
+      '[Relatório Diário] Reconciliação G divergente — CMV Produtos+Combos vendidos =',
+      somaCmvProdutosECombos,
+      'vs. CMV do dia (card) =',
+      resumoCustoMargem.cmvConhecido,
+      'diferença =',
+      somaCmvProdutosECombos - resumoCustoMargem.cmvConhecido
+    );
+  }
+
+  // H) Lucro bruto do dia === SUM(lucroBruto de Produtos vendidos) + SUM(lucroBruto de Combos vendidos)
+  const somaLucroProdutosECombos =
+    produtosVendidos.reduce((s, p) => s + p.lucroBruto, 0) + combosVendidos.reduce((s, c) => s + c.lucroBruto, 0);
+  if (diverge(somaLucroProdutosECombos, resumoCustoMargem.lucroBruto)) {
+    console.warn(
+      '[Relatório Diário] Reconciliação H divergente — Lucro bruto Produtos+Combos vendidos =',
+      somaLucroProdutosECombos,
+      'vs. Lucro bruto do dia (card) =',
+      resumoCustoMargem.lucroBruto,
+      'diferença =',
+      somaLucroProdutosECombos - resumoCustoMargem.lucroBruto
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Renderização
 // ---------------------------------------------------------------------------
 
-function renderizarRelatorioDiario(resumo) {
+function renderizarRelatorioDiario(resumo, resumoCustoMargem) {
   renderizarCardsFinanceiros(resumo);
+  renderizarCustoMargem(resumoCustoMargem);
   renderizarFormasPagamentoRelatorio(resumo);
   renderizarStatusPagamentoRelatorio(resumo);
   renderizarAtendimentoRelatorio(resumo);
+}
+
+/**
+ * Cards de CMV/Lucro bruto/Margem bruta (Etapa 3, item 11). CMV e Lucro bruto SEMPRE mostram o valor
+ * numérico conhecido (mesmo parcial) com um "⚠" quando custosCompletos=false — nunca escondidos atrás
+ * de um texto genérico, pra não perder a informação que já se tem. Margem bruta é o único que vira "—"
+ * quando incompleto (item 10): uma % calculada com CMV parcial pareceria definitiva sem ser.
+ */
+function renderizarCustoMargem(rcm) {
+  const moeda = obterConfiguracoes().moeda;
+  const sufixo = rcm.custosCompletos ? '' : ' ⚠';
+
+  document.getElementById('rd-cmv').textContent = formatarMoeda(rcm.cmvConhecido, moeda) + sufixo;
+  document.getElementById('rd-lucro-bruto').textContent = formatarMoeda(rcm.lucroBruto, moeda) + sufixo;
+  document.getElementById('rd-margem-bruta').textContent = rcm.margemBruta === null ? '—' : `${rcm.margemBruta.toFixed(1)}%`;
+
+  document.getElementById('rd-aviso-custos-incompletos').style.display = rcm.custosCompletos ? 'none' : '';
 }
 
 function renderizarCardsFinanceiros(resumo) {
@@ -610,16 +913,22 @@ function renderizarProdutosVendidos(lista) {
 
   const moeda = obterConfiguracoes().moeda;
   corpo.innerHTML = lista
-    .map(
-      (p) => `
+    .map((p) => {
+      const aviso = p.custoCompleto ? '' : ' ⚠';
+      return `
       <tr>
         <td>${escaparHtml(p.nome)}</td>
         <td>${escaparHtml(p.categoria)}</td>
         <td>${p.quantidade}</td>
         <td>${formatarMoeda(p.precoMedio, moeda)}</td>
         <td>${formatarMoeda(p.valorVendido, moeda)}</td>
-      </tr>`
-    )
+        <td>${formatarMoeda(p.receitaLiquida, moeda)}</td>
+        <td>${p.custoMedioConhecido === null ? '—' : formatarMoeda(p.custoMedioConhecido, moeda)}</td>
+        <td>${formatarMoeda(p.cmvConhecido, moeda)}${aviso}</td>
+        <td>${formatarMoeda(p.lucroBruto, moeda)}${aviso}</td>
+        <td>${p.margemPercentual === null ? '—' : p.margemPercentual.toFixed(1) + '%'}</td>
+      </tr>`;
+    })
     .join('');
 }
 
@@ -636,16 +945,21 @@ function renderizarCombosVendidos(lista) {
 
   const moeda = obterConfiguracoes().moeda;
   corpo.innerHTML = lista
-    .map(
-      (c) => `
+    .map((c) => {
+      const aviso = c.custoCompleto ? '' : ' ⚠';
+      return `
       <tr>
         <td>${escaparHtml(c.nome)}</td>
         <td>${c.quantidade}</td>
         <td>${formatarMoeda(c.precoBaseMedio, moeda)}</td>
         <td>${formatarMoeda(c.acrescimos, moeda)}</td>
         <td>${formatarMoeda(c.valorVendido, moeda)}</td>
-      </tr>`
-    )
+        <td>${formatarMoeda(c.receitaLiquida, moeda)}</td>
+        <td>${formatarMoeda(c.cmvConhecido, moeda)}${aviso}</td>
+        <td>${formatarMoeda(c.lucroBruto, moeda)}${aviso}</td>
+        <td>${c.margemPercentual === null ? '—' : c.margemPercentual.toFixed(1) + '%'}</td>
+      </tr>`;
+    })
     .join('');
 }
 

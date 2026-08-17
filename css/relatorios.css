@@ -68,3 +68,19 @@
 .rd-subtitulo-consumo:first-of-type {
   margin-top: 0;
 }
+
+/* Etapa 3 — CMV/Lucro bruto/Margem bruta */
+
+.grade-kpis-custo {
+  margin-top: var(--espaco-md);
+}
+
+/* Mesmo tom "atenção" já usado em .aviso-combo (css/produtos.css) — nunca vermelho crítico, é um aviso de dado incompleto, não um erro */
+.rd-aviso-custo-incompleto {
+  margin: var(--espaco-sm) 0 0;
+  padding: var(--espaco-xs) var(--espaco-sm);
+  border-radius: var(--raio-sm);
+  background: rgba(224, 185, 78, 0.15);
+  border: 1px solid var(--cor-status-amarelo);
+  color: var(--cor-status-amarelo);
+}

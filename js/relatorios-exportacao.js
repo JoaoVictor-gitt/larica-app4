@@ -110,6 +110,8 @@ function construirPdfRelatorio(relatorio) {
   const margemEsquerda = 40;
   const margemDireita = 40;
   const r = relatorio.resumo;
+  const rcm = relatorio.resumoCustoMargem;
+  const sufixoParcial = rcm.custosCompletos ? '' : ' (parcial)';
   let y = 50;
 
   // Cabeçalho — só o nome "LARICA" (sem logo: o projeto não tem um arquivo de imagem de logo,
@@ -137,6 +139,10 @@ function construirPdfRelatorio(relatorio) {
       ['Descontos', formatarMoeda(r.descontos, moeda)],
       ['Taxas de entrega', formatarMoeda(r.taxasEntrega, moeda)],
       ['Vendas após descontos', formatarMoeda(r.vendasAposDescontos, moeda)],
+      ['CMV', formatarMoeda(rcm.cmvConhecido, moeda) + sufixoParcial],
+      ['Lucro bruto', formatarMoeda(rcm.lucroBruto, moeda) + sufixoParcial],
+      ['Margem bruta', rcm.margemBruta === null ? '—' : `${rcm.margemBruta.toFixed(1)}%`],
+      ['Custos completos', rcm.custosCompletos ? 'Sim' : 'Não'],
       ['Pedidos', String(r.totalPedidos)],
       ['Ticket médio', formatarMoeda(r.ticketMedio, moeda)],
       ['Cancelamentos', String(r.totalCancelamentos)],
@@ -144,6 +150,18 @@ function construirPdfRelatorio(relatorio) {
     margemEsquerda,
     margemDireita,
   });
+
+  if (!rcm.custosCompletos) {
+    y = garantirEspacoPdf(doc, y, 16);
+    doc.setFont('Roboto', 'normal');
+    doc.setFontSize(9);
+    doc.text(
+      'Custos incompletos para alguns itens vendidos neste dia — CMV e lucro bruto são valores conhecidos (parciais); margem bruta não é exibida.',
+      margemEsquerda,
+      y
+    );
+    y += 20;
+  }
 
   // Formas de pagamento
   y = adicionarTituloSecaoPdf(doc, 'Formas de pagamento', y, margemEsquerda);
@@ -207,32 +225,54 @@ function construirPdfRelatorio(relatorio) {
     margemDireita,
   });
 
-  // Produtos vendidos
+  // Produtos vendidos — custo/CMV/lucro/margem usam sempre o snapshot histórico do pedido, nunca o
+  // custo atual de product_costs (regra de ouro da Etapa 3, ver relatorios.js).
   y = adicionarTituloSecaoPdf(doc, 'Produtos vendidos', y, margemEsquerda);
   y = desenharTabelaPdf(doc, {
     startY: y,
-    head: ['Produto', 'Categoria', 'Quantidade', 'Preço médio/unidade', 'Valor vendido'],
+    head: ['Produto', 'Categoria', 'Qtd', 'Preço médio', 'Receita bruta', 'Receita líquida', 'Custo méd. hist.', 'CMV', 'Lucro bruto', 'Margem'],
     body: relatorio.produtosVendidos.length
-      ? relatorio.produtosVendidos.map((p) => [p.nome, p.categoria, String(p.quantidade), formatarMoeda(p.precoMedio, moeda), formatarMoeda(p.valorVendido, moeda)])
-      : [['Nenhum produto vendido neste dia.', '', '', '', '']],
+      ? relatorio.produtosVendidos.map((p) => {
+          const aviso = p.custoCompleto ? '' : ' ⚠';
+          return [
+            p.nome,
+            p.categoria,
+            String(p.quantidade),
+            formatarMoeda(p.precoMedio, moeda),
+            formatarMoeda(p.valorVendido, moeda),
+            formatarMoeda(p.receitaLiquida, moeda),
+            p.custoMedioConhecido === null ? '—' : formatarMoeda(p.custoMedioConhecido, moeda),
+            formatarMoeda(p.cmvConhecido, moeda) + aviso,
+            formatarMoeda(p.lucroBruto, moeda) + aviso,
+            p.margemPercentual === null ? '—' : `${p.margemPercentual.toFixed(1)}%`,
+          ];
+        })
+      : [['Nenhum produto vendido neste dia.', '', '', '', '', '', '', '', '', '']],
     margemEsquerda,
     margemDireita,
   });
 
-  // Combos vendidos
+  // Combos vendidos — CMV vem dos componentes efetivamente escolhidos, nunca de um custo fixo do combo.
   y = adicionarTituloSecaoPdf(doc, 'Combos vendidos', y, margemEsquerda);
   y = desenharTabelaPdf(doc, {
     startY: y,
-    head: ['Combo', 'Quantidade', 'Preço base médio', 'Acréscimos', 'Valor vendido'],
+    head: ['Combo', 'Qtd', 'Preço base médio', 'Acréscimos', 'Valor vendido', 'Receita líquida', 'CMV', 'Lucro bruto', 'Margem'],
     body: relatorio.combosVendidos.length
-      ? relatorio.combosVendidos.map((c) => [
-          c.nome,
-          String(c.quantidade),
-          formatarMoeda(c.precoBaseMedio, moeda),
-          formatarMoeda(c.acrescimos, moeda),
-          formatarMoeda(c.valorVendido, moeda),
-        ])
-      : [['Nenhum combo vendido neste dia.', '', '', '', '']],
+      ? relatorio.combosVendidos.map((c) => {
+          const aviso = c.custoCompleto ? '' : ' ⚠';
+          return [
+            c.nome,
+            String(c.quantidade),
+            formatarMoeda(c.precoBaseMedio, moeda),
+            formatarMoeda(c.acrescimos, moeda),
+            formatarMoeda(c.valorVendido, moeda),
+            formatarMoeda(c.receitaLiquida, moeda),
+            formatarMoeda(c.cmvConhecido, moeda) + aviso,
+            formatarMoeda(c.lucroBruto, moeda) + aviso,
+            c.margemPercentual === null ? '—' : `${c.margemPercentual.toFixed(1)}%`,
+          ];
+        })
+      : [['Nenhum combo vendido neste dia.', '', '', '', '', '', '', '', '']],
     margemEsquerda,
     margemDireita,
   });
@@ -372,6 +412,7 @@ function definirLargurasXlsx(worksheet, larguras) {
 function construirExcelRelatorio(relatorio) {
   const wb = XLSX.utils.book_new();
   const r = relatorio.resumo;
+  const rcm = relatorio.resumoCustoMargem;
 
   // --- Aba 1: Resumo ---
   const [ano, mes, dia] = relatorio.data.split('-').map(Number);
@@ -383,13 +424,18 @@ function construirExcelRelatorio(relatorio) {
     ['Descontos', r.descontos],
     ['Taxas de entrega', r.taxasEntrega],
     ['Vendas após descontos', r.vendasAposDescontos],
+    ['CMV', rcm.cmvConhecido],
+    ['Lucro bruto', rcm.lucroBruto],
+    ['Margem bruta', rcm.margemBruta === null ? null : rcm.margemBruta / 100],
+    ['Custos completos', rcm.custosCompletos ? 'Sim' : 'Não'],
     ['Pedidos', r.totalPedidos],
     ['Ticket médio', r.ticketMedio],
     ['Cancelamentos', r.totalCancelamentos],
   ];
   const wsResumo = XLSX.utils.aoa_to_sheet(linhasResumo);
   formatarColunaXlsx(wsResumo, 1, 0, 0, FORMATO_DATA_XLSX); // linha 0 = Data do relatório
-  [1, 2, 3, 4, 5, 7].forEach((linha) => formatarColunaXlsx(wsResumo, 1, linha, linha, FORMATO_MOEDA_XLSX));
+  [1, 2, 3, 4, 5, 6, 7, 11].forEach((linha) => formatarColunaXlsx(wsResumo, 1, linha, linha, FORMATO_MOEDA_XLSX));
+  formatarColunaXlsx(wsResumo, 1, 8, 8, FORMATO_PERCENTUAL_XLSX); // linha 8 = Margem bruta
   definirLargurasXlsx(wsResumo, [26, 18]);
   XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
 
@@ -441,27 +487,58 @@ function construirExcelRelatorio(relatorio) {
   definirLargurasXlsx(wsCategorias, [20, 12, 14, 12]);
   XLSX.utils.book_append_sheet(wb, wsCategorias, 'Categorias');
 
-  // --- Aba 5: Produtos ---
+  // --- Aba 5: Produtos --- (Etapa 3: Receita líquida/Custo médio histórico/CMV/Lucro/Margem usam sempre
+  // o snapshot histórico do pedido — nunca o custo atual de product_costs). Custo médio histórico e
+  // Margem ficam com célula vazia (null) quando não há dado, nunca uma string dentro de coluna numérica
+  // (item 31) — "Custo completo" é uma coluna de status própria (Sim/Não), separada dos números.
   const aoaProdutos = [
-    ['Produto', 'Categoria', 'Quantidade', 'Preço médio/unidade', 'Valor vendido'],
-    ...relatorio.produtosVendidos.map((p) => [p.nome, p.categoria, p.quantidade, p.precoMedio, p.valorVendido]),
+    [
+      'Produto', 'Categoria', 'Quantidade', 'Preço médio/unidade', 'Receita bruta', 'Receita líquida',
+      'Custo médio histórico', 'CMV', 'Lucro bruto', 'Margem', 'Custo completo',
+    ],
+    ...relatorio.produtosVendidos.map((p) => [
+      p.nome,
+      p.categoria,
+      p.quantidade,
+      p.precoMedio,
+      p.valorVendido,
+      p.receitaLiquida,
+      p.custoMedioConhecido,
+      p.cmvConhecido,
+      p.lucroBruto,
+      p.margemPercentual === null ? null : p.margemPercentual / 100,
+      p.custoCompleto ? 'Sim' : 'Não',
+    ]),
   ];
   const wsProdutos = XLSX.utils.aoa_to_sheet(aoaProdutos);
-  formatarColunaXlsx(wsProdutos, 3, 1, relatorio.produtosVendidos.length, FORMATO_MOEDA_XLSX);
-  formatarColunaXlsx(wsProdutos, 4, 1, relatorio.produtosVendidos.length, FORMATO_MOEDA_XLSX);
-  definirLargurasXlsx(wsProdutos, [26, 18, 12, 18, 14]);
+  [3, 4, 5, 6, 7, 8].forEach((coluna) => formatarColunaXlsx(wsProdutos, coluna, 1, relatorio.produtosVendidos.length, FORMATO_MOEDA_XLSX));
+  formatarColunaXlsx(wsProdutos, 9, 1, relatorio.produtosVendidos.length, FORMATO_PERCENTUAL_XLSX);
+  definirLargurasXlsx(wsProdutos, [26, 18, 10, 16, 14, 14, 16, 14, 14, 10, 14]);
   XLSX.utils.book_append_sheet(wb, wsProdutos, 'Produtos');
 
-  // --- Aba 6: Combos ---
+  // --- Aba 6: Combos --- (CMV vem dos componentes efetivamente escolhidos, nunca de custo fixo do combo)
   const aoaCombos = [
-    ['Combo', 'Quantidade', 'Preço base médio', 'Acréscimos', 'Valor vendido'],
-    ...relatorio.combosVendidos.map((c) => [c.nome, c.quantidade, c.precoBaseMedio, c.acrescimos, c.valorVendido]),
+    [
+      'Combo', 'Quantidade', 'Preço base médio', 'Acréscimos', 'Valor vendido', 'Receita líquida',
+      'CMV', 'Lucro bruto', 'Margem', 'Custo completo',
+    ],
+    ...relatorio.combosVendidos.map((c) => [
+      c.nome,
+      c.quantidade,
+      c.precoBaseMedio,
+      c.acrescimos,
+      c.valorVendido,
+      c.receitaLiquida,
+      c.cmvConhecido,
+      c.lucroBruto,
+      c.margemPercentual === null ? null : c.margemPercentual / 100,
+      c.custoCompleto ? 'Sim' : 'Não',
+    ]),
   ];
   const wsCombos = XLSX.utils.aoa_to_sheet(aoaCombos);
-  formatarColunaXlsx(wsCombos, 2, 1, relatorio.combosVendidos.length, FORMATO_MOEDA_XLSX);
-  formatarColunaXlsx(wsCombos, 3, 1, relatorio.combosVendidos.length, FORMATO_MOEDA_XLSX);
-  formatarColunaXlsx(wsCombos, 4, 1, relatorio.combosVendidos.length, FORMATO_MOEDA_XLSX);
-  definirLargurasXlsx(wsCombos, [26, 12, 16, 12, 14]);
+  [2, 3, 4, 5, 6, 7].forEach((coluna) => formatarColunaXlsx(wsCombos, coluna, 1, relatorio.combosVendidos.length, FORMATO_MOEDA_XLSX));
+  formatarColunaXlsx(wsCombos, 8, 1, relatorio.combosVendidos.length, FORMATO_PERCENTUAL_XLSX);
+  definirLargurasXlsx(wsCombos, [26, 10, 16, 12, 14, 14, 12, 12, 10, 14]);
   XLSX.utils.book_append_sheet(wb, wsCombos, 'Combos');
 
   // --- Aba 7: Consumo Combos ---
