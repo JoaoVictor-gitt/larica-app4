@@ -23,6 +23,7 @@ const PERMISSOES_SISTEMA = [
   { codigo: 'stock.view', modulo: 'Estoque', acao: 'Visualizar' },
   { codigo: 'stock.manage', modulo: 'Estoque', acao: 'Gerenciar' },
   { codigo: 'history.view', modulo: 'Histórico', acao: 'Visualizar' },
+  { codigo: 'reports.view', modulo: 'Relatórios', acao: 'Visualizar' },
   { codigo: 'settings.manage', modulo: 'Configurações', acao: 'Gerenciar' },
   { codigo: 'users.manage', modulo: 'Usuários', acao: 'Gerenciar' },
 ];

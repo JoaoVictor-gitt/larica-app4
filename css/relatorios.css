@@ -1,0 +1,29 @@
+/*
+ * relatorios.css
+ * Estilos específicos do Relatório Diário (relatorios.html) — reaproveita ao
+ * máximo as classes já existentes em css/dashboard.css (cartões de KPI,
+ * listas de resumo, grades). Aqui só entra o que dashboard.css não cobre:
+ * a linha do seletor de data + botão "Hoje", e o destaque visual do card de
+ * Cancelamentos (informativo, não soma ao faturamento).
+ */
+
+.cartao-seletor-data-relatorio {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-lg);
+}
+
+.cartao-seletor-data-relatorio .form-grupo {
+  max-width: 220px;
+}
+
+/* Card de Cancelamentos — mesmo tom "informativo" já usado no Fechamento do Dashboard, pra nunca ser confundido com faturamento */
+.cartao-kpi-cancelamentos {
+  border: 1px dashed var(--cor-borda);
+}
+
+#rd-texto-cancelamentos-valor {
+  margin: var(--espaco-sm) 0 0;
+}

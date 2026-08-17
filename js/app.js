@@ -18,6 +18,7 @@ const MENU_ADMIN = [
   { chave: 'produtos', rotulo: 'Produtos', icone: '🍡', href: 'produtos.html', permissao: 'products.view' },
   { chave: 'estoque', rotulo: 'Estoque', icone: '📦', href: 'estoque.html', permissao: 'stock.view' },
   { chave: 'historico', rotulo: 'Histórico', icone: '🕒', href: 'historico.html', permissao: 'history.view' },
+  { chave: 'relatorios', rotulo: 'Relatórios', icone: '📈', href: 'relatorios.html', permissao: 'reports.view' },
   { chave: 'configuracoes', rotulo: 'Configurações', icone: '⚙️', href: 'configuracoes.html', permissao: 'settings.manage' },
 ];
 
@@ -38,6 +39,7 @@ const TITULOS_PAGINA = {
   estoque: 'Controle de Estoque',
   produtos: 'Produtos',
   historico: 'Histórico',
+  relatorios: 'Relatório Diário',
   configuracoes: 'Configurações',
 };
 

@@ -310,7 +310,7 @@ async function getOrdersForReport({ desdeUtc, ateUtc } = {}) {
   let consulta = supabaseClient
     .from('orders')
     .select(
-      'id, order_number, created_at, cancelled_at, status, fulfilment_type, payment_method, subtotal, delivery_fee, total, cash_amount, change_amount, needs_change'
+      'id, order_number, created_at, cancelled_at, status, fulfilment_type, payment_method, payment_status, subtotal, delivery_fee, total, discount_amount, coupon_id, coupon_code, cash_amount, change_amount, needs_change'
     )
     .order('created_at', { ascending: true });
   if (desdeUtc) consulta = consulta.gte('created_at', desdeUtc);
@@ -327,9 +327,15 @@ async function getOrdersForReport({ desdeUtc, ateUtc } = {}) {
     status: ENUM_PARA_STATUS[o.status] || o.status,
     fulfilment: ENUM_PARA_FULFILMENT[o.fulfilment_type] || o.fulfilment_type,
     formaPagamento: ENUM_PARA_PAGAMENTO[o.payment_method] || o.payment_method,
+    // statusPagamento/descontoAmount/cupomId/cupomCodigo: adicionados pro Relatório Diário (Etapa 1) —
+    // nenhum consumidor existente (js/dashboard.js) lê esses campos, então isso não muda nada pra eles.
+    statusPagamento: ENUM_PARA_STATUS_PAGAMENTO[o.payment_status] || o.payment_status,
     subtotal: Number(o.subtotal) || 0,
     taxaEntrega: Number(o.delivery_fee) || 0,
     total: Number(o.total) || 0,
+    descontoAmount: Number(o.discount_amount) || 0,
+    cupomId: o.coupon_id || null,
+    cupomCodigo: o.coupon_code || null,
     // Mesmos nomes pt-BR já usados em _linhaSupabaseParaPedido() (dentro de pagamentoDinheiro) — reaproveitados
     // aqui de propósito, sem nomenclatura paralela.
     precisaTroco: !!o.needs_change,

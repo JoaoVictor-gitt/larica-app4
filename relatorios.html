@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    (function () {
+      try {
+        var config = JSON.parse(localStorage.getItem('caju_configuracoes') || '{}');
+        document.documentElement.setAttribute('data-tema', config.tema === 'claro' ? 'claro' : 'escuro');
+      } catch (erro) {}
+    })();
+  </script>
+  <title>Relatório Diário | Larica Food Truck</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/dashboard.css" />
+  <link rel="stylesheet" href="css/relatorios.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body data-pagina="relatorios" data-area="admin">
+  <div id="layout-shell"></div>
+  <main class="conteudo-pagina">
+    <div class="pagina-titulo">
+      <h1>Relatório Diário</h1>
+    </div>
+
+    <div class="card cartao-seletor-data-relatorio">
+      <div class="form-grupo" style="margin-bottom:0;">
+        <label for="campo-data-relatorio">Data</label>
+        <input type="date" id="campo-data-relatorio" class="input" />
+      </div>
+      <button type="button" class="btn btn-secundario" id="botao-hoje-relatorio">Hoje</button>
+    </div>
+
+    <div class="estado-vazio" id="estado-carregando-relatorio-diario" style="display:none;">Carregando relatório...</div>
+    <div class="estado-vazio" id="estado-erro-relatorio-diario" style="display:none;"></div>
+
+    <div id="conteudo-relatorio-diario" style="display:none;">
+      <div class="secao-kpis-dashboard">
+        <div class="grade-kpis-principais">
+          <div class="card cartao-dashboard cartao-kpi-principal">
+            <span class="cartao-dashboard-icone">💰</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Faturamento total</span>
+              <span class="cartao-dashboard-valor" id="rd-faturamento-total">—</span>
+            </div>
+          </div>
+          <div class="card cartao-dashboard cartao-kpi-principal">
+            <span class="cartao-dashboard-icone">🧾</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Pedidos</span>
+              <span class="cartao-dashboard-valor" id="rd-pedidos">—</span>
+            </div>
+          </div>
+          <div class="card cartao-dashboard cartao-kpi-principal">
+            <span class="cartao-dashboard-icone">🎯</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Ticket médio</span>
+              <span class="cartao-dashboard-valor" id="rd-ticket-medio">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="grade-kpis-operacionais">
+          <div class="card cartao-dashboard cartao-kpi-operacional">
+            <span class="cartao-dashboard-icone">📦</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Faturamento bruto</span>
+              <span class="cartao-dashboard-valor" id="rd-faturamento-bruto">—</span>
+            </div>
+          </div>
+          <div class="card cartao-dashboard cartao-kpi-operacional">
+            <span class="cartao-dashboard-icone">🏷</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Descontos</span>
+              <span class="cartao-dashboard-valor" id="rd-descontos">—</span>
+            </div>
+          </div>
+          <div class="card cartao-dashboard cartao-kpi-operacional">
+            <span class="cartao-dashboard-icone">✅</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Vendas após descontos</span>
+              <span class="cartao-dashboard-valor" id="rd-vendas-apos-descontos">—</span>
+            </div>
+          </div>
+          <div class="card cartao-dashboard cartao-kpi-operacional">
+            <span class="cartao-dashboard-icone">🛵</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Taxas de entrega</span>
+              <span class="cartao-dashboard-valor" id="rd-taxas-entrega">—</span>
+            </div>
+          </div>
+          <div class="card cartao-dashboard cartao-kpi-operacional cartao-kpi-cancelamentos">
+            <span class="cartao-dashboard-icone">❌</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Cancelamentos</span>
+              <span class="cartao-dashboard-valor" id="rd-cancelamentos">—</span>
+            </div>
+          </div>
+        </div>
+        <p class="texto-informativo-fechamento" id="rd-texto-cancelamentos-valor">
+          Valor histórico dos pedidos cancelados: <strong id="rd-valor-cancelado">—</strong> — informativo, não integra o faturamento.
+        </p>
+      </div>
+
+      <div class="grade-graficos-dashboard">
+        <div class="card">
+          <h2 class="titulo-grafico">Formas de pagamento</h2>
+          <div class="lista-resumo-relatorio" id="rd-lista-formas-pagamento"></div>
+        </div>
+        <div class="card">
+          <h2 class="titulo-grafico">Status dos pagamentos</h2>
+          <div class="lista-resumo-relatorio" id="rd-lista-status-pagamento"></div>
+        </div>
+      </div>
+
+      <div class="grade-graficos-dashboard grade-graficos-dashboard-secundaria">
+        <div class="card">
+          <h2 class="titulo-grafico">Atendimento</h2>
+          <div class="lista-resumo-relatorio" id="rd-lista-atendimento"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/services/permissions-service.js"></script>
+  <script src="js/services/settings-service.js"></script>
+  <script src="js/services/orders-service.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/relatorios.js"></script>
+</body>
+</html>
