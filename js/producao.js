@@ -1,28 +1,30 @@
 /*
  * producao.js
  * Lógica da área Produção. Etapa 1: aba Ingredientes. Etapa 2: aba Fichas
- * Técnicas (recipes/recipe_items, só item_type='ingredient' nesta etapa —
- * subrecipe_id existe no schema mas não é usado pela UI ainda, isso é
- * Etapa 3). Depende de utils.js, js/services/ingredients-service.js e
+ * Técnicas com ingredientes simples. Etapa 3: sub-receitas (item_type=
+ * 'recipe' — um item de receita pode ser outro preparo) + exclusão de
+ * ficha técnica. Depende de utils.js, js/services/ingredients-service.js e
  * js/services/recipes-service.js.
  *
- * souAdminProducao decide só a edição (criar/editar/ativar/desativar) —
- * visualização já é liberada pra qualquer staff que acesse esta página; a
- * barreira real de escrita é o RLS de ingredients/recipes/recipe_items
- * (admin-only). Diferente do caso de Meta de Preparo (onde a RLS real não
- * distinguia admin de employee e a UI teve que ser corrigida pra não
- * fingir uma restrição que o banco não tinha): aqui a RLS realmente
- * distingue, então a UI pode e deve espelhar essa restrição.
+ * souAdminProducao decide só a edição (criar/editar/ativar/desativar/
+ * excluir) — visualização já é liberada pra qualquer staff que acesse esta
+ * página; a barreira real de escrita é a RLS de ingredients/recipes/
+ * recipe_items (admin-only) e, pra composição de receita (ingrediente OU
+ * sub-receita), a RPC save_recipe_item, que valida is_admin() por dentro e
+ * roda como SECURITY DEFINER (não depende só da RLS). Diferente do caso de
+ * Meta de Preparo (onde a RLS real não distinguia admin de employee e a UI
+ * teve que ser corrigida pra não fingir uma restrição que o banco não
+ * tinha): aqui a distinção é real, então a UI pode e deve espelhá-la.
  *
- * Custo de ficha técnica é SEMPRE calculado on-read em JS a partir de
- * ingredientesCache (ingredients.cost_per_base_unit) — nunca persistido em
- * recipes/recipe_items, nunca lido de product_costs (isso só entra na
- * Etapa 4). ingredientesCache já é recarregado do zero a cada
- * criar/editar ingrediente (salvarFormularioIngrediente, Etapa 1, não
- * alterado aqui) — por isso os cálculos de custo de receita, que sempre
- * fazem ingredientesCache.find(...) na hora de ler (nunca guardam uma
- * cópia/mapa à parte), automaticamente refletem uma mudança de preço de
- * ingrediente na próxima renderização, sem esforço extra.
+ * Custo de ficha técnica é SEMPRE calculado on-read em JS — recursivo
+ * (item pode ser ingrediente OU sub-receita) e memoizado por receitaId
+ * num Map novo a cada passada de render (nunca persistido em recipes/
+ * recipe_items, nunca lido de product_costs — isso só entra na Etapa 4).
+ * ingredientesCache é recarregado do zero a cada criar/editar ingrediente
+ * (salvarFormularioIngrediente, Etapa 1, não alterado aqui) — por isso os
+ * cálculos de custo, que sempre fazem ingredientesCache.find(...) na hora
+ * de ler (nunca guardam uma cópia à parte), automaticamente refletem uma
+ * mudança de preço na próxima renderização, sem esforço extra.
  */
 
 const FATORES_CONVERSAO_UNIDADE_INGREDIENTE = { kg: 1000, g: 1, L: 1000, ml: 1, un: 1 };
@@ -352,9 +354,12 @@ async function salvarFormularioIngrediente(evento) {
 }
 
 // =============================================================================
-// FICHAS TÉCNICAS (Etapa 2) — recipes + recipe_items, só item_type='ingredient'
-// nesta etapa. Custo é SEMPRE calculado on-read aqui (ver nota no topo do
-// arquivo) — nada aqui consulta product_costs (isso é Etapa 4).
+// FICHAS TÉCNICAS — recipes + recipe_items, item_type 'ingredient' ou
+// 'recipe' (sub-receita, Etapa 3). Custo é SEMPRE calculado on-read aqui
+// (ver nota no topo do arquivo) — nada aqui consulta product_costs (isso é
+// Etapa 4). Escrita de item (ingrediente OU sub-receita) sempre pela RPC
+// save_recipe_item (recipes-service.js) — nunca INSERT/UPDATE direto,
+// validação de unidade/ciclo é sempre server-side, aqui é só UX.
 // =============================================================================
 
 let receitasCache = [];
@@ -396,25 +401,18 @@ function ingredientePorId(id) {
 }
 
 // ---------------------------------------------------------------------------
-// Cálculo de custo — sempre on-read, nunca persistido em recipes/recipe_items
+// Cálculo de custo — sempre on-read, nunca persistido em recipes/recipe_items.
+// Recursivo (item de receita pode ser ingrediente OU sub-receita) e
+// memoizado por receitaId num Map novo a cada passada de render — nunca
+// entre renders, nunca gravado no banco (ver calcularCustoReceitaRecursivo).
 // ---------------------------------------------------------------------------
 
 function itensDaReceita(receitaId) {
   return itensReceitaCache.filter((item) => item.receitaId === receitaId);
 }
 
-/** null se o ingrediente referenciado não estiver mais em ingredientesCache — não deveria acontecer (FK RESTRICT impede exclusão física), mas nunca trata ausência como custo 0. */
-function custoLinhaItem(item) {
-  const ingrediente = ingredientePorId(item.ingredienteId);
-  if (!ingrediente) return null;
-  return item.quantidade * ingrediente.custoPorUnidadeBase;
-}
-
-function custoTotalReceita(receitaId) {
-  return itensDaReceita(receitaId).reduce((soma, item) => {
-    const custo = custoLinhaItem(item);
-    return custo === null ? soma : soma + custo;
-  }, 0);
+function receitaPorId(id) {
+  return receitasCache.find((r) => r.id === id);
 }
 
 /**
@@ -422,7 +420,8 @@ function custoTotalReceita(receitaId) {
  * não tem yield_quantity/yield_unit). Regra: todos os itens na mesma unit ->
  * soma nessa unit; sem itens, ou itens em mais de uma unit (ex. g + ml,
  * grandezas incompatíveis) -> indisponível, nunca uma soma inventada. Nunca
- * converte peso<->volume.
+ * converte peso<->volume. Mesma função serve pra determinar se uma receita
+ * pode ser usada como sub-receita de outra (precisa de rendimento disponível).
  */
 function calcularRendimentoReceita(receitaId) {
   const itens = itensDaReceita(receitaId);
@@ -440,11 +439,84 @@ function calcularRendimentoReceita(receitaId) {
   return { disponivel: true, motivo: null, quantidade, unidade };
 }
 
+/**
+ * Custo de UMA linha. Ingrediente: quantidade × custo por unidade base.
+ * Sub-receita: quantidade usada × (custo total da sub-receita / rendimento
+ * dela) — nunca o custo total inteiro da sub-receita, isso inflaria o
+ * custo quando só uma fração dela é usada. null quando não dá
+ * pra calcular (ingrediente/sub-receita sumiu do cache, ou sub-receita sem
+ * rendimento disponível) — nunca tratado como custo 0.
+ */
+function custoLinhaItem(item, cache) {
+  if (item.tipoItem === 'ingredient') {
+    const ingrediente = ingredientePorId(item.ingredienteId);
+    if (!ingrediente) return null;
+    return item.quantidade * ingrediente.custoPorUnidadeBase;
+  }
+
+  const custoTotalSub = calcularCustoReceitaRecursivo(item.subReceitaId, cache);
+  const rendimentoSub = calcularRendimentoReceita(item.subReceitaId);
+  if (custoTotalSub === null || !rendimentoSub.disponivel || rendimentoSub.quantidade <= 0) return null;
+  return item.quantidade * (custoTotalSub / rendimentoSub.quantidade);
+}
+
+/**
+ * Custo total de uma receita, somando ingredientes + sub-receitas
+ * (recursivo). `cache` é um Map novo por passada de render (nunca
+ * persistido, nunca gravado no banco) — memoiza por receitaId pra não
+ * recalcular a mesma sub-receita repetidas vezes quando é usada em mais de
+ * um lugar na mesma tela. O placeholder gravado antes de recursar é só
+ * cinto e suspensório contra recursão infinita — ciclos já são impedidos
+ * na escrita pela RPC save_recipe_item, então nunca deveria ser atingido.
+ */
+function calcularCustoReceitaRecursivo(receitaId, cache) {
+  if (cache.has(receitaId)) return cache.get(receitaId);
+
+  cache.set(receitaId, 0);
+
+  const custo = itensDaReceita(receitaId).reduce((soma, item) => {
+    const custoLinha = custoLinhaItem(item, cache);
+    return custoLinha === null ? soma : soma + custoLinha;
+  }, 0);
+
+  cache.set(receitaId, custo);
+  return custo;
+}
+
+/** Ponto de entrada público — aceita `cache` opcional (um Map descartável é criado se não vier um, útil pra chamadas isoladas fora de uma passada de render maior). */
+function custoTotalReceita(receitaId, cache) {
+  return calcularCustoReceitaRecursivo(receitaId, cache || new Map());
+}
+
 /** null quando o rendimento não está disponível (sem itens ou unidades mistas) — nunca divide por zero. */
-function custoPorRendimentoReceita(receitaId) {
+function custoPorRendimentoReceita(receitaId, cache) {
   const rendimento = calcularRendimentoReceita(receitaId);
   if (!rendimento.disponivel) return null;
-  return custoTotalReceita(receitaId) / rendimento.quantidade;
+  return custoTotalReceita(receitaId, cache) / rendimento.quantidade;
+}
+
+/**
+ * DFS client-side espelhando a checagem de ciclo da RPC — só pra filtrar a
+ * lista de preparos oferecidos na UI antes de tentar salvar (UX). A RPC
+ * continua sendo a barreira real: mesmo que este filtro deixasse passar
+ * algo por engano, o save_recipe_item rejeitaria server-side.
+ */
+function usarComoSubReceitaCriariaCiclo(receitaAtualId, candidatoId) {
+  const visitados = new Set();
+  const pilha = [candidatoId];
+
+  while (pilha.length > 0) {
+    const atual = pilha.pop();
+    if (atual === receitaAtualId) return true;
+    if (visitados.has(atual)) continue;
+    visitados.add(atual);
+
+    itensDaReceita(atual)
+      .filter((item) => item.tipoItem === 'recipe')
+      .forEach((item) => pilha.push(item.subReceitaId));
+  }
+
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -491,17 +563,20 @@ function renderizarTabelaReceitas() {
   }
   vazio.style.display = 'none';
 
-  corpo.innerHTML = receitasCache.map(linhaReceitaHtml).join('');
+  // Um cache só pra essa passada inteira — se duas receitas da lista usam a
+  // mesma sub-receita, a segunda leitura vem memoizada (ver calcularCustoReceitaRecursivo).
+  const cache = new Map();
+  corpo.innerHTML = receitasCache.map((receita) => linhaReceitaHtml(receita, cache)).join('');
 
   corpo.querySelectorAll('[data-acao-editar-receita]').forEach((botao) => {
     botao.addEventListener('click', () => abrirModalDetalheFicha(botao.dataset.acaoEditarReceita));
   });
 }
 
-function linhaReceitaHtml(receita) {
+function linhaReceitaHtml(receita, cache) {
   const rendimento = calcularRendimentoReceita(receita.id);
-  const custoTotal = custoTotalReceita(receita.id);
-  const custoPorRendimento = custoPorRendimentoReceita(receita.id);
+  const custoTotal = custoTotalReceita(receita.id, cache);
+  const custoPorRendimento = custoPorRendimentoReceita(receita.id, cache);
 
   return `
     <tr>
@@ -588,8 +663,17 @@ function ligarEventosModalDetalheFicha() {
   document.getElementById('botao-cancelar-edicao-metadados-receita').addEventListener('click', ocultarEdicaoMetadadosReceita);
   document.getElementById('botao-salvar-metadados-receita').addEventListener('click', salvarMetadadosReceita);
   document.getElementById('botao-alternar-status-receita-detalhe').addEventListener('click', alternarStatusReceitaDetalhe);
+  document.getElementById('botao-excluir-receita-detalhe').addEventListener('click', excluirReceitaDetalhe);
 
-  document.getElementById('campo-ingrediente-item').addEventListener('change', () => {
+  document.getElementById('campo-tipo-item').addEventListener('change', () => {
+    const tipo = document.getElementById('campo-tipo-item').value;
+    document.getElementById('rotulo-referencia-item').textContent = tipo === 'ingredient' ? 'Ingrediente' : 'Preparo';
+    if (tipo === 'ingredient') popularOpcoesIngredienteItem();
+    else popularOpcoesPreparoItem();
+    atualizarOpcoesUnidadeItem();
+    atualizarPreviewCustoItem();
+  });
+  document.getElementById('campo-referencia-item').addEventListener('change', () => {
     atualizarOpcoesUnidadeItem();
     atualizarPreviewCustoItem();
   });
@@ -607,7 +691,10 @@ function abrirModalDetalheFicha(receitaId) {
   itemEmEdicaoId = null;
   ocultarEdicaoMetadadosReceita();
 
+  document.getElementById('campo-tipo-item').value = 'ingredient';
+  document.getElementById('rotulo-referencia-item').textContent = 'Ingrediente';
   popularOpcoesIngredienteItem();
+  atualizarOpcoesUnidadeItem();
   document.getElementById('campo-quantidade-item').value = '';
   document.getElementById('preview-custo-item').textContent = '';
   document.getElementById('dica-item-erro').style.display = 'none';
@@ -635,12 +722,16 @@ function renderizarDetalheFicha() {
   const botaoStatus = document.getElementById('botao-alternar-status-receita-detalhe');
   botaoStatus.textContent = receita.ativo ? 'Desativar' : 'Ativar';
   botaoStatus.disabled = !souAdminProducao;
+  document.getElementById('botao-excluir-receita-detalhe').disabled = !souAdminProducao;
 
-  renderizarItensReceitaDetalhe();
+  // Cache só desta renderização — custo total e cada linha (que pode recursar em sub-receita) reaproveitam.
+  const cache = new Map();
 
-  document.getElementById('texto-custo-total-receita').textContent = formatarMoeda(custoTotalReceita(receita.id));
+  renderizarItensReceitaDetalhe(cache);
+
+  document.getElementById('texto-custo-total-receita').textContent = formatarMoeda(custoTotalReceita(receita.id, cache));
   document.getElementById('texto-custo-por-rendimento-receita').textContent = formatarCustoPorRendimento(
-    custoPorRendimentoReceita(receita.id),
+    custoPorRendimentoReceita(receita.id, cache),
     rendimento.unidade
   );
 
@@ -649,7 +740,7 @@ function renderizarDetalheFicha() {
   });
 }
 
-function renderizarItensReceitaDetalhe() {
+function renderizarItensReceitaDetalhe(cache = new Map()) {
   const receita = receitaAtualDetalhe();
   if (!receita) return;
 
@@ -664,7 +755,7 @@ function renderizarItensReceitaDetalhe() {
   }
   vazio.style.display = 'none';
 
-  corpo.innerHTML = itens.map(linhaItemReceitaHtml).join('');
+  corpo.innerHTML = itens.map((item) => linhaItemReceitaHtml(item, cache)).join('');
 
   corpo.querySelectorAll('[data-acao-editar-item]').forEach((botao) => {
     botao.addEventListener('click', () => iniciarEdicaoItem(botao.dataset.acaoEditarItem));
@@ -680,15 +771,26 @@ function renderizarItensReceitaDetalhe() {
   });
 }
 
-function linhaItemReceitaHtml(item) {
-  const ingrediente = ingredientePorId(item.ingredienteId);
-  const nome = ingrediente ? ingrediente.nome : '(ingrediente removido)';
+/** Nome do item referenciado, ingrediente ou sub-receita — nunca some da linha mesmo se o ingrediente/preparo ficar inativo depois (só novos itens não podem escolher inativos, ver popularOpcoesIngredienteItem/popularOpcoesPreparoItem). */
+function nomeReferenciaItem(item) {
+  if (item.tipoItem === 'ingredient') {
+    const ingrediente = ingredientePorId(item.ingredienteId);
+    return ingrediente ? ingrediente.nome : '(ingrediente removido)';
+  }
+  const sub = receitaPorId(item.subReceitaId);
+  return sub ? sub.nome : '(preparo removido)';
+}
+
+function linhaItemReceitaHtml(item, cache) {
+  const nome = nomeReferenciaItem(item);
+  const tipoLabel = item.tipoItem === 'ingredient' ? 'Ingrediente' : 'Preparo';
   const quantidadeTexto = Number.isInteger(item.quantidade) ? item.quantidade : item.quantidade.toString().replace('.', ',');
 
   if (item.id === itemEmEdicaoId) {
     return `
       <tr>
         <td>${escaparHtml(nome)}</td>
+        <td>${tipoLabel}</td>
         <td>
           <div class="producao-item-receita-edicao">
             <input type="number" id="campo-editar-quantidade-item" class="input" min="0" step="0.001" value="${item.quantidade}" />
@@ -705,11 +807,12 @@ function linhaItemReceitaHtml(item) {
       </tr>`;
   }
 
-  const custoLinha = custoLinhaItem(item);
+  const custoLinha = custoLinhaItem(item, cache);
 
   return `
     <tr>
       <td>${escaparHtml(nome)}</td>
+      <td>${tipoLabel}</td>
       <td>${quantidadeTexto} ${item.unidade}</td>
       <td>${custoLinha === null ? '—' : formatarMoeda(custoLinha)}</td>
       <td>
@@ -742,8 +845,17 @@ async function salvarEdicaoItem(itemId) {
   const item = itensReceitaCache.find((i) => i.id === itemId);
   if (!item) return;
 
+  const referenciaId = item.tipoItem === 'ingredient' ? item.ingredienteId : item.subReceitaId;
+
   try {
-    await atualizarItemReceitaNoSupabase(itemId, { quantidade, unidade: item.unidade });
+    await salvarItemReceitaNoSupabase({
+      itemId,
+      receitaId: item.receitaId,
+      tipoItem: item.tipoItem,
+      referenciaId,
+      quantidade,
+      unidade: item.unidade,
+    });
   } catch (erro) {
     mostrarToast('Não foi possível atualizar o item. ' + erro.message, 'erro');
     return;
@@ -761,8 +873,7 @@ async function removerItemReceita(itemId) {
 
   const item = itensReceitaCache.find((i) => i.id === itemId);
   if (!item) return;
-  const ingrediente = ingredientePorId(item.ingredienteId);
-  if (!confirm(`Remover "${ingrediente ? ingrediente.nome : 'este item'}" desta ficha técnica?`)) return;
+  if (!confirm(`Remover "${nomeReferenciaItem(item)}" desta ficha técnica?`)) return;
 
   try {
     await excluirItemReceitaNoSupabase(itemId);
@@ -842,52 +953,143 @@ async function alternarStatusReceitaDetalhe() {
   mostrarToast(novoStatus ? 'Ficha técnica ativada.' : 'Ficha técnica desativada.', 'sucesso');
 }
 
-// ---------------------------------------------------------------------------
-// Formulário "+ Adicionar ingrediente" (dentro do modal de Detalhe)
-// ---------------------------------------------------------------------------
+/** Exclusão física da ficha — confirmação explícita, nunca um clique direto. Se a FK bloquear (ficha usada como preparo de outra), o service já mapeia pra mensagem amigável. */
+async function excluirReceitaDetalhe() {
+  const receita = receitaAtualDetalhe();
+  if (!receita || !souAdminProducao) return;
 
-/** Só ingredientes ATIVOS — um ingrediente inativo não pode ser escolhido pra um item novo (mas continua aparecendo em itens já existentes, ver linhaItemReceitaHtml). */
-function popularOpcoesIngredienteItem() {
-  const select = document.getElementById('campo-ingrediente-item');
-  const ativos = ingredientesCache.filter((i) => i.ativo).sort((a, b) => a.nome.localeCompare(b.nome));
+  if (!confirm(`Excluir a ficha técnica "${receita.nome}"?\n\nEsta ação remove a ficha e sua composição.`)) return;
 
-  select.innerHTML = ativos.map((i) => `<option value="${i.id}">${escaparHtml(i.nome)}</option>`).join('');
-  atualizarOpcoesUnidadeItem();
-}
-
-function atualizarOpcoesUnidadeItem() {
-  const ingrediente = ingredientePorId(document.getElementById('campo-ingrediente-item').value);
-  const selectUnidade = document.getElementById('campo-unidade-item');
-
-  if (!ingrediente) {
-    selectUnidade.innerHTML = '';
+  try {
+    await excluirReceitaNoSupabase(receita.id);
+  } catch (erro) {
+    mostrarToast(erro.message, 'erro');
     return;
   }
 
-  const unidadeAtual = selectUnidade.value;
-  const opcoes = UNIDADES_COMPRA_POR_TIPO_INGREDIENTE[ingrediente.tipoUnidade] || [];
-  selectUnidade.innerHTML = opcoes.map((u) => `<option value="${u}">${u}</option>`).join('');
-  selectUnidade.value = opcoes.includes(unidadeAtual) ? unidadeAtual : opcoes[0];
+  receitasCache = receitasCache.filter((r) => r.id !== receita.id);
+  itensReceitaCache = itensReceitaCache.filter((i) => i.receitaId !== receita.id);
+
+  fecharModalDetalheFicha();
+  renderizarTabelaReceitas();
+  mostrarToast('Ficha técnica excluída.', 'sucesso');
+}
+
+// ---------------------------------------------------------------------------
+// Formulário "+ Adicionar item" (dentro do modal de Detalhe) — Tipo
+// Ingrediente ou Preparo (sub-receita, Etapa 3). Reaproveita os mesmos
+// campo-referencia-item/campo-unidade-item pros dois casos, só troca o que
+// popula (ver campo-tipo-item change, em ligarEventosModalDetalheFicha).
+// ---------------------------------------------------------------------------
+
+/** Só ingredientes ATIVOS — um inativo não pode ser escolhido pra um item novo (mas continua aparecendo em itens já existentes, ver nomeReferenciaItem). */
+function popularOpcoesIngredienteItem() {
+  const select = document.getElementById('campo-referencia-item');
+  const ativos = ingredientesCache.filter((i) => i.ativo).sort((a, b) => a.nome.localeCompare(b.nome));
+
+  select.innerHTML = ativos.map((i) => `<option value="${i.id}">${escaparHtml(i.nome)}</option>`).join('');
+}
+
+/**
+ * Só preparos: ativos, com rendimento calculável (nem sem itens, nem
+ * unidades mistas), excluindo a própria receita e qualquer um que já
+ * causaria ciclo (checagem client-side, só UX — a RPC save_recipe_item
+ * continua sendo a barreira real).
+ */
+function popularOpcoesPreparoItem() {
+  const select = document.getElementById('campo-referencia-item');
+  const receitaAtual = receitaAtualDetalhe();
+  if (!receitaAtual) {
+    select.innerHTML = '';
+    return;
+  }
+
+  const candidatos = receitasCache
+    .filter((r) => r.id !== receitaAtual.id)
+    .filter((r) => r.ativo)
+    .filter((r) => calcularRendimentoReceita(r.id).disponivel)
+    .filter((r) => !usarComoSubReceitaCriariaCiclo(receitaAtual.id, r.id))
+    .sort((a, b) => a.nome.localeCompare(b.nome));
+
+  select.innerHTML = candidatos.map((r) => `<option value="${r.id}">${escaparHtml(r.nome)}</option>`).join('');
+}
+
+function atualizarOpcoesUnidadeItem() {
+  const tipo = document.getElementById('campo-tipo-item').value;
+  const referenciaId = document.getElementById('campo-referencia-item').value;
+  const selectUnidade = document.getElementById('campo-unidade-item');
+
+  if (tipo === 'ingredient') {
+    const ingrediente = ingredientePorId(referenciaId);
+    if (!ingrediente) {
+      selectUnidade.innerHTML = '';
+      selectUnidade.disabled = false;
+      return;
+    }
+    const unidadeAtual = selectUnidade.value;
+    const opcoes = UNIDADES_COMPRA_POR_TIPO_INGREDIENTE[ingrediente.tipoUnidade] || [];
+    selectUnidade.innerHTML = opcoes.map((u) => `<option value="${u}">${u}</option>`).join('');
+    selectUnidade.value = opcoes.includes(unidadeAtual) ? unidadeAtual : opcoes[0];
+    selectUnidade.disabled = false;
+  } else {
+    // Preparo: unidade é sempre a do rendimento calculado dele — sem conversão, sem escolha.
+    const rendimento = calcularRendimentoReceita(referenciaId);
+    if (!rendimento.disponivel) {
+      selectUnidade.innerHTML = '';
+      return;
+    }
+    selectUnidade.innerHTML = `<option value="${rendimento.unidade}">${rendimento.unidade}</option>`;
+    selectUnidade.disabled = true;
+  }
 }
 
 function atualizarPreviewCustoItem() {
   const preview = document.getElementById('preview-custo-item');
-  const ingrediente = ingredientePorId(document.getElementById('campo-ingrediente-item').value);
+  const tipo = document.getElementById('campo-tipo-item').value;
+  const referenciaId = document.getElementById('campo-referencia-item').value;
   const quantidade = Number(document.getElementById('campo-quantidade-item').value);
   const unidade = document.getElementById('campo-unidade-item').value;
-  const fator = FATORES_CONVERSAO_UNIDADE_INGREDIENTE[unidade];
 
-  if (!ingrediente || !Number.isFinite(quantidade) || quantidade <= 0 || !fator) {
+  if (tipo === 'ingredient') {
+    const ingrediente = ingredientePorId(referenciaId);
+    const fator = FATORES_CONVERSAO_UNIDADE_INGREDIENTE[unidade];
+
+    if (!ingrediente || !Number.isFinite(quantidade) || quantidade <= 0 || !fator) {
+      preview.textContent = '';
+      return;
+    }
+
+    const quantidadeBase = quantidade * fator;
+    const custo = quantidadeBase * ingrediente.custoPorUnidadeBase;
+    const quantidadeTexto = Number.isInteger(quantidade) ? quantidade : quantidade.toString().replace('.', ',');
+    const quantidadeBaseTexto = Number.isInteger(quantidadeBase) ? quantidadeBase : quantidadeBase.toFixed(3).replace('.', ',');
+
+    preview.textContent = `${quantidadeTexto} ${unidade} = ${quantidadeBaseTexto} ${ingrediente.unidadeBase} · Custo estimado: ${formatarMoeda(custo)}`;
+    return;
+  }
+
+  // Preparo — mostra o próprio preparo (nome/rendimento/custo total/custo por unidade) e, se já houver quantidade, o custo estimado.
+  const receitaSub = receitaPorId(referenciaId);
+  const rendimentoSub = calcularRendimentoReceita(referenciaId);
+  if (!receitaSub || !rendimentoSub.disponivel) {
     preview.textContent = '';
     return;
   }
 
-  const quantidadeBase = quantidade * fator;
-  const custo = quantidadeBase * ingrediente.custoPorUnidadeBase;
-  const quantidadeTexto = Number.isInteger(quantidade) ? quantidade : quantidade.toString().replace('.', ',');
-  const quantidadeBaseTexto = Number.isInteger(quantidadeBase) ? quantidadeBase : quantidadeBase.toFixed(3).replace('.', ',');
+  const cache = new Map();
+  const custoTotalSub = custoTotalReceita(receitaSub.id, cache);
+  const custoPorUnidadeSub = custoTotalSub / rendimentoSub.quantidade;
 
-  preview.textContent = `${quantidadeTexto} ${unidade} = ${quantidadeBaseTexto} ${ingrediente.unidadeBase} · Custo estimado: ${formatarMoeda(custo)}`;
+  let trechoEstimativa = '';
+  if (Number.isFinite(quantidade) && quantidade > 0) {
+    const custoEstimado = quantidade * custoPorUnidadeSub;
+    trechoEstimativa = ` · Quantidade: ${formatarQuantidadeRendimento(quantidade)} ${unidade} · Custo estimado: ${formatarMoeda(custoEstimado)}`;
+  }
+
+  preview.textContent =
+    `${receitaSub.nome} · Rendimento: ${formatarQuantidadeRendimento(rendimentoSub.quantidade)} ${rendimentoSub.unidade}` +
+    ` · Custo total: ${formatarMoeda(custoTotalSub)} · Custo: ${formatarCustoPorRendimento(custoPorUnidadeSub, rendimentoSub.unidade)}` +
+    trechoEstimativa;
 }
 
 async function adicionarItemReceita(evento) {
@@ -897,42 +1099,60 @@ async function adicionarItemReceita(evento) {
   const receita = receitaAtualDetalhe();
   if (!receita) return;
 
-  const ingrediente = ingredientePorId(document.getElementById('campo-ingrediente-item').value);
-  const quantidade = Number(document.getElementById('campo-quantidade-item').value);
+  const tipo = document.getElementById('campo-tipo-item').value;
+  const referenciaId = document.getElementById('campo-referencia-item').value;
+  const quantidadeDigitada = Number(document.getElementById('campo-quantidade-item').value);
   const unidade = document.getElementById('campo-unidade-item').value;
-  const fator = FATORES_CONVERSAO_UNIDADE_INGREDIENTE[unidade];
 
   const dicaErro = document.getElementById('dica-item-erro');
 
-  if (!ingrediente) {
-    dicaErro.textContent = 'Selecione um ingrediente.';
+  if (!referenciaId) {
+    dicaErro.textContent = tipo === 'ingredient' ? 'Selecione um ingrediente.' : 'Selecione um preparo.';
     dicaErro.style.display = '';
     return;
   }
-  if (!Number.isFinite(quantidade) || quantidade <= 0) {
+  if (!Number.isFinite(quantidadeDigitada) || quantidadeDigitada <= 0) {
     dicaErro.textContent = 'Informe uma quantidade maior que zero.';
     dicaErro.style.display = '';
     return;
   }
-  if (!fator || !UNIDADES_COMPRA_POR_TIPO_INGREDIENTE[ingrediente.tipoUnidade].includes(unidade)) {
-    dicaErro.textContent = 'Unidade incompatível com o ingrediente selecionado.';
-    dicaErro.style.display = '';
-    return;
+
+  let quantidadeBase;
+  let unidadeBase;
+
+  if (tipo === 'ingredient') {
+    const ingrediente = ingredientePorId(referenciaId);
+    const fator = FATORES_CONVERSAO_UNIDADE_INGREDIENTE[unidade];
+    if (!ingrediente || !fator || !UNIDADES_COMPRA_POR_TIPO_INGREDIENTE[ingrediente.tipoUnidade].includes(unidade)) {
+      dicaErro.textContent = 'Unidade incompatível com o ingrediente selecionado.';
+      dicaErro.style.display = '';
+      return;
+    }
+    quantidadeBase = quantidadeDigitada * fator;
+    unidadeBase = ingrediente.unidadeBase; // nunca a unidade digitada (ex. 'kg') — recipe_items sempre grava a unidade BASE
+  } else {
+    if (usarComoSubReceitaCriariaCiclo(receita.id, referenciaId)) {
+      dicaErro.textContent = 'Esta sub-receita criaria uma dependência circular.';
+      dicaErro.style.display = '';
+      return;
+    }
+    quantidadeBase = quantidadeDigitada; // já na unidade de rendimento do preparo — sem conversão
+    unidadeBase = unidade; // select travado (disabled), já é a unidade de rendimento do preparo
   }
   dicaErro.style.display = 'none';
 
-  const quantidadeBase = quantidade * fator;
-
   let novoItem;
   try {
-    novoItem = await criarItemReceitaNoSupabase({
+    novoItem = await salvarItemReceitaNoSupabase({
+      itemId: null,
       receitaId: receita.id,
-      ingredienteId: ingrediente.id,
+      tipoItem: tipo,
+      referenciaId,
       quantidade: quantidadeBase,
-      unidade: ingrediente.unidadeBase,
+      unidade: unidadeBase,
     });
   } catch (erro) {
-    dicaErro.textContent = 'Não foi possível adicionar o ingrediente. ' + erro.message;
+    dicaErro.textContent = 'Não foi possível adicionar o item. ' + erro.message;
     dicaErro.style.display = '';
     return;
   }
@@ -943,5 +1163,5 @@ async function adicionarItemReceita(evento) {
 
   renderizarDetalheFicha();
   renderizarTabelaReceitas();
-  mostrarToast('Ingrediente adicionado.', 'sucesso');
+  mostrarToast('Item adicionado.', 'sucesso');
 }

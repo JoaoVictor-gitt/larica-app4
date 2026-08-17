@@ -245,13 +245,14 @@
           </div>
         </div>
 
-        <h3 class="producao-subtitulo">Ingredientes</h3>
+        <h3 class="producao-subtitulo">Composição</h3>
 
         <div class="tabela-itens-receita-wrap" style="margin-bottom:var(--espaco-md);">
           <table class="tabela">
             <thead>
               <tr>
-                <th>Ingrediente</th>
+                <th>Item</th>
+                <th>Tipo</th>
                 <th>Quantidade</th>
                 <th>Custo</th>
                 <th></th>
@@ -267,12 +268,19 @@
           <span>Custo por rendimento: <strong id="texto-custo-por-rendimento-receita">—</strong></span>
         </div>
 
-        <h3 class="producao-subtitulo">+ Adicionar ingrediente</h3>
+        <h3 class="producao-subtitulo">+ Adicionar item</h3>
         <form id="form-adicionar-item-receita">
+          <div class="form-grupo">
+            <label for="campo-tipo-item">Tipo</label>
+            <select id="campo-tipo-item" class="input">
+              <option value="ingredient">Ingrediente</option>
+              <option value="recipe">Preparo</option>
+            </select>
+          </div>
           <div style="display:flex; gap:12px; flex-wrap:wrap;">
             <div class="form-grupo" style="flex:2; min-width:180px;">
-              <label for="campo-ingrediente-item">Ingrediente</label>
-              <select id="campo-ingrediente-item" class="input" required></select>
+              <label for="campo-referencia-item" id="rotulo-referencia-item">Ingrediente</label>
+              <select id="campo-referencia-item" class="input" required></select>
             </div>
             <div class="form-grupo" style="flex:1; min-width:100px;">
               <label for="campo-quantidade-item">Quantidade</label>
@@ -291,6 +299,7 @@
         </form>
       </div>
       <div class="modal-rodape">
+        <button type="button" class="btn btn-secundario" id="botao-excluir-receita-detalhe" style="margin-right:auto;">🗑️ Excluir Ficha</button>
         <button type="button" class="btn btn-secundario" id="botao-alternar-status-receita-detalhe"></button>
         <button type="button" class="btn btn-primario" id="botao-fechar-detalhe-ficha">Fechar</button>
       </div>
