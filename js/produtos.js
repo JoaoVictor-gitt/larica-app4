@@ -13,11 +13,22 @@
 
 let fotoSelecionadaBase64 = ''; // foto atualmente escolhida no formulário (base64) ou '' se nenhuma
 
+// Custos/Margem (Etapa 2) ----------------------------------------------------
+// souAdmin decide só a edição do campo de custo no modal (visualização já é
+// liberada pra qualquer staff que acesse esta página — a real barreira de
+// escrita é o RLS de product_costs, isto aqui só evita uma tentativa/erro
+// previsível pra quem não tem permissão). mapaCustos: product_id -> custo
+// numérico ou null (nunca 0 por ausência) — carregado numa única consulta,
+// nunca uma por produto (ver carregarCustosProdutos()).
+let souAdmin = false;
+let mapaCustos = new Map();
+
 document.addEventListener('DOMContentLoaded', async () => {
   const carregando = document.getElementById('estado-carregando-produtos');
   const erro = document.getElementById('estado-erro-produtos');
   try {
-    await carregarProdutosCache();
+    const [, , ehAdmin] = await Promise.all([carregarProdutosCache(), carregarCustosProdutos(), usuarioEhAdminNoSupabase()]);
+    souAdmin = ehAdmin;
   } catch (erroCarregamento) {
     console.error('Erro ao carregar produtos:', erroCarregamento);
     carregando.style.display = 'none';
@@ -32,6 +43,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   ligarEventosFiltros();
   ligarEventosModal();
 });
+
+/** Busca os custos no Supabase (1 consulta só, product_costs) e reconstrói mapaCustos. */
+async function carregarCustosProdutos() {
+  const linhas = await buscarCustosProdutosDoSupabase();
+  mapaCustos = new Map(linhas.map((l) => [l.product_id, l.unit_cost === null || l.unit_cost === undefined ? null : Number(l.unit_cost)]));
+}
+
+/**
+ * Custo unitário cadastrado de um produto, ou null se não cadastrado.
+ * Combos SEMPRE retornam null aqui, mesmo que exista uma linha em
+ * product_costs por acidente (ex.: categoria trocada depois de já ter
+ * custo cadastrado) — o custo real de um combo depende das escolhas do
+ * cliente (espetos/acompanhamentos), nunca de um valor fixo no produto-
+ * combo em si (ver item 9 do pedido). Único ponto do código que decide
+ * isso, pra nunca ter um lugar mostrando "Variável" e outro usando o
+ * valor da linha por engano.
+ */
+function custoUnitarioDoProduto(produto) {
+  if (produto.categoria === 'Combos') return null;
+  return mapaCustos.has(produto.id) ? mapaCustos.get(produto.id) : null;
+}
 
 /** Preenche o <select> de filtro por categoria com a lista fixa (CATEGORIAS_PADRAO, utils.js) */
 function preencherFiltroCategorias() {
@@ -87,6 +119,31 @@ function ordenarProdutos(produtos, criterio) {
   return copia;
 }
 
+/** Célula "Custo" da tabela — Variável pra combo, "Não cadastrado" (nunca €0,00) se não houver custo, ou o valor formatado */
+function celulaCustoHtml(produto) {
+  if (produto.categoria === 'Combos') return '<span class="texto-custo-indisponivel">Variável</span>';
+
+  const custo = custoUnitarioDoProduto(produto);
+  if (custo === null) return '<span class="texto-custo-indisponivel">Não cadastrado</span>';
+  return formatarMoeda(custo, obterConfiguracoes().moeda);
+}
+
+/**
+ * Célula "Margem" da tabela — Variável pra combo (não calcular margem simples com o
+ * custo do produto-combo, que não reflete os componentes escolhidos). Para produto
+ * comum, só calcula com custo cadastrado e preço > 0 — senão "—" (nunca inventar
+ * margem de 100% para custo ausente, nem dividir por zero).
+ */
+function celulaMargemHtml(produto) {
+  if (produto.categoria === 'Combos') return '<span class="texto-custo-indisponivel">Variável</span>';
+
+  const custo = custoUnitarioDoProduto(produto);
+  if (custo === null || !(produto.preco > 0)) return '—';
+
+  const margemPercentual = ((produto.preco - custo) / produto.preco) * 100;
+  return `${margemPercentual.toFixed(1)}%`;
+}
+
 function linhaProdutoHtml(produto) {
   const foto = produto.foto
     ? `<img class="miniatura-produto" src="${produto.foto}" alt="${escaparHtml(produto.nome)}" />`
@@ -112,6 +169,8 @@ function linhaProdutoHtml(produto) {
       <td>${escaparHtml(produto.nome)}${avisoCombo}</td>
       <td>${escaparHtml(produto.categoria)}</td>
       <td>${formatarMoeda(produto.preco, obterConfiguracoes().moeda)}</td>
+      <td>${celulaCustoHtml(produto)}</td>
+      <td>${celulaMargemHtml(produto)}</td>
       <td>${colunaEstoque}</td>
       <td><span class="badge badge-${produto.status === 'ativo' ? 'ativo' : 'inativo'}">${produto.status === 'ativo' ? 'Ativo' : 'Inativo'}</span></td>
       <td>
@@ -234,6 +293,11 @@ function abrirModalEdicao(id) {
   document.getElementById('campo-estoque').value = produto.quantidadeEstoque;
   document.getElementById('campo-descricao').value = produto.descricao || '';
   document.getElementById('campo-status').value = produto.status;
+  // Custo (Etapa 2): combo nunca mostra valor aqui (ver custoUnitarioDoProduto) —
+  // atualizarVisibilidadeCamposPorCategoria(), chamada mais abaixo, cuida de
+  // desabilitar/limpar o campo pra combo e pra quem não é admin.
+  const custoAtual = custoUnitarioDoProduto(produto);
+  document.getElementById('campo-custo').value = custoAtual === null ? '' : custoAtual;
   definirFotoPreview(produto.foto || '');
 
   const combo = produto.comboConfig;
@@ -275,6 +339,32 @@ function atualizarVisibilidadeCamposPorCategoria() {
   document.getElementById('campo-estoque').required = !ehCombo;
   document.getElementById('campo-qtd-espetos').required = ehCombo;
   document.getElementById('campo-qtd-acompanhamentos').required = ehCombo;
+  atualizarEstadoCampoCusto(ehCombo);
+}
+
+/**
+ * Custo unitário (Etapa 2): desabilitado + campo limpo quando é combo (custo real
+ * vem dos componentes, nunca de um valor fixo aqui — item 9 do pedido); desabilitado
+ * também para quem não é admin (visualização continua liberada pra staff, só a edição
+ * é restrita — a barreira real é o RLS de product_costs, isto é só UX). Os dois avisos
+ * são mutuamente exclusivos: combo tem prioridade sobre "somente admin" quando os dois
+ * se aplicam, porque é o motivo mais específico.
+ */
+function atualizarEstadoCampoCusto(ehCombo) {
+  const campo = document.getElementById('campo-custo');
+  const dicaCombo = document.getElementById('dica-custo-combo');
+  const dicaSomenteAdmin = document.getElementById('dica-custo-somente-admin');
+
+  if (ehCombo) {
+    campo.value = '';
+    campo.disabled = true;
+    dicaCombo.style.display = '';
+    dicaSomenteAdmin.style.display = 'none';
+  } else {
+    campo.disabled = !souAdmin;
+    dicaCombo.style.display = 'none';
+    dicaSomenteAdmin.style.display = souAdmin ? 'none' : '';
+  }
 }
 
 /** Monta a mensagem de aviso "Este combo possui item(ns) incluso(s) indisponível(is): ..." */
@@ -366,6 +456,20 @@ function lerAcrescimosEspetosPreenchidos() {
   return resultado;
 }
 
+/**
+ * Lê o campo de custo distinguindo "" (não cadastrado) de "0" (custo real zero) —
+ * nunca usar `Number(valor) || 0`, que transformaria os dois casos no mesmo 0.
+ * Um valor que o <input type="number"> não conseguiu interpretar como número já
+ * chega aqui como "" (comportamento nativo do navegador), então cai no mesmo
+ * caminho de "não cadastrado" sem precisar de validação extra.
+ */
+function lerCustoUnitarioDoFormulario() {
+  const bruto = document.getElementById('campo-custo').value;
+  if (bruto === '') return null;
+  const numero = Number(bruto);
+  return Number.isFinite(numero) ? numero : null;
+}
+
 function abrirModal() {
   document.getElementById('modal-overlay').classList.add('modal-visivel');
 }
@@ -439,14 +543,43 @@ async function salvarFormularioProduto(evento) {
 
   if (id) produto.id = id;
 
+  let salvo;
   try {
-    await salvarProduto(produto);
+    salvo = await salvarProduto(produto);
   } catch (erro) {
     mostrarToast('Não foi possível salvar o produto. ' + erro.message, 'erro');
     return;
   }
 
-  mostrarToast(id ? 'Produto atualizado.' : 'Produto cadastrado.', 'sucesso');
+  // Custo (Etapa 2): gravado à parte em product_costs, nunca dentro do payload de
+  // products (ver product-costs-service.js). Combo nunca grava custo fixo aqui — o
+  // campo já vem sempre limpo/desabilitado nesse caso (atualizarEstadoCampoCusto()).
+  // Produto novo com o campo vazio não precisa criar linha nenhuma (item 13 do
+  // pedido); editando um produto existente, sempre grava — inclusive vazio, pra
+  // realmente limpar um custo que já estava cadastrado (senão o valor antigo
+  // ficaria "preso" no banco enquanto a tela mostraria "Não cadastrado").
+  let avisoCusto = '';
+  if (!ehCombo && souAdmin) {
+    const custoDigitado = lerCustoUnitarioDoFormulario();
+    if (id || custoDigitado !== null) {
+      try {
+        await salvarCustoProdutoNoSupabase(salvo.id, custoDigitado);
+        mapaCustos.set(salvo.id, custoDigitado);
+      } catch (erroCusto) {
+        console.error('Erro ao salvar custo do produto:', erroCusto);
+        avisoCusto = 'Produto salvo, mas não foi possível salvar o custo. ' + erroCusto.message;
+        // Recarrega do banco pra refletir o estado verdadeiro — não fingir que o
+        // valor digitado foi salvo quando na verdade a gravação falhou.
+        try {
+          await carregarCustosProdutos();
+        } catch (erroRecarregar) {
+          console.error('Erro ao recarregar custos após falha:', erroRecarregar);
+        }
+      }
+    }
+  }
+
+  mostrarToast(avisoCusto || (id ? 'Produto atualizado.' : 'Produto cadastrado.'), avisoCusto ? 'erro' : 'sucesso');
   fecharModal();
   renderizarLista();
 }

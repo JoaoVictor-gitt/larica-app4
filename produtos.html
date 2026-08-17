@@ -62,6 +62,8 @@
             <th>Nome</th>
             <th>Categoria</th>
             <th>Preço</th>
+            <th>Custo</th>
+            <th>Margem</th>
             <th>Estoque</th>
             <th>Status</th>
             <th>Disponibilidade</th>
@@ -120,10 +122,17 @@
                 <label for="campo-preco">Preço (€) *</label>
                 <input type="number" id="campo-preco" class="input" min="0" step="0.01" required />
               </div>
-              <div class="form-grupo" id="grupo-estoque" style="flex:1;">
-                <label for="campo-estoque">Qtd. em estoque *</label>
-                <input type="number" id="campo-estoque" class="input" min="0" step="1" required />
+              <div class="form-grupo" style="flex:1;">
+                <label for="campo-custo">Custo unitário (€)</label>
+                <input type="number" id="campo-custo" class="input" min="0" step="0.0001" placeholder="Não cadastrado" />
+                <p class="dica-campo" id="dica-custo-combo" style="display:none;">O custo do combo é calculado pelos componentes escolhidos.</p>
+                <p class="dica-campo" id="dica-custo-somente-admin" style="display:none;">Somente administradores podem editar o custo.</p>
               </div>
+            </div>
+
+            <div class="form-grupo" id="grupo-estoque">
+              <label for="campo-estoque">Qtd. em estoque *</label>
+              <input type="number" id="campo-estoque" class="input" min="0" step="1" required />
             </div>
 
             <div class="form-grupo">
@@ -187,6 +196,7 @@
   <script src="js/supabase.js"></script>
   <script src="js/services/permissions-service.js"></script>
   <script src="js/services/products-service.js"></script>
+  <script src="js/services/product-costs-service.js"></script>
   <script src="js/app.js"></script>
   <script src="js/produtos.js"></script>
 </body>

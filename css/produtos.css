@@ -12,16 +12,21 @@
 }
 
 .tabela-produtos-wrap { padding: 0; overflow-x: auto; }
-.tabela-produtos-wrap .tabela { min-width: 640px; }
+.tabela-produtos-wrap .tabela { min-width: 760px; }
 
-/* Colunas da listagem (mesma ordem do <thead> estático e do <tr> gerado por linhaProdutoHtml()) */
+/* Colunas da listagem (mesma ordem do <thead> estático e do <tr> gerado por linhaProdutoHtml()):
+   1 foto, 2 Nome, 3 Categoria, 4 Preço, 5 Custo, 6 Margem, 7 Estoque, 8 Status, 9 Disponibilidade, 10 ações */
 .tabela-produtos-wrap thead th:nth-child(2),
 #corpo-tabela-produtos td:nth-child(2) {
   font-weight: 600;
 }
 
 .tabela-produtos-wrap thead th:nth-child(4),
-#corpo-tabela-produtos td:nth-child(4) {
+#corpo-tabela-produtos td:nth-child(4),
+.tabela-produtos-wrap thead th:nth-child(5),
+#corpo-tabela-produtos td:nth-child(5),
+.tabela-produtos-wrap thead th:nth-child(6),
+#corpo-tabela-produtos td:nth-child(6) {
   text-align: right;
 }
 
@@ -30,13 +35,20 @@
   color: var(--cor-terracota);
 }
 
-.tabela-produtos-wrap thead th:nth-child(5),
-#corpo-tabela-produtos td:nth-child(5),
-.tabela-produtos-wrap thead th:nth-child(6),
-#corpo-tabela-produtos td:nth-child(6),
 .tabela-produtos-wrap thead th:nth-child(7),
-#corpo-tabela-produtos td:nth-child(7) {
+#corpo-tabela-produtos td:nth-child(7),
+.tabela-produtos-wrap thead th:nth-child(8),
+#corpo-tabela-produtos td:nth-child(8),
+.tabela-produtos-wrap thead th:nth-child(9),
+#corpo-tabela-produtos td:nth-child(9) {
   text-align: center;
+}
+
+/* Custo/Margem ausentes ou variáveis (combo) — discreto, nunca vermelho agressivo (item 25 do pedido) */
+.texto-custo-indisponivel {
+  color: var(--cor-texto-secundario);
+  font-style: italic;
+  font-size: 0.85rem;
 }
 
 .acoes-linha .btn-icone:focus-visible {
