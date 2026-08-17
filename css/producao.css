@@ -202,6 +202,27 @@
   overflow: hidden;
 }
 
+/*
+ * No modal de Ingrediente, .modal-corpo/.modal-rodape não são filhos diretos
+ * de .modal — estão dentro de <form id="form-ingrediente">, que é o filho
+ * direto real. Sem flexar o próprio <form>, o flex:1 de .modal-corpo abaixo
+ * não tem efeito (o pai dele não é um flex container), o form cresce pro
+ * tamanho do conteúdo, estoura o max-height:90vh herdado de .modal
+ * (style.css) e o overflow:hidden acima corta o que passar — inclusive o
+ * rodapé, por ser o último elemento. min-height:0 é necessário pro form
+ * conseguir encolher dentro do flex column externo (senão flex:1 sozinho
+ * não basta). Seletor de filho direto (>) só atinge o modal de Ingrediente
+ * — o modal de Detalhe da Ficha já tem .modal-corpo/.modal-rodape como
+ * filhos diretos de .modal, então não é afetado por esta regra.
+ */
+.producao-modal-rolavel > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .producao-modal-rolavel .modal-corpo {
   overflow-y: auto;
   flex: 1;
