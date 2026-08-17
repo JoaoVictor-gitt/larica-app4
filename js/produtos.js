@@ -69,6 +69,9 @@ function renderizarLista() {
   corpo.querySelectorAll('[data-acao="excluir"]').forEach((btn) => {
     btn.addEventListener('click', () => excluirProdutoComConfirmacao(btn.dataset.id));
   });
+  corpo.querySelectorAll('[data-acao="alternar-disponibilidade"]').forEach((btn) => {
+    btn.addEventListener('click', () => alternarDisponibilidadeComFeedback(btn.dataset.id, btn));
+  });
 }
 
 function ordenarProdutos(produtos, criterio) {
@@ -112,6 +115,15 @@ function linhaProdutoHtml(produto) {
       <td>${colunaEstoque}</td>
       <td><span class="badge badge-${produto.status === 'ativo' ? 'ativo' : 'inativo'}">${produto.status === 'ativo' ? 'Ativo' : 'Inativo'}</span></td>
       <td>
+        <button
+          type="button"
+          class="badge badge-disponibilidade-toggle badge-${produto.disponivel ? 'disponivel' : 'indisponivel'}"
+          data-acao="alternar-disponibilidade"
+          data-id="${produto.id}"
+          title="Clique para alternar disponibilidade"
+        >${produto.disponivel ? 'Disponível' : 'Indisponível'}</button>
+      </td>
+      <td>
         <div class="acoes-linha">
           <button class="btn-icone" data-acao="editar" data-id="${produto.id}" title="Editar">✏️</button>
           <button class="btn-icone" data-acao="excluir" data-id="${produto.id}" title="Excluir">🗑️</button>
@@ -135,6 +147,36 @@ async function excluirProdutoComConfirmacao(id) {
 
   mostrarToast('Produto excluído.', 'sucesso');
   renderizarLista();
+}
+
+/**
+ * Alterna disponibilidade de um clique só (badge = botão). Otimista: muda o
+ * visual na hora e desabilita o botão pra evitar duplo clique; se a
+ * gravação falhar, desfaz re-renderizando a partir do cache (que ainda tem
+ * o valor antigo) em vez de deixar um estado falso na tela.
+ */
+async function alternarDisponibilidadeComFeedback(id, botao) {
+  const produto = obterProdutoPorId(id);
+  if (!produto) return;
+  const novoValor = !produto.disponivel;
+
+  botao.disabled = true;
+  botao.textContent = novoValor ? 'Disponível' : 'Indisponível';
+  botao.className = `badge badge-disponibilidade-toggle badge-${novoValor ? 'disponivel' : 'indisponivel'}`;
+
+  try {
+    await alternarDisponibilidade(id, novoValor);
+  } catch (erro) {
+    renderizarLista();
+    mostrarToast('Não foi possível atualizar a disponibilidade. ' + erro.message, 'erro');
+    return;
+  }
+
+  mostrarToast(
+    novoValor ? `${produto.nome} voltou a ficar disponível.` : `${produto.nome} marcado como indisponível.`,
+    'sucesso'
+  );
+  botao.disabled = false;
 }
 
 function ligarEventosFiltros() {

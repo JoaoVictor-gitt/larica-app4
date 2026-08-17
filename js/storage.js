@@ -298,8 +298,15 @@ async function removerProduto(id) {
   await carregarProdutosCache();
 }
 
-/** Filtra produtos por termo de busca (nome/descrição), categoria e status */
-function pesquisarProdutos({ termo, categoria, status } = {}) {
+/** Alterna a disponibilidade operacional (is_available) de um produto — não mexe em estoque nem em status ativo/inativo. */
+async function alternarDisponibilidade(id, disponivel) {
+  const atualizado = await alternarDisponibilidadeNoSupabase(id, disponivel);
+  await carregarProdutosCache();
+  return atualizado;
+}
+
+/** Filtra produtos por termo de busca (nome/descrição), categoria, status e disponibilidade */
+function pesquisarProdutos({ termo, categoria, status, disponivel } = {}) {
   let resultado = obterProdutos();
   if (termo) {
     const alvo = termo.toLowerCase();
@@ -309,6 +316,7 @@ function pesquisarProdutos({ termo, categoria, status } = {}) {
   }
   if (categoria) resultado = resultado.filter((p) => p.categoria === categoria);
   if (status) resultado = resultado.filter((p) => p.status === status);
+  if (disponivel !== undefined) resultado = resultado.filter((p) => p.disponivel === disponivel);
   return resultado;
 }
 

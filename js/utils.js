@@ -124,7 +124,7 @@ function separarItensInclusosCombo(includedItemsIds, produtos) {
   const indisponiveis = [];
   (includedItemsIds || []).forEach((id) => {
     const produto = (produtos || []).find((p) => p.id === id);
-    if (produto && produto.status === 'ativo') disponiveis.push(produto);
+    if (produto && produto.status === 'ativo' && produto.disponivel) disponiveis.push(produto);
     else indisponiveis.push({ id, nome: produto ? produto.nome : null });
   });
   return { disponiveis, indisponiveis };

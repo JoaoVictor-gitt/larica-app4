@@ -35,6 +35,7 @@ function _linhaSupabaseParaProduto(linha) {
     descricao: linha.description || '',
     foto: linha.image_url || '',
     status: linha.active ? 'ativo' : 'inativo',
+    disponivel: linha.is_available !== false, // disponibilidade operacional — distinta de active/status (ver comentário no schema)
     comboConfig: null, // preenchido por buscarProdutosDoSupabase() quando for combo
     criadoEm: linha.created_at || '',
     atualizadoEm: linha.updated_at || '',
@@ -211,6 +212,18 @@ async function ajustarEstoqueNoSupabase(id, delta, motivo) {
     p_quantity_change: delta,
     p_reason: motivo || null,
   });
+  if (error) throw new Error(error.message);
+  return _linhaSupabaseParaProduto(data);
+}
+
+/**
+ * Alterna a disponibilidade operacional de um produto (is_available) —
+ * update pontual, isolado do resto do formulário, pra não sobrescrever
+ * outros campos nem passar por _produtoParaLinhaSupabase(). Não mexe em
+ * estoque nem em active/status.
+ */
+async function alternarDisponibilidadeNoSupabase(id, disponivel) {
+  const { data, error } = await supabaseClient.from('products').update({ is_available: disponivel }).eq('id', id).select().single();
   if (error) throw new Error(error.message);
   return _linhaSupabaseParaProduto(data);
 }

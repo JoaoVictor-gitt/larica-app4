@@ -33,7 +33,9 @@
 .tabela-produtos-wrap thead th:nth-child(5),
 #corpo-tabela-produtos td:nth-child(5),
 .tabela-produtos-wrap thead th:nth-child(6),
-#corpo-tabela-produtos td:nth-child(6) {
+#corpo-tabela-produtos td:nth-child(6),
+.tabela-produtos-wrap thead th:nth-child(7),
+#corpo-tabela-produtos td:nth-child(7) {
   text-align: center;
 }
 

@@ -566,6 +566,11 @@ function renderizarGradePedido() {
 
 function cardProdutoPedidoHtml(produto, moeda) {
   const esgotado = produto.quantidadeEstoque <= 0;
+  const indisponivel = produto.disponivel === false;
+  const bloqueado = esgotado || indisponivel;
+  // Estoque zerado e indisponibilidade manual usam o mesmo tratamento visual
+  // (item continua visível, ação desabilitada) — só o texto muda conforme a causa.
+  const rotulo = indisponivel ? 'INDISPONÍVEL' : 'ESGOTADO';
 
   const foto = produto.foto
     ? `<img src="${produto.foto}" alt="${escaparHtml(produto.nome)}" />`
@@ -576,19 +581,19 @@ function cardProdutoPedidoHtml(produto, moeda) {
       <div class="card-produto-foto-wrap">
         ${foto}
         <span class="card-produto-categoria">${escaparHtml(produto.categoria)}</span>
-        ${esgotado ? '<div class="selo-esgotado">ESGOTADO</div>' : ''}
+        ${bloqueado ? `<div class="selo-esgotado">${rotulo}</div>` : ''}
       </div>
       <div class="card-produto-corpo">
         <div class="card-produto-nome">${escaparHtml(produto.nome)}</div>
         <div class="card-produto-descricao">${escaparHtml(produto.descricao || '')}</div>
         <div class="card-produto-rodape">
           <span class="card-produto-preco">${formatarMoeda(produto.preco, moeda)}</span>
-          ${esgotado ? '<span class="card-produto-estoque">Indisponível</span>' : ''}
+          ${bloqueado ? `<span class="card-produto-estoque">${indisponivel ? 'Indisponível' : 'Sem estoque'}</span>` : ''}
         </div>
         <div class="card-produto-acao">
-          <input type="number" class="seletor-quantidade" id="pedido-qtd-${produto.id}" min="1" max="${produto.quantidadeEstoque}" value="1" ${esgotado ? 'disabled' : ''} />
-          <button class="btn btn-primario botao-adicionar" data-acao="adicionar" data-id="${produto.id}" ${esgotado ? 'disabled' : ''}>
-            ${esgotado ? 'Esgotado' : 'Adicionar'}
+          <input type="number" class="seletor-quantidade" id="pedido-qtd-${produto.id}" min="1" max="${produto.quantidadeEstoque}" value="1" ${bloqueado ? 'disabled' : ''} />
+          <button class="btn btn-primario botao-adicionar" data-acao="adicionar" data-id="${produto.id}" ${bloqueado ? 'disabled' : ''}>
+            ${indisponivel ? 'Indisponível' : esgotado ? 'Esgotado' : 'Adicionar'}
           </button>
         </div>
       </div>
@@ -596,6 +601,8 @@ function cardProdutoPedidoHtml(produto, moeda) {
 }
 
 function cardComboPedidoHtml(combo, moeda) {
+  const indisponivel = combo.disponivel === false;
+
   const foto = combo.foto
     ? `<img src="${combo.foto}" alt="${escaparHtml(combo.nome)}" />`
     : `<div class="card-produto-foto-vazia">🍽️</div>`;
@@ -610,6 +617,7 @@ function cardComboPedidoHtml(combo, moeda) {
       <div class="card-produto-foto-wrap">
         ${foto}
         <span class="card-produto-categoria">Combos</span>
+        ${indisponivel ? '<div class="selo-esgotado">INDISPONÍVEL</div>' : ''}
       </div>
       <div class="card-produto-corpo">
         <div class="card-produto-nome">${escaparHtml(combo.nome)}</div>
@@ -617,10 +625,11 @@ function cardComboPedidoHtml(combo, moeda) {
         ${avisoInclusos}
         <div class="card-produto-rodape">
           <span class="card-produto-preco">A partir de ${formatarMoeda(combo.preco, moeda)}</span>
+          ${indisponivel ? '<span class="card-produto-estoque">Indisponível</span>' : ''}
         </div>
         <div class="card-produto-acao">
-          <button class="btn btn-primario botao-adicionar" data-acao="personalizar-combo" data-id="${combo.id}">
-            Personalizar
+          <button class="btn btn-primario botao-adicionar" data-acao="personalizar-combo" data-id="${combo.id}" ${indisponivel ? 'disabled' : ''}>
+            ${indisponivel ? 'Indisponível' : 'Personalizar'}
           </button>
         </div>
       </div>
@@ -796,7 +805,7 @@ function ligarEventosLinhasPedido() {
 
 /** Lista de espetos disponíveis para escolha dentro de um combo, já com o acréscimo de cada um */
 function listaEspetosParaCombo(combo) {
-  return pesquisarProdutos({ categoria: 'Espetinhos', status: 'ativo' }).map((p) => ({
+  return pesquisarProdutos({ categoria: 'Espetinhos', status: 'ativo', disponivel: true }).map((p) => ({
     id: p.id,
     nome: p.nome,
     acrescimo: (combo.skewerExtraPrices && combo.skewerExtraPrices[p.id]) || 0,
@@ -812,7 +821,7 @@ function listaEspetosParaCombo(combo) {
  */
 function listaAcompanhamentosParaCombo(combo) {
   const idsInclusos = new Set((combo && combo.includedItems) || []);
-  return pesquisarProdutos({ categoria: 'Acompanhamentos', status: 'ativo' })
+  return pesquisarProdutos({ categoria: 'Acompanhamentos', status: 'ativo', disponivel: true })
     .filter((p) => !idsInclusos.has(p.id))
     .slice()
     .sort((a, b) => a.nome.localeCompare(b.nome))
@@ -897,6 +906,10 @@ function ligarEventosModalCombo() {
  * grupos e qualquer combo futuro, seja qual for o limite.
  */
 function seletorComboItensHtml({ tipo, itens, limite, escolhidos, moeda }) {
+  if (itens.length === 0) {
+    return '<p class="dica-campo">Nenhuma opção disponível no momento.</p>';
+  }
+
   if (limite === 1) {
     return itens
       .map((item) => {

@@ -465,6 +465,22 @@ input[type="checkbox"] { accent-color: var(--cor-terracota); }
 .badge-ativo { background: var(--cor-status-verde); }
 .badge-inativo { background: var(--cor-texto-secundario); }
 
+.badge-disponivel { background: var(--cor-status-verde); }
+.badge-indisponivel { background: var(--cor-status-vermelho); }
+
+.badge-disponibilidade-toggle {
+  cursor: pointer;
+  border: none;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.badge-disponibilidade-toggle:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 #toast-container {
   position: fixed;
   bottom: var(--espaco-lg);
