@@ -13,13 +13,11 @@
  * antes deste arquivo.
  */
 
-/** Converte uma linha crua de recipes (snake_case) pro formato pt-BR usado no restante do projeto. */
+/** Converte uma linha crua de recipes (snake_case) pro formato pt-BR usado no restante do projeto. Sem campo de rendimento — é sempre calculado on-read em js/producao.js a partir de recipe_items, nunca persistido. */
 function _linhaSupabaseParaReceita(linha) {
   return {
     id: linha.id,
     nome: linha.name,
-    rendimentoQuantidade: Number(linha.yield_quantity),
-    rendimentoUnidade: linha.yield_unit,
     ativo: linha.active,
     criadoEm: linha.created_at,
     atualizadoEm: linha.updated_at,
@@ -60,7 +58,7 @@ async function buscarItensReceitasDoSupabase() {
   return (data || []).map(_linhaSupabaseParaItemReceita);
 }
 
-/** Cria uma receita (Nome + Rendimento). RLS restringe esta operação a admin. */
+/** Cria uma receita (só Nome — rendimento não é mais um campo cadastrado, é calculado a partir dos itens depois de adicionados). RLS restringe esta operação a admin. */
 async function criarReceitaNoSupabase(dados) {
   const {
     data: { session },
@@ -73,8 +71,6 @@ async function criarReceitaNoSupabase(dados) {
     .from('recipes')
     .insert({
       name: dados.nome,
-      yield_quantity: dados.rendimentoQuantidade,
-      yield_unit: dados.rendimentoUnidade,
       active: dados.ativo !== false,
       updated_by: userId,
     })
@@ -84,7 +80,7 @@ async function criarReceitaNoSupabase(dados) {
   return _linhaSupabaseParaReceita(data);
 }
 
-/** Atualiza nome/rendimento de uma receita — sempre reenvia todos os campos editáveis. RLS restringe a admin. */
+/** Atualiza o nome de uma receita (única coisa editável em metadados agora). RLS restringe a admin. */
 async function atualizarReceitaNoSupabase(id, dados) {
   const {
     data: { session },
@@ -97,8 +93,6 @@ async function atualizarReceitaNoSupabase(id, dados) {
     .from('recipes')
     .update({
       name: dados.nome,
-      yield_quantity: dados.rendimentoQuantidade,
-      yield_unit: dados.rendimentoUnidade,
       updated_at: new Date().toISOString(),
       updated_by: userId,
     })

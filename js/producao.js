@@ -362,8 +362,6 @@ let itensReceitaCache = [];
 let receitaEmDetalheId = null;
 let itemEmEdicaoId = null;
 
-const ROTULO_UNIDADE_RENDIMENTO = { porcao: 'porção', g: 'g', ml: 'ml', un: 'un' };
-
 async function carregarFichasTecnicas() {
   const carregando = document.getElementById('estado-carregando-receitas');
   const erro = document.getElementById('estado-erro-receitas');
@@ -419,28 +417,63 @@ function custoTotalReceita(receitaId) {
   }, 0);
 }
 
-function custoPorRendimentoReceita(receita) {
-  if (!Number.isFinite(receita.rendimentoQuantidade) || receita.rendimentoQuantidade <= 0) return null;
-  return custoTotalReceita(receita.id) / receita.rendimentoQuantidade;
+/**
+ * Rendimento SEMPRE derivado dos itens (nunca um campo cadastrado — recipes
+ * não tem yield_quantity/yield_unit). Regra: todos os itens na mesma unit ->
+ * soma nessa unit; sem itens, ou itens em mais de uma unit (ex. g + ml,
+ * grandezas incompatíveis) -> indisponível, nunca uma soma inventada. Nunca
+ * converte peso<->volume.
+ */
+function calcularRendimentoReceita(receitaId) {
+  const itens = itensDaReceita(receitaId);
+  if (itens.length === 0) {
+    return { disponivel: false, motivo: 'sem_itens', quantidade: null, unidade: null };
+  }
+
+  const unidades = new Set(itens.map((item) => item.unidade));
+  if (unidades.size > 1) {
+    return { disponivel: false, motivo: 'unidades_mistas', quantidade: null, unidade: null };
+  }
+
+  const unidade = itens[0].unidade;
+  const quantidade = itens.reduce((soma, item) => soma + item.quantidade, 0);
+  return { disponivel: true, motivo: null, quantidade, unidade };
+}
+
+/** null quando o rendimento não está disponível (sem itens ou unidades mistas) — nunca divide por zero. */
+function custoPorRendimentoReceita(receitaId) {
+  const rendimento = calcularRendimentoReceita(receitaId);
+  if (!rendimento.disponivel) return null;
+  return custoTotalReceita(receitaId) / rendimento.quantidade;
 }
 
 // ---------------------------------------------------------------------------
 // Formatação
 // ---------------------------------------------------------------------------
 
-function formatarRendimentoReceita(receita) {
-  const quantidade = Number.isInteger(receita.rendimentoQuantidade) ? receita.rendimentoQuantidade : receita.rendimentoQuantidade.toString().replace('.', ',');
-  const unidade =
-    receita.rendimentoUnidade === 'porcao' ? (receita.rendimentoQuantidade === 1 ? 'porção' : 'porções') : receita.rendimentoUnidade;
-  return `${quantidade} ${unidade}`;
+function formatarQuantidadeRendimento(quantidade) {
+  return quantidade.toLocaleString('pt-PT', { maximumFractionDigits: 3 });
 }
 
-/** Custo por unidade de rendimento — 4 casas pra porção/un, 6 casas pra g/ml (mesma disciplina de "nunca esconder precisão real" de formatarCustoBaseIngrediente). */
+/** Compacto, pra célula da tabela de listagem. */
+function textoRendimentoTabela(rendimento) {
+  if (rendimento.disponivel) return `${formatarQuantidadeRendimento(rendimento.quantidade)} ${rendimento.unidade}`;
+  if (rendimento.motivo === 'unidades_mistas') return 'Unidades mistas';
+  return '—';
+}
+
+/** Frase completa, pro cabeçalho do modal de Detalhe. */
+function textoRendimentoDetalhe(rendimento) {
+  if (rendimento.disponivel) return `Rendimento calculado: ${formatarQuantidadeRendimento(rendimento.quantidade)} ${rendimento.unidade}`;
+  if (rendimento.motivo === 'unidades_mistas') return 'Rendimento automático indisponível para unidades mistas.';
+  return 'Rendimento: adicione ingredientes para calcular.';
+}
+
+/** Custo por unidade de rendimento — 6 casas pra g/ml, 4 casas pra un (mesma disciplina de "nunca esconder precisão real" de formatarCustoBaseIngrediente). */
 function formatarCustoPorRendimento(valor, unidade) {
   if (valor === null || !Number.isFinite(valor)) return '—';
   const casas = unidade === 'g' || unidade === 'ml' ? 6 : 4;
-  const rotulo = ROTULO_UNIDADE_RENDIMENTO[unidade] || unidade;
-  return '€' + valor.toFixed(casas).replace('.', ',') + '/' + rotulo;
+  return '€' + valor.toFixed(casas).replace('.', ',') + '/' + unidade;
 }
 
 // ---------------------------------------------------------------------------
@@ -466,15 +499,16 @@ function renderizarTabelaReceitas() {
 }
 
 function linhaReceitaHtml(receita) {
+  const rendimento = calcularRendimentoReceita(receita.id);
   const custoTotal = custoTotalReceita(receita.id);
-  const custoPorRendimento = custoPorRendimentoReceita(receita);
+  const custoPorRendimento = custoPorRendimentoReceita(receita.id);
 
   return `
     <tr>
       <td>${escaparHtml(receita.nome)}</td>
-      <td>${escaparHtml(formatarRendimentoReceita(receita))}</td>
+      <td>${escaparHtml(textoRendimentoTabela(rendimento))}</td>
       <td>${formatarMoeda(custoTotal)}</td>
-      <td>${formatarCustoPorRendimento(custoPorRendimento, receita.rendimentoUnidade)}</td>
+      <td>${formatarCustoPorRendimento(custoPorRendimento, rendimento.unidade)}</td>
       <td><span class="badge badge-${receita.ativo ? 'ativo' : 'inativo'}">${receita.ativo ? 'Ativa' : 'Inativa'}</span></td>
       <td>
         <button class="btn-icone" data-acao-editar-receita="${receita.id}" title="Editar" ${souAdminProducao ? '' : 'disabled'}>✏️</button>
@@ -500,8 +534,6 @@ function abrirModalNovaFicha() {
   if (!souAdminProducao) return;
 
   document.getElementById('campo-nome-nova-ficha').value = '';
-  document.getElementById('campo-rendimento-quantidade-nova-ficha').value = '';
-  document.getElementById('campo-rendimento-unidade-nova-ficha').value = 'porcao';
   document.getElementById('dica-nova-ficha-erro').style.display = 'none';
 
   abrirModal('modal-overlay-nova-ficha');
@@ -516,8 +548,6 @@ async function salvarNovaFicha(evento) {
   if (!souAdminProducao) return;
 
   const nome = document.getElementById('campo-nome-nova-ficha').value.trim();
-  const rendimentoQuantidade = Number(document.getElementById('campo-rendimento-quantidade-nova-ficha').value);
-  const rendimentoUnidade = document.getElementById('campo-rendimento-unidade-nova-ficha').value;
 
   const dicaErro = document.getElementById('dica-nova-ficha-erro');
   if (!nome) {
@@ -525,16 +555,11 @@ async function salvarNovaFicha(evento) {
     dicaErro.style.display = '';
     return;
   }
-  if (!Number.isFinite(rendimentoQuantidade) || rendimentoQuantidade <= 0) {
-    dicaErro.textContent = 'Informe um rendimento maior que zero.';
-    dicaErro.style.display = '';
-    return;
-  }
   dicaErro.style.display = 'none';
 
   let novaReceita;
   try {
-    novaReceita = await criarReceitaNoSupabase({ nome, rendimentoQuantidade, rendimentoUnidade, ativo: true });
+    novaReceita = await criarReceitaNoSupabase({ nome, ativo: true });
   } catch (erro) {
     dicaErro.textContent = 'Não foi possível criar a ficha técnica. ' + erro.message;
     dicaErro.style.display = '';
@@ -602,7 +627,9 @@ function renderizarDetalheFicha() {
   if (!receita) return;
 
   document.getElementById('titulo-modal-detalhe-ficha').textContent = receita.nome;
-  document.getElementById('texto-rendimento-receita-detalhe').textContent = `Rendimento: ${formatarRendimentoReceita(receita)}`;
+
+  const rendimento = calcularRendimentoReceita(receita.id);
+  document.getElementById('texto-rendimento-receita-detalhe').textContent = textoRendimentoDetalhe(rendimento);
   document.getElementById('botao-editar-metadados-receita').disabled = !souAdminProducao;
 
   const botaoStatus = document.getElementById('botao-alternar-status-receita-detalhe');
@@ -613,8 +640,8 @@ function renderizarDetalheFicha() {
 
   document.getElementById('texto-custo-total-receita').textContent = formatarMoeda(custoTotalReceita(receita.id));
   document.getElementById('texto-custo-por-rendimento-receita').textContent = formatarCustoPorRendimento(
-    custoPorRendimentoReceita(receita),
-    receita.rendimentoUnidade
+    custoPorRendimentoReceita(receita.id),
+    rendimento.unidade
   );
 
   document.getElementById('form-adicionar-item-receita').querySelectorAll('input, select, button').forEach((campo) => {
@@ -751,7 +778,8 @@ async function removerItemReceita(itemId) {
 }
 
 // ---------------------------------------------------------------------------
-// Edição de nome/rendimento da receita (dentro do modal de Detalhe)
+// Edição de nome da receita (dentro do modal de Detalhe) — rendimento não é
+// mais editável, é sempre calculado a partir dos itens (ver calcularRendimentoReceita).
 // ---------------------------------------------------------------------------
 
 function mostrarEdicaoMetadadosReceita() {
@@ -760,8 +788,6 @@ function mostrarEdicaoMetadadosReceita() {
   if (!receita) return;
 
   document.getElementById('campo-nome-receita-edicao').value = receita.nome;
-  document.getElementById('campo-rendimento-quantidade-edicao').value = receita.rendimentoQuantidade;
-  document.getElementById('campo-rendimento-unidade-edicao').value = receita.rendimentoUnidade;
 
   document.getElementById('bloco-editar-metadados-receita').style.display = '';
 }
@@ -775,21 +801,15 @@ async function salvarMetadadosReceita() {
   if (!receita) return;
 
   const nome = document.getElementById('campo-nome-receita-edicao').value.trim();
-  const rendimentoQuantidade = Number(document.getElementById('campo-rendimento-quantidade-edicao').value);
-  const rendimentoUnidade = document.getElementById('campo-rendimento-unidade-edicao').value;
 
   if (!nome) {
     mostrarToast('Informe o nome da ficha técnica.', 'erro');
     return;
   }
-  if (!Number.isFinite(rendimentoQuantidade) || rendimentoQuantidade <= 0) {
-    mostrarToast('Informe um rendimento maior que zero.', 'erro');
-    return;
-  }
 
   let receitaAtualizada;
   try {
-    receitaAtualizada = await atualizarReceitaNoSupabase(receita.id, { nome, rendimentoQuantidade, rendimentoUnidade });
+    receitaAtualizada = await atualizarReceitaNoSupabase(receita.id, { nome });
   } catch (erro) {
     mostrarToast('Não foi possível salvar a ficha técnica. ' + erro.message, 'erro');
     return;
