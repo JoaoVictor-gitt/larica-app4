@@ -14,8 +14,8 @@
 const FULFILMENT_PARA_ENUM = { retirada: 'collection', entrega: 'delivery' };
 const ENUM_PARA_FULFILMENT = { collection: 'retirada', delivery: 'entrega' };
 
-const PAGAMENTO_PARA_ENUM = { cartao: 'card', dinheiro: 'cash', revolut: 'revolut' };
-const ENUM_PARA_PAGAMENTO = { card: 'cartao', cash: 'dinheiro', revolut: 'revolut' };
+const PAGAMENTO_PARA_ENUM = { cartao: 'card', dinheiro: 'cash', revolut: 'revolut', transferencia: 'bank_transfer' };
+const ENUM_PARA_PAGAMENTO = { card: 'cartao', cash: 'dinheiro', revolut: 'revolut', bank_transfer: 'transferencia' };
 
 const STATUS_PARA_ENUM = { solicitado: 'requested', em_preparo: 'preparing', pronto: 'ready', finalizado: 'completed', cancelado: 'cancelled' };
 const ENUM_PARA_STATUS = { requested: 'solicitado', preparing: 'em_preparo', ready: 'pronto', completed: 'finalizado', cancelled: 'cancelado' };

@@ -140,6 +140,7 @@ function calcularResumoFechamento(pedidosValidos, cancelados) {
   const cartao = somaPorFiltro((p) => p.formaPagamento === 'cartao');
   const dinheiro = somaPorFiltro((p) => p.formaPagamento === 'dinheiro');
   const revolut = somaPorFiltro((p) => p.formaPagamento === 'revolut');
+  const transferencia = somaPorFiltro((p) => p.formaPagamento === 'transferencia');
   const delivery = somaPorFiltro((p) => p.fulfilment === 'entrega');
   const retirada = somaPorFiltro((p) => p.fulfilment === 'retirada');
 
@@ -158,6 +159,7 @@ function calcularResumoFechamento(pedidosValidos, cancelados) {
     cartao,
     dinheiro,
     revolut,
+    transferencia,
     delivery,
     retirada,
     trocoInformado,
@@ -317,7 +319,7 @@ function renderizarGraficoFaturamentoPorDia(pedidos, dias) {
 /** Total recebido por forma de pagamento (Cartão/Dinheiro/Revolut), no período selecionado */
 function renderizarFormasPagamento(pedidos) {
   const moeda = obterConfiguracoes().moeda;
-  const porForma = { cartao: { qtd: 0, valor: 0 }, dinheiro: { qtd: 0, valor: 0 }, revolut: { qtd: 0, valor: 0 } };
+  const porForma = { cartao: { qtd: 0, valor: 0 }, dinheiro: { qtd: 0, valor: 0 }, revolut: { qtd: 0, valor: 0 }, transferencia: { qtd: 0, valor: 0 } };
   pedidos.forEach((p) => {
     if (!porForma[p.formaPagamento]) return;
     porForma[p.formaPagamento].qtd += 1;
@@ -380,6 +382,7 @@ function renderizarFechamento(resumo) {
   definir('fechamento-cartao', formatarMoeda(resumo.cartao, moeda));
   definir('fechamento-dinheiro', formatarMoeda(resumo.dinheiro, moeda));
   definir('fechamento-revolut', formatarMoeda(resumo.revolut, moeda));
+  definir('fechamento-transferencia', formatarMoeda(resumo.transferencia, moeda));
   definir('fechamento-delivery', formatarMoeda(resumo.delivery, moeda));
   definir('fechamento-retirada', formatarMoeda(resumo.retirada, moeda));
   definir('fechamento-troco', formatarMoeda(resumo.trocoInformado, moeda));

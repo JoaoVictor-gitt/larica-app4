@@ -335,6 +335,22 @@
   color: var(--cor-texto-secundario);
 }
 
+/* Dados para transferência bancária (IBAN/BIC/Beneficiário) — inline na Etapa 5 e reaproveitado na confirmação */
+.dados-transferencia-wrap {
+  margin-top: var(--espaco-md);
+  text-align: left;
+}
+
+.dados-transferencia-titulo {
+  margin: 0 0 var(--espaco-sm);
+  font-weight: 700;
+}
+
+.dados-transferencia-wrap .btn {
+  width: 100%;
+  margin-top: var(--espaco-sm);
+}
+
 @media (max-width: 480px) {
   .opcoes-recebimento {
     grid-template-columns: 1fr;

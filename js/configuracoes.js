@@ -65,6 +65,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('campo-qr-revolut').addEventListener('change', tratarSelecaoQrRevolut);
   document.getElementById('form-configuracoes-revolut').addEventListener('submit', salvarConfiguracoesRevolut);
 
+  document.getElementById('form-configuracoes-transferencia').addEventListener('submit', salvarConfiguracoesTransferencia);
+
   document.getElementById('botao-novo-cupom').addEventListener('click', abrirModalCriacaoCupom);
   document.getElementById('botao-fechar-modal-cupom').addEventListener('click', fecharModalCupom);
   document.getElementById('botao-cancelar-modal-cupom').addEventListener('click', fecharModalCupom);
@@ -119,6 +121,7 @@ async function carregarConfiguracoesNegocio() {
     preencherConfiguracoesPedidos(config);
     preencherConfiguracoesEntrega(config);
     preencherConfiguracoesRevolut(config);
+    preencherConfiguracoesTransferencia(config);
     preencherHorarios(horarios);
     carregando.style.display = 'none';
     conteudo.style.display = '';
@@ -310,6 +313,60 @@ async function salvarConfiguracoesRevolut(evento) {
     mostrarToast('Configurações do Revolut salvas.', 'sucesso');
   } catch (erro) {
     erroEl.textContent = erro.message || 'Não foi possível salvar as configurações do Revolut.';
+  } finally {
+    botao.disabled = false;
+    botao.textContent = textoOriginal;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Transferência Bancária (business_settings.bank_transfer_enabled/
+// bank_transfer_beneficiary/bank_transfer_iban/bank_transfer_bic)
+// ---------------------------------------------------------------------------
+
+/** Preenche o toggle + os 3 campos de texto (sem upload de arquivo, ao contrário do Revolut) */
+function preencherConfiguracoesTransferencia(config) {
+  document.getElementById('campo-transferencia-ativa').checked = !!config.transferenciaAtiva;
+  document.getElementById('campo-transferencia-beneficiario').value = config.transferenciaBeneficiario || '';
+  document.getElementById('campo-transferencia-iban').value = config.transferenciaIban || '';
+  document.getElementById('campo-transferencia-bic').value = config.transferenciaBic || '';
+}
+
+/**
+ * Se o toggle estiver marcado, Beneficiário/IBAN/BIC são obrigatórios (depois de trim —
+ * string só com espaços não conta como preenchido). Sempre manda o config completo em
+ * cache pra atualizarConfiguracoesNegocioNoSupabase() (mesmo motivo do Revolut) — nunca
+ * um objeto parcial, senão os outros campos de negócio seriam zerados.
+ */
+async function salvarConfiguracoesTransferencia(evento) {
+  evento.preventDefault();
+
+  const erroEl = document.getElementById('erro-configuracoes-transferencia');
+  erroEl.textContent = '';
+
+  const transferenciaAtiva = document.getElementById('campo-transferencia-ativa').checked;
+  const transferenciaBeneficiario = document.getElementById('campo-transferencia-beneficiario').value.trim();
+  const transferenciaIban = document.getElementById('campo-transferencia-iban').value.trim();
+  const transferenciaBic = document.getElementById('campo-transferencia-bic').value.trim();
+
+  if (transferenciaAtiva && (!transferenciaBeneficiario || !transferenciaIban || !transferenciaBic)) {
+    erroEl.textContent = 'Preencha Beneficiário, IBAN e BIC antes de ativar a transferência bancária.';
+    return;
+  }
+
+  const botao = document.getElementById('botao-salvar-transferencia');
+  const textoOriginal = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = 'Salvando...';
+
+  try {
+    const config = { ...configNegocioCache, transferenciaAtiva, transferenciaBeneficiario, transferenciaIban, transferenciaBic };
+    const atualizado = await atualizarConfiguracoesNegocioNoSupabase(config);
+    configNegocioCache = atualizado;
+    preencherConfiguracoesTransferencia(atualizado);
+    mostrarToast('Configurações de transferência bancária salvas.', 'sucesso');
+  } catch (erro) {
+    erroEl.textContent = erro.message || 'Não foi possível salvar as configurações de transferência.';
   } finally {
     botao.disabled = false;
     botao.textContent = textoOriginal;

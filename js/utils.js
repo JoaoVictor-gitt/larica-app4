@@ -289,7 +289,7 @@ const ROTULOS_STATUS_PEDIDO = {
   cancelado: 'Cancelado',
 };
 
-const ROTULOS_FORMA_PAGAMENTO = { cartao: 'Cartão', dinheiro: 'Dinheiro', revolut: 'Revolut' };
+const ROTULOS_FORMA_PAGAMENTO = { cartao: 'Cartão', dinheiro: 'Dinheiro', revolut: 'Revolut', transferencia: 'Transferência bancária' };
 
 /**
  * Status do PAGAMENTO de um pedido — conceito separado de STATUS_PEDIDO (esse é o status do fluxo

@@ -56,6 +56,14 @@
         </span>
         <span class="config-card-seta">→</span>
       </button>
+      <button type="button" class="config-card" data-config-abrir="transferencia">
+        <span class="config-card-icone">🏦</span>
+        <span class="config-card-texto">
+          <strong>Transferência Bancária</strong>
+          <span>Configure os dados bancários para pagamento</span>
+        </span>
+        <span class="config-card-seta">→</span>
+      </button>
       <button type="button" class="config-card" data-config-abrir="cupons">
         <span class="config-card-icone">🏷</span>
         <span class="config-card-texto">
@@ -245,6 +253,45 @@
           <span class="campo-erro" id="erro-configuracoes-revolut"></span>
 
           <button type="submit" class="btn btn-primario" id="botao-salvar-revolut">Salvar configurações Revolut</button>
+        </form>
+      </div>
+      </section>
+
+      <!-- Transferência Bancária -->
+      <section class="config-secao" data-config-secao="transferencia">
+      <button type="button" class="config-botao-voltar" data-config-voltar>← Voltar para Configurações</button>
+      <div class="card" style="max-width:520px;">
+        <h2 class="titulo-grafico" style="margin-top:0;">Transferência Bancária</h2>
+        <form id="form-configuracoes-transferencia">
+          <div class="linha-toggle">
+            <div class="linha-toggle-texto">
+              <label for="campo-transferencia-ativa">Aceitar transferência bancária</label>
+              <span>Quando ativo, o cliente poderá escolher Transferência Bancária para pagar antecipadamente.</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="campo-transferencia-ativa" />
+              <span class="toggle-switch-trilho"></span>
+            </label>
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-transferencia-beneficiario">Beneficiário</label>
+            <input type="text" id="campo-transferencia-beneficiario" class="input" maxlength="200" />
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-transferencia-iban">IBAN</label>
+            <input type="text" id="campo-transferencia-iban" class="input" maxlength="50" />
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-transferencia-bic">BIC</label>
+            <input type="text" id="campo-transferencia-bic" class="input" maxlength="20" />
+          </div>
+
+          <span class="campo-erro" id="erro-configuracoes-transferencia"></span>
+
+          <button type="submit" class="btn btn-primario" id="botao-salvar-transferencia">Salvar configurações de transferência</button>
         </form>
       </div>
       </section>

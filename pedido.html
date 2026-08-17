@@ -255,6 +255,20 @@
         <button type="button" class="opcao-pagamento" data-forma="revolut">
           <span class="icone-pagamento">🔵</span> Revolut — pagar agora
         </button>
+
+        <button type="button" class="opcao-pagamento" data-forma="transferencia">
+          <span class="icone-pagamento">🏦</span> Transferência bancária
+        </button>
+
+        <!-- Preenchido por atualizarVisibilidadeDadosTransferencia() (js/pedido.js) a partir de business_settings — nunca hardcoded -->
+        <div class="card dados-transferencia-wrap" id="secao-dados-transferencia" style="display:none;">
+          <p class="dados-transferencia-titulo">Dados para transferência</p>
+          <div class="linha-resumo"><span>Beneficiário</span><span id="transferencia-beneficiario-inline">—</span></div>
+          <div class="linha-resumo"><span>IBAN</span><span id="transferencia-iban-inline">—</span></div>
+          <div class="linha-resumo"><span>BIC</span><span id="transferencia-bic-inline">—</span></div>
+          <button type="button" class="btn btn-secundario" id="botao-copiar-iban-inline">Copiar IBAN</button>
+          <p class="texto-auxiliar-copiar-revolut">Faça a transferência utilizando os dados acima. Seu pedido será confirmado após a verificação do pagamento.</p>
+        </div>
       </div>
       <div class="etapa-pedido-acoes">
         <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
@@ -320,6 +334,26 @@
 
         <!-- Trocado in-place pela Etapa 5 (Realtime) quando payment_status vira 'paid', sem reconstruir a tela -->
         <p class="aviso-info" id="status-pagamento-revolut">Após recebermos o pagamento, confirmaremos seu pedido e ele seguirá para preparo.</p>
+      </div>
+
+      <!-- Transferência bancária: mesmo padrão da tela Revolut acima — pedido já foi criado
+           (estoque reservado), payment_status='pending' até um staff confirmar manualmente no Kanban. -->
+      <div class="tela-confirmacao" id="tela-confirmacao-transferencia" style="display:none;">
+        <div class="icone-confirmacao" id="transferencia-icone">⏳</div>
+        <h2 id="transferencia-titulo">Aguardando confirmação de pagamento</h2>
+        <p id="transferencia-instrucao">Faça a transferência de <strong id="transferencia-valor-total">—</strong> usando os dados abaixo.</p>
+        <div class="numero-pedido" id="numero-pedido-confirmado-transferencia"></div>
+
+        <!-- Preenchido por renderizarConfirmacaoTransferencia() (js/pedido.js) a partir de business_settings — nunca hardcoded -->
+        <div class="card dados-transferencia-wrap" id="transferencia-dados-wrap">
+          <div class="linha-resumo"><span>Beneficiário</span><span id="transferencia-beneficiario-confirmacao">—</span></div>
+          <div class="linha-resumo"><span>IBAN</span><span id="transferencia-iban-confirmacao">—</span></div>
+          <div class="linha-resumo"><span>BIC</span><span id="transferencia-bic-confirmacao">—</span></div>
+          <button type="button" class="btn btn-secundario" id="botao-copiar-iban-confirmacao">Copiar IBAN</button>
+        </div>
+
+        <!-- Trocado in-place pelo Realtime quando payment_status vira 'paid', sem reconstruir a tela -->
+        <p class="aviso-info" id="status-pagamento-transferencia">Após recebermos o pagamento, confirmaremos seu pedido e ele seguirá para preparo.</p>
       </div>
 
       <button type="button" class="btn btn-primario" id="botao-novo-pedido">Voltar ao cardápio</button>

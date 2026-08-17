@@ -248,13 +248,14 @@ function renderizarColunaKanban(status, pedidosDaColuna) {
 }
 
 /**
- * Pedido Revolut ainda não confirmado pela equipe — sai das colunas operacionais normais e vai pra
- * área própria "Aguardando pagamento" (Fase 9). Pedidos 'legado' nunca batem aqui (statusPagamento
- * nunca é 'pendente' pra eles), então seguem só pela regra operacional antiga, sem exceção especial.
+ * Pedido Revolut ou Transferência Bancária ainda não confirmado pela equipe — sai das colunas
+ * operacionais normais e vai pra área própria "Aguardando pagamento" (Fase 9, estendida pra
+ * transferência). Pedidos 'legado' nunca batem aqui (statusPagamento nunca é 'pendente' pra eles),
+ * então seguem só pela regra operacional antiga, sem exceção especial.
  */
 function pedidoAguardandoPagamento(pedido) {
   return (
-    pedido.formaPagamento === 'revolut' &&
+    (pedido.formaPagamento === 'revolut' || pedido.formaPagamento === 'transferencia') &&
     pedido.statusPagamento === STATUS_PAGAMENTO.PENDENTE &&
     pedido.status === STATUS_PEDIDO.SOLICITADO
   );
@@ -383,11 +384,11 @@ function precisaDeTroco(pedido) {
 
 /** Rótulo curto de pagamento pro card do Kanban (ex.: "💳 Cartão", "💶 Dinheiro · Troco") — visível em qualquer status, não só Pronto */
 function rotuloPagamentoCompacto(pedido) {
-  const icones = { cartao: '💳', dinheiro: '💶', revolut: '🔵' };
+  const icones = { cartao: '💳', dinheiro: '💶', revolut: '🔵', transferencia: '🏦' };
   const icone = icones[pedido.formaPagamento] || '';
   const rotulo = ROTULOS_FORMA_PAGAMENTO[pedido.formaPagamento] || '';
   const statusPendente =
-    pedido.formaPagamento === 'revolut' && pedido.statusPagamento === STATUS_PAGAMENTO.PENDENTE
+    (pedido.formaPagamento === 'revolut' || pedido.formaPagamento === 'transferencia') && pedido.statusPagamento === STATUS_PAGAMENTO.PENDENTE
       ? ` · ${ROTULOS_STATUS_PAGAMENTO.pendente}`
       : '';
   return `${icone} ${rotulo}${statusPendente}${precisaDeTroco(pedido) ? ' · Troco' : ''}`.trim();

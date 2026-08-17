@@ -20,7 +20,7 @@
  *                        montarComposicaoCombo())
  *   Customer          -> { nome, telefone }
  *   DeliveryAddress   -> { eircode, linha1, linha2, area, distrito, instrucoes }
- *   PaymentMethod     -> 'cartao' | 'dinheiro' | 'revolut'
+ *   PaymentMethod     -> 'cartao' | 'dinheiro' | 'revolut' | 'transferencia'
  *   CashPaymentInfo   -> { precisaTroco, valorPago, troco } — só quando
  *                        formaPagamento === 'dinheiro'; ponto único a trocar
  *                        futuramente por uma integração real (ex.: Revolut)
@@ -36,6 +36,7 @@ const CHAVE_PEDIDO_EM_ANDAMENTO = 'caju_pedido_em_andamento';
 // orders-service.js: subscribeToOrders() é moldada pro padrão "recarrega tudo" do admin, sem filtro por
 // id). Nunca mais de um canal ativo por vez — ver assinarConfirmacaoRevolut()/cancelarAssinaturaConfirmacaoRevolut().
 let canalConfirmacaoRevolut = null;
+let canalConfirmacaoTransferencia = null;
 
 const ROTULOS_ETAPA_PEDIDO = {
   cardapio: 'Cardápio',
@@ -182,6 +183,7 @@ function preencherCamposComEstado() {
       botao.classList.toggle('selecionada', botao.dataset.forma === estadoPedido.formaPagamento);
     });
     atualizarVisibilidadeSecaoTroco();
+    atualizarVisibilidadeDadosTransferencia();
 
     if (estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro) {
       document.querySelectorAll('.opcao-troco').forEach((botao) => {
@@ -221,6 +223,7 @@ async function carregarDisponibilidadeNegocio() {
     aplicarDisponibilidadeFulfilment();
     invalidarFulfilmentSeIndisponivel();
     aplicarDisponibilidadeRevolut();
+    aplicarDisponibilidadeTransferencia();
     invalidarFormaPagamentoSeIndisponivel();
     atualizarBannerDisponibilidade();
   }
@@ -238,6 +241,24 @@ function revolutDisponivel() {
     !!configuracoesNegocio &&
     !!configuracoesNegocio.revolutAtivo &&
     !!configuracoesNegocio.revolutQrPath
+  );
+}
+
+/**
+ * Mesmo papel de revolutDisponivel(), pra Transferência Bancária. Exige config carregada sem
+ * erro, bank_transfer_enabled=true E os 3 dados bancários realmente cadastrados (mesma defesa
+ * "cinto e suspensório" do Revolut com o QR — o admin já é bloqueado de ativar sem os 3 campos,
+ * mas aqui não confiamos só nisso).
+ */
+function transferenciaDisponivel() {
+  return (
+    configuracoesNegocioCarregadas &&
+    !erroConfiguracoesNegocio &&
+    !!configuracoesNegocio &&
+    !!configuracoesNegocio.transferenciaAtiva &&
+    !!configuracoesNegocio.transferenciaBeneficiario &&
+    !!configuracoesNegocio.transferenciaIban &&
+    !!configuracoesNegocio.transferenciaBic
   );
 }
 
@@ -420,16 +441,34 @@ function aplicarDisponibilidadeRevolut() {
   botao.classList.toggle('opcao-indisponivel', !disponivel);
 }
 
-/** Se Revolut estava selecionado (restaurado do localStorage) e agora não está mais disponível, obriga nova escolha */
-function invalidarFormaPagamentoSeIndisponivel() {
-  if (estadoPedido.formaPagamento !== 'revolut') return;
-  if (revolutDisponivel()) return;
+/** Mesmo padrão de aplicarDisponibilidadeRevolut(), pro botão de Transferência Bancária */
+function aplicarDisponibilidadeTransferencia() {
+  const botao = document.querySelector('#opcoes-pagamento-pedido .opcao-pagamento[data-forma="transferencia"]');
+  if (!botao) return;
+  const disponivel = transferenciaDisponivel();
+  botao.disabled = !disponivel;
+  botao.classList.toggle('opcao-indisponivel', !disponivel);
+}
 
-  estadoPedido.formaPagamento = '';
-  document.querySelectorAll('#opcoes-pagamento-pedido .opcao-pagamento[data-forma]').forEach((b) => b.classList.remove('selecionada'));
-  document.getElementById('botao-continuar-pagamento').disabled = true;
-  salvarProgressoPedido();
-  mostrarToast('Pagamento via Revolut temporariamente indisponível. Escolha outra forma de pagamento.', 'erro');
+/** Se Revolut ou Transferência estavam selecionados (restaurado do localStorage) e não estão mais disponíveis, obriga nova escolha */
+function invalidarFormaPagamentoSeIndisponivel() {
+  if (estadoPedido.formaPagamento === 'revolut' && !revolutDisponivel()) {
+    estadoPedido.formaPagamento = '';
+    document.querySelectorAll('#opcoes-pagamento-pedido .opcao-pagamento[data-forma]').forEach((b) => b.classList.remove('selecionada'));
+    document.getElementById('botao-continuar-pagamento').disabled = true;
+    salvarProgressoPedido();
+    mostrarToast('Pagamento via Revolut temporariamente indisponível. Escolha outra forma de pagamento.', 'erro');
+    return;
+  }
+
+  if (estadoPedido.formaPagamento === 'transferencia' && !transferenciaDisponivel()) {
+    estadoPedido.formaPagamento = '';
+    document.querySelectorAll('#opcoes-pagamento-pedido .opcao-pagamento[data-forma]').forEach((b) => b.classList.remove('selecionada'));
+    document.getElementById('secao-dados-transferencia').style.display = 'none';
+    document.getElementById('botao-continuar-pagamento').disabled = true;
+    salvarProgressoPedido();
+    mostrarToast('Pagamento via transferência bancária temporariamente indisponível. Escolha outra forma de pagamento.', 'erro');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -485,6 +524,7 @@ function ligarEventosGerais() {
   });
 
   document.getElementById('botao-copiar-codigo-revolut').addEventListener('click', copiarCodigoRevolut);
+  document.getElementById('botao-copiar-iban-confirmacao').addEventListener('click', () => copiarIban('confirmacao'));
 
   ligarEventosRecebimento();
   ligarEventosDadosRetirada();
@@ -1383,9 +1423,13 @@ function ligarEventosPagamento() {
   document.querySelectorAll('#opcoes-pagamento-pedido .opcao-pagamento[data-forma]').forEach((botao) => {
     botao.addEventListener('click', () => {
       // Defesa client-side além do disabled/opacidade visual — cobre inclusive o período em que
-      // business_settings ainda está carregando (revolutDisponivel() já é false nesse momento).
+      // business_settings ainda está carregando (revolutDisponivel()/transferenciaDisponivel() já são false nesse momento).
       if (botao.dataset.forma === 'revolut' && !revolutDisponivel()) {
         mostrarToast('Pagamento via Revolut temporariamente indisponível.', 'erro');
+        return;
+      }
+      if (botao.dataset.forma === 'transferencia' && !transferenciaDisponivel()) {
+        mostrarToast('Pagamento via transferência bancária temporariamente indisponível.', 'erro');
         return;
       }
 
@@ -1395,12 +1439,15 @@ function ligarEventosPagamento() {
       document.querySelectorAll('#opcoes-pagamento-pedido .opcao-pagamento[data-forma]').forEach((b) => b.classList.remove('selecionada'));
       botao.classList.add('selecionada');
       atualizarVisibilidadeSecaoTroco();
+      atualizarVisibilidadeDadosTransferencia();
       document.getElementById('botao-continuar-pagamento').disabled = !pagamentoEstaCompleto();
       salvarProgressoPedido();
     });
   });
 
   ligarEventosTroco();
+
+  document.getElementById('botao-copiar-iban-inline').addEventListener('click', () => copiarIban('inline'));
 
   document.getElementById('botao-continuar-pagamento').addEventListener('click', async () => {
     if (estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro && estadoPedido.dinheiro.precisaTroco) {
@@ -1424,6 +1471,48 @@ function ligarEventosPagamento() {
 /** Mostra/esconde o bloco "Precisa de troco?" conforme a forma de pagamento escolhida */
 function atualizarVisibilidadeSecaoTroco() {
   document.getElementById('secao-troco-dinheiro').style.display = estadoPedido.formaPagamento === 'dinheiro' ? '' : 'none';
+}
+
+/**
+ * Mostra/esconde o painel "Dados para transferência" assim que o cliente seleciona Transferência
+ * Bancária (item 6 do pedido: "mostrar imediatamente"). Preenche a partir de configuracoesNegocio,
+ * já carregado por carregarDisponibilidadeNegocio() — nunca hardcoded, nunca nova consulta.
+ */
+function atualizarVisibilidadeDadosTransferencia() {
+  const secao = document.getElementById('secao-dados-transferencia');
+  if (estadoPedido.formaPagamento !== 'transferencia') {
+    secao.style.display = 'none';
+    return;
+  }
+  secao.style.display = '';
+  document.getElementById('transferencia-beneficiario-inline').textContent = (configuracoesNegocio && configuracoesNegocio.transferenciaBeneficiario) || '—';
+  document.getElementById('transferencia-iban-inline').textContent = (configuracoesNegocio && configuracoesNegocio.transferenciaIban) || '—';
+  document.getElementById('transferencia-bic-inline').textContent = (configuracoesNegocio && configuracoesNegocio.transferenciaBic) || '—';
+}
+
+/**
+ * Copia o IBAN cadastrado em Configurações pro clipboard — reaproveita a mesma utilidade genérica
+ * usada por copiarCodigoRevolut() (js/utils.js). `contexto` é 'inline' (Etapa 5) ou 'confirmacao'
+ * (Etapa 7) — mesmo dado, botões diferentes, cada um com seu próprio feedback temporário.
+ */
+async function copiarIban(contexto) {
+  const iban = (configuracoesNegocio && configuracoesNegocio.transferenciaIban) || '';
+  if (!iban) return;
+
+  const botao = document.getElementById(contexto === 'confirmacao' ? 'botao-copiar-iban-confirmacao' : 'botao-copiar-iban-inline');
+  const rotuloOriginal = botao.textContent;
+
+  try {
+    await copiarTextoParaClipboard(iban);
+    botao.textContent = '✓ IBAN copiado';
+    mostrarToast('IBAN copiado!', 'sucesso');
+  } catch (erro) {
+    mostrarToast('Não foi possível copiar o IBAN. Copie manualmente.', 'erro');
+  } finally {
+    setTimeout(() => {
+      botao.textContent = rotuloOriginal;
+    }, 2000);
+  }
 }
 
 /** Limpa a resposta de troco (usado ao trocar pra uma forma de pagamento diferente de Dinheiro, ou ao reiniciar o pedido) */
@@ -1886,6 +1975,9 @@ async function confirmarPedido() {
     if (ultimoPedidoConfirmado.formaPagamento === 'revolut') {
       renderizarConfirmacaoRevolut(ultimoPedidoConfirmado, config.moeda);
       mostrarToast('Pedido criado! Aguardando confirmação de pagamento.', 'info');
+    } else if (ultimoPedidoConfirmado.formaPagamento === 'transferencia') {
+      renderizarConfirmacaoTransferencia(ultimoPedidoConfirmado, config.moeda);
+      mostrarToast('Pedido criado! Aguardando confirmação de pagamento.', 'info');
     } else {
       renderizarConfirmacao(ultimoPedidoConfirmado, config.moeda);
       mostrarToast('Pedido confirmado!', 'sucesso');
@@ -1915,6 +2007,7 @@ async function confirmarPedido() {
 
 function renderizarConfirmacao(pedido, moeda) {
   document.getElementById('tela-confirmacao-revolut').style.display = 'none';
+  document.getElementById('tela-confirmacao-transferencia').style.display = 'none';
   document.getElementById('tela-confirmacao-padrao').style.display = '';
 
   document.getElementById('numero-pedido-confirmado').textContent = pedido.numero;
@@ -1945,6 +2038,7 @@ function renderizarConfirmacao(pedido, moeda) {
  */
 function renderizarConfirmacaoRevolut(pedido, moeda) {
   document.getElementById('tela-confirmacao-padrao').style.display = 'none';
+  document.getElementById('tela-confirmacao-transferencia').style.display = 'none';
   document.getElementById('tela-confirmacao-revolut').style.display = '';
 
   // Reseta pro estado "aguardando" — importante se o cliente fizer mais de um pedido Revolut na mesma sessão
@@ -1968,6 +2062,41 @@ function renderizarConfirmacaoRevolut(pedido, moeda) {
     assinarConfirmacaoRevolut(pedido.id);
   } else {
     cancelarAssinaturaConfirmacaoRevolut();
+  }
+}
+
+/**
+ * Tela de confirmação específica pra Transferência Bancária — mesmo papel de
+ * renderizarConfirmacaoRevolut(): pedido já existe no banco (payment_status='pending'), mas o
+ * pagamento ainda não foi confirmado por um staff, então nunca mostra "Pagamento confirmado" nem
+ * o texto genérico de renderizarConfirmacao(). Dados bancários vêm de configuracoesNegocio
+ * (já carregado), nunca hardcoded.
+ */
+function renderizarConfirmacaoTransferencia(pedido, moeda) {
+  document.getElementById('tela-confirmacao-padrao').style.display = 'none';
+  document.getElementById('tela-confirmacao-revolut').style.display = 'none';
+  document.getElementById('tela-confirmacao-transferencia').style.display = '';
+
+  // Reseta pro estado "aguardando" — importante se o cliente fizer mais de um pedido por transferência na mesma sessão
+  document.getElementById('transferencia-icone').textContent = '⏳';
+  document.getElementById('transferencia-titulo').textContent = 'Aguardando confirmação de pagamento';
+  document.getElementById('transferencia-instrucao').style.display = '';
+  document.getElementById('transferencia-dados-wrap').style.display = '';
+  document.getElementById('status-pagamento-transferencia').textContent =
+    'Após recebermos o pagamento, confirmaremos seu pedido e ele seguirá para preparo.';
+
+  document.getElementById('numero-pedido-confirmado-transferencia').textContent = pedido.numero;
+  document.getElementById('transferencia-valor-total').textContent = formatarMoeda(pedido.total, moeda);
+
+  document.getElementById('transferencia-beneficiario-confirmacao').textContent = (configuracoesNegocio && configuracoesNegocio.transferenciaBeneficiario) || '—';
+  document.getElementById('transferencia-iban-confirmacao').textContent = (configuracoesNegocio && configuracoesNegocio.transferenciaIban) || '—';
+  document.getElementById('transferencia-bic-confirmacao').textContent = (configuracoesNegocio && configuracoesNegocio.transferenciaBic) || '—';
+
+  // Realtime é só visual — nunca confirma pagamento nem chama a RPC. Mesmo comportamento defensivo de renderizarConfirmacaoRevolut().
+  if (pedido.id) {
+    assinarConfirmacaoTransferencia(pedido.id);
+  } else {
+    cancelarAssinaturaConfirmacaoTransferencia();
   }
 }
 
@@ -2089,8 +2218,44 @@ function exibirPagamentoConfirmadoRevolut() {
   document.getElementById('status-pagamento-revolut').textContent = 'Seu pedido foi recebido e seguirá para preparo.';
 }
 
+/** Mesmo padrão de assinarConfirmacaoRevolut(), canal isolado por pedido, pra Transferência Bancária */
+function assinarConfirmacaoTransferencia(pedidoId) {
+  cancelarAssinaturaConfirmacaoTransferencia();
+  canalConfirmacaoTransferencia = supabaseClient
+    .channel('confirmacao-transferencia-' + pedidoId)
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'orders', filter: 'id=eq.' + pedidoId },
+      (payload) => {
+        if (payload.new && payload.new.payment_status === 'paid') {
+          exibirPagamentoConfirmadoTransferencia();
+        }
+      }
+    )
+    .subscribe();
+}
+
+function cancelarAssinaturaConfirmacaoTransferencia() {
+  if (canalConfirmacaoTransferencia) {
+    supabaseClient.removeChannel(canalConfirmacaoTransferencia);
+    canalConfirmacaoTransferencia = null;
+  }
+}
+
+/** Mesmo padrão de exibirPagamentoConfirmadoRevolut() — nunca muda orders.status, nunca chama RPC */
+function exibirPagamentoConfirmadoTransferencia() {
+  cancelarAssinaturaConfirmacaoTransferencia(); // já confirmado, não precisa mais escutar
+
+  document.getElementById('transferencia-icone').textContent = '✅';
+  document.getElementById('transferencia-titulo').textContent = 'Pagamento confirmado';
+  document.getElementById('transferencia-instrucao').style.display = 'none';
+  document.getElementById('transferencia-dados-wrap').style.display = 'none';
+  document.getElementById('status-pagamento-transferencia').textContent = 'Seu pedido foi recebido e seguirá para preparo.';
+}
+
 function reiniciarPedido() {
   cancelarAssinaturaConfirmacaoRevolut(); // único caminho de saída da etapa "confirmação" — nunca deixa canal órfão
+  cancelarAssinaturaConfirmacaoTransferencia();
   pilhaEtapasPedido = ['cardapio'];
   estadoPedido = estadoPedidoInicial();
   ultimoPedidoConfirmado = null;
@@ -2107,6 +2272,7 @@ function reiniciarPedido() {
     .forEach((b) => b.classList.remove('selecionada'));
   resetarDadosPagamentoDinheiro();
   atualizarVisibilidadeSecaoTroco();
+  atualizarVisibilidadeDadosTransferencia();
   tokenRevalidacaoCupom++; // invalida qualquer aplicar/revalidar de cupom ainda em andamento do pedido anterior
   document.getElementById('campo-cupom-codigo-pedido').value = '';
   document.getElementById('erro-cupom-pedido').textContent = '';
@@ -2127,3 +2293,4 @@ function reiniciarPedido() {
 }
 
 window.addEventListener('beforeunload', cancelarAssinaturaConfirmacaoRevolut);
+window.addEventListener('beforeunload', cancelarAssinaturaConfirmacaoTransferencia);
