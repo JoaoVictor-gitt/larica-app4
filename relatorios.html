@@ -30,6 +30,9 @@
         <input type="date" id="campo-data-relatorio" class="input" />
       </div>
       <button type="button" class="btn btn-secundario" id="botao-hoje-relatorio">Hoje</button>
+      <span class="rd-separador-botoes-exportar"></span>
+      <button type="button" class="btn btn-secundario" id="botao-exportar-pdf" disabled>Exportar PDF</button>
+      <button type="button" class="btn btn-secundario" id="botao-exportar-excel" disabled>Exportar Excel</button>
     </div>
 
     <div class="estado-vazio" id="estado-carregando-relatorio-diario" style="display:none;">Carregando relatório...</div>
@@ -243,6 +246,15 @@
   <script src="js/services/settings-service.js"></script>
   <script src="js/services/orders-service.js"></script>
   <script src="js/app.js"></script>
+
+  <!-- Exportação (Etapa 3) — carregadas via <script> comum, sem bloquear o resto da página se falharem;
+       cada botão confere window.jspdf/window.XLSX antes de tentar gerar (ver js/relatorios-exportacao.js) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/5.0.8/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="js/relatorios-fonte-pdf.js"></script>
+  <script src="js/relatorios-exportacao.js"></script>
+
   <script src="js/relatorios.js"></script>
 </body>
 </html>

@@ -15,6 +15,14 @@
 let fusoHorarioRelatorio = 'Europe/Dublin'; // sobrescrito por business_settings.timezone assim que carregado
 let dataSelecionadaRelatorio = null; // 'yyyy-mm-dd', no fuso do estabelecimento
 
+/**
+ * Fonte única de verdade pro relatório do dia selecionado — preenchido no fim de carregarRelatorioDoDia()
+ * (Etapa 3), depois de todos os cálculos já existentes. Tela, PDF e Excel leem só daqui; nenhum dos três
+ * recalcula nada nem faz consulta própria. null enquanto carrega ou se o carregamento falhar — os botões
+ * de exportação ficam desabilitados nesse período (ver atualizarBotoesExportacao()).
+ */
+let relatorioAtual = null;
+
 // Rótulos compactos pro card "Status dos pagamentos" — distintos de ROTULOS_STATUS_PAGAMENTO (utils.js),
 // que são frases longas pensadas pro contexto de detalhe de um pedido, não pra um resumo compacto do dia.
 const ROTULOS_STATUS_PAGAMENTO_RELATORIO = {
@@ -57,6 +65,15 @@ function ligarEventosRelatorio() {
     document.getElementById('campo-data-relatorio').value = dataSelecionadaRelatorio;
     carregarRelatorioDoDia(dataSelecionadaRelatorio);
   });
+
+  document.getElementById('botao-exportar-pdf').addEventListener('click', () => exportarRelatorioPdf(relatorioAtual));
+  document.getElementById('botao-exportar-excel').addEventListener('click', () => exportarRelatorioExcel(relatorioAtual));
+}
+
+/** Habilita/desabilita os 2 botões de exportação — só ficam ativos quando há um relatório carregado com sucesso */
+function atualizarBotoesExportacao(habilitado) {
+  document.getElementById('botao-exportar-pdf').disabled = !habilitado;
+  document.getElementById('botao-exportar-excel').disabled = !habilitado;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +133,8 @@ async function carregarRelatorioDoDia(yyyyMmDd) {
   erro.style.display = 'none';
   conteudo.style.display = 'none';
   carregando.style.display = 'block';
+  relatorioAtual = null;
+  atualizarBotoesExportacao(false);
 
   try {
     const { desdeUtc, ateUtc } = limitesUtcDoDia(yyyyMmDd, fusoHorarioRelatorio);
@@ -156,6 +175,21 @@ async function carregarRelatorioDoDia(yyyyMmDd) {
     renderizarConsumoCombos(consumoCombos);
     renderizarAcrescimosCombos(acrescimosCombos);
     renderizarCuponsUtilizados(cuponsUtilizados);
+
+    // Etapa 3 — fonte única de verdade pra exportação (PDF/Excel). Mesmos objetos já calculados e já
+    // renderizados na tela, nenhum recálculo, nenhuma consulta nova. resumo já traz totalCancelamentos/
+    // valorHistoricoCancelado, não precisa de um array de cancelados separado aqui.
+    relatorioAtual = {
+      data: yyyyMmDd,
+      resumo,
+      produtosVendidos,
+      combosVendidos,
+      consumoCombos,
+      acrescimosCombos,
+      vendasPorCategoria,
+      cuponsUtilizados,
+    };
+    atualizarBotoesExportacao(true);
 
     carregando.style.display = 'none';
     conteudo.style.display = '';

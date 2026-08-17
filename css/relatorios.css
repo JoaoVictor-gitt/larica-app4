@@ -19,6 +19,26 @@
   max-width: 220px;
 }
 
+/* Separador visual entre "Hoje" e os botões de exportação — só uma quebra de grupo, sem borda pesada */
+.rd-separador-botoes-exportar {
+  width: 1px;
+  align-self: stretch;
+  background: var(--cor-borda);
+  min-height: 24px;
+}
+
+@media (max-width: 480px) {
+  .rd-separador-botoes-exportar {
+    display: none;
+  }
+}
+
+#botao-exportar-pdf:disabled,
+#botao-exportar-excel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Card de Cancelamentos — mesmo tom "informativo" já usado no Fechamento do Dashboard, pra nunca ser confundido com faturamento */
 .cartao-kpi-cancelamentos {
   border: 1px dashed var(--cor-borda);
