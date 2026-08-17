@@ -203,6 +203,26 @@
   white-space: nowrap;
 }
 
+/* Meta de Preparo/SLA (Etapa 3) — discreto, nunca um painel de alerta agressivo (item 14):
+   "Dentro da meta" em verde sutil, "Fora"/"Acima da meta" em laranja, sem vermelho crítico. */
+.badge-meta-preparo {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 0.64rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.badge-meta-dentro {
+  color: var(--cor-status-verde);
+}
+
+.badge-meta-fora {
+  color: var(--cor-status-amarelo);
+}
+
 .card-pedido-tempo-secundario {
   grid-column: 1 / -1;
   flex-direction: row;

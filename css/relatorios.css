@@ -84,3 +84,22 @@
   border: 1px solid var(--cor-status-amarelo);
   color: var(--cor-status-amarelo);
 }
+
+/* Tempo de Preparo, Etapa 2 — Desempenho dos pedidos */
+
+.grade-kpis-desempenho {
+  margin: var(--espaco-sm) 0 var(--espaco-md);
+}
+
+/* Meta de Preparo/SLA, Etapa 3 — cores discretas (item 14), nunca um painel de alerta */
+.grade-kpis-meta-preparo {
+  margin-top: var(--espaco-md);
+}
+
+.cartao-kpi-meta-dentro {
+  border-left: 3px solid var(--cor-status-verde);
+}
+
+.cartao-kpi-meta-fora {
+  border-left: 3px solid var(--cor-status-amarelo);
+}

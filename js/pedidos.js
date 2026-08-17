@@ -21,6 +21,11 @@ let audioContextPedidos = null;
 // Cancelamento de pedido (Fase 7) — id do pedido atualmente aberto no modal de cancelamento
 let pedidoCancelamentoId = null;
 
+// Meta de Preparo/SLA (Etapa 3) — carregada 1x em init(), nunca por pedido. null enquanto não carrega
+// (ou se a leitura falhar) — nesse caso os indicadores de meta simplesmente não aparecem nos cards,
+// sem quebrar o resto da tela (ver calcularTemposPedido()).
+let metaPreparoMinutos = null;
+
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
@@ -44,6 +49,14 @@ async function init() {
   }
 
   if (!sucesso) return;
+
+  // Meta de preparo — carregamento independente do resto (uma falha aqui não pode derrubar o
+  // Kanban); coluna própria fora da lista pública de business_settings (ver settings-service.js).
+  try {
+    metaPreparoMinutos = await buscarMetaPreparoDoSupabase();
+  } catch (erroMeta) {
+    console.error('Não foi possível carregar a meta de preparo:', erroMeta);
+  }
 
   kanban.style.display = '';
   renderizarQuadroPedidos();
@@ -377,33 +390,61 @@ function diferencaSegundos(inicioIso, fimIso) {
  * cada chamada, nunca gravado; ready/completed usam só timestamps fechados do banco, nunca mais mudam.
  * Não é chamado para pedido cancelado (a coluna Kanban nunca renderiza cancelados, ver
  * renderizarQuadroPedidos) — decisão deliberada de não criar UI especial de cancelamento nesta etapa.
+ *
+ * `dentroDaMeta` (Etapa 3 — Meta/SLA): null se a meta não carregou ou o preparo ainda não tem valor
+ * (requested, item 16: meta nunca se aplica antes de accepted_at); caso contrário, compara o `preparo`
+ * calculado acima (sempre accepted_at-based, nunca created_at-based) contra metaPreparoMinutos*60 — pra
+ * preparing é dinâmico (mesmo timer de renderizarQuadroPedidos, sem setInterval novo); pra ready/
+ * completed é o valor histórico fechado.
  */
 function calcularTemposPedido(pedido) {
   const agoraIso = new Date().toISOString();
 
   if (pedido.status === STATUS_PEDIDO.SOLICITADO) {
-    return { espera: diferencaSegundos(pedido.criadoEm, agoraIso), preparo: null, ateFicarPronto: null, ateFinalizar: null };
+    return { espera: diferencaSegundos(pedido.criadoEm, agoraIso), preparo: null, ateFicarPronto: null, ateFinalizar: null, dentroDaMeta: null };
   }
 
   if (pedido.status === STATUS_PEDIDO.EM_PREPARO) {
+    const preparo = diferencaSegundos(pedido.aceitoEm, agoraIso);
     return {
       espera: diferencaSegundos(pedido.criadoEm, pedido.aceitoEm),
-      preparo: diferencaSegundos(pedido.aceitoEm, agoraIso),
+      preparo,
       ateFicarPronto: null,
       ateFinalizar: null,
+      dentroDaMeta: metaPreparoMinutos !== null && preparo !== null ? preparo <= metaPreparoMinutos * 60 : null,
     };
   }
 
   if (pedido.status === STATUS_PEDIDO.PRONTO || pedido.status === STATUS_PEDIDO.FINALIZADO) {
+    const preparo = diferencaSegundos(pedido.aceitoEm, pedido.prontoEm);
     return {
       espera: diferencaSegundos(pedido.criadoEm, pedido.aceitoEm),
-      preparo: diferencaSegundos(pedido.aceitoEm, pedido.prontoEm),
+      preparo,
       ateFicarPronto: diferencaSegundos(pedido.criadoEm, pedido.prontoEm),
       ateFinalizar: pedido.status === STATUS_PEDIDO.FINALIZADO ? diferencaSegundos(pedido.criadoEm, pedido.finalizadoEm) : null,
+      dentroDaMeta: metaPreparoMinutos !== null && preparo !== null ? preparo <= metaPreparoMinutos * 60 : null,
     };
   }
 
-  return { espera: null, preparo: null, ateFicarPronto: null, ateFinalizar: null };
+  return { espera: null, preparo: null, ateFicarPronto: null, ateFinalizar: null, dentroDaMeta: null };
+}
+
+/**
+ * Indicador discreto de meta ao lado do valor de Preparo (item 15/17). Em preparing: só aparece
+ * quando JÁ passou da meta ("Acima da meta") — dentro da meta fica silencioso, sem alerta. Em ready/
+ * completed: sempre mostra o resultado histórico fechado ("Dentro"/"Fora da meta"). Puramente visual —
+ * não bloqueia status, não grava nada no banco.
+ */
+function badgeMetaPreparoHtml(pedido, tempos) {
+  if (tempos.dentroDaMeta === null) return '';
+
+  if (pedido.status === STATUS_PEDIDO.EM_PREPARO) {
+    return tempos.dentroDaMeta ? '' : '<span class="badge-meta-preparo badge-meta-fora">Acima da meta</span>';
+  }
+
+  return tempos.dentroDaMeta
+    ? '<span class="badge-meta-preparo badge-meta-dentro">Dentro da meta</span>'
+    : '<span class="badge-meta-preparo badge-meta-fora">Fora da meta</span>';
 }
 
 /** Bloco compacto "⏱ Tempos" do card — Espera/Preparo/Até pronto sempre; Até finalizar só quando finalizado e calculável */
@@ -426,6 +467,7 @@ function blocoTemposPedidoHtml(pedido) {
       <div class="card-pedido-tempo-item">
         <span class="card-pedido-tempo-rotulo">Preparo</span>
         <span class="card-pedido-tempo-valor">${formatarDuracao(t.preparo)}</span>
+        ${badgeMetaPreparoHtml(pedido, t)}
       </div>
       <div class="card-pedido-tempo-item">
         <span class="card-pedido-tempo-rotulo">Até pronto</span>

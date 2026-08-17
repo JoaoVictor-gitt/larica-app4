@@ -134,6 +134,70 @@
         </p>
       </div>
 
+      <!-- Tempo de Preparo, Etapa 2 — Desempenho dos pedidos -->
+      <div class="card rd-secao-detalhamento">
+        <h2 class="titulo-grafico">Desempenho dos pedidos</h2>
+        <p class="texto-informativo-fechamento">Baseado nos horários reais registrados em cada pedido (aceito/pronto) — pedidos cancelados ficam fora; pedidos ainda em andamento não entram nas médias de etapas que ainda não concluíram.</p>
+
+        <div class="grade-kpis-operacionais grade-kpis-desempenho">
+          <div class="card cartao-dashboard cartao-kpi-operacional">
+            <span class="cartao-dashboard-icone">⏳</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Espera média</span>
+              <span class="cartao-dashboard-valor" id="rd-espera-media">—</span>
+            </div>
+          </div>
+          <div class="card cartao-dashboard cartao-kpi-operacional">
+            <span class="cartao-dashboard-icone">🔥</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Preparo médio</span>
+              <span class="cartao-dashboard-valor" id="rd-preparo-medio">—</span>
+            </div>
+          </div>
+          <div class="card cartao-dashboard cartao-kpi-operacional">
+            <span class="cartao-dashboard-icone">⏱</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Até ficar pronto</span>
+              <span class="cartao-dashboard-valor" id="rd-ate-pronto-medio">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="lista-resumo-relatorio" id="rd-lista-desempenho-detalhes"></div>
+
+        <!-- Meta de Preparo/SLA (Etapa 3) -->
+        <div class="grade-kpis-operacionais grade-kpis-meta-preparo">
+          <div class="card cartao-dashboard cartao-kpi-operacional">
+            <span class="cartao-dashboard-icone">🎯</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Meta de preparo</span>
+              <span class="cartao-dashboard-valor" id="rd-meta-preparo">—</span>
+            </div>
+          </div>
+          <div class="card cartao-dashboard cartao-kpi-operacional cartao-kpi-meta-dentro">
+            <span class="cartao-dashboard-icone">✅</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Dentro da meta</span>
+              <span class="cartao-dashboard-valor" id="rd-dentro-da-meta">—</span>
+            </div>
+          </div>
+          <div class="card cartao-dashboard cartao-kpi-operacional cartao-kpi-meta-fora">
+            <span class="cartao-dashboard-icone">⚠</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Fora da meta</span>
+              <span class="cartao-dashboard-valor" id="rd-fora-da-meta">—</span>
+            </div>
+          </div>
+          <div class="card cartao-dashboard cartao-kpi-operacional">
+            <span class="cartao-dashboard-icone">📊</span>
+            <div>
+              <span class="cartao-dashboard-rotulo">Atingimento</span>
+              <span class="cartao-dashboard-valor" id="rd-percentual-meta">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="grade-graficos-dashboard">
         <div class="card">
           <h2 class="titulo-grafico">Formas de pagamento</h2>

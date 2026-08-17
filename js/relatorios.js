@@ -23,6 +23,12 @@ let dataSelecionadaRelatorio = null; // 'yyyy-mm-dd', no fuso do estabelecimento
  */
 let relatorioAtual = null;
 
+// Meta de Preparo/SLA (Etapa 3) — carregada 1x aqui, nunca reconsultada por dia/render. Coluna própria
+// (preparation_target_minutes), fora da lista pública de business_settings (ver settings-service.js) —
+// por isso uma segunda chamada além de buscarConfiguracoesNegocioDoSupabase(), não uma reconsulta da
+// mesma coisa. null se falhar — o relatório continua funcionando, só sem os indicadores de meta.
+let metaPreparoMinutosRelatorio = null;
+
 // Rótulos compactos pro card "Status dos pagamentos" — distintos de ROTULOS_STATUS_PAGAMENTO (utils.js),
 // que são frases longas pensadas pro contexto de detalhe de um pedido, não pra um resumo compacto do dia.
 const ROTULOS_STATUS_PAGAMENTO_RELATORIO = {
@@ -46,6 +52,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     // erro do que arriscar um relatório com data errada por causa de um fuso presumido.
     exibirErroRelatorio('Não foi possível carregar as configurações do estabelecimento. ' + erro.message);
     return;
+  }
+
+  // Independente do bloco acima — uma falha aqui não pode impedir o resto do relatório de carregar,
+  // só deixa os indicadores de meta ausentes ("—").
+  try {
+    metaPreparoMinutosRelatorio = await buscarMetaPreparoDoSupabase();
+  } catch (erroMeta) {
+    console.error('Não foi possível carregar a meta de preparo:', erroMeta);
   }
 
   dataSelecionadaRelatorio = hojeNoFuso(fusoHorarioRelatorio);
@@ -174,6 +188,11 @@ async function carregarRelatorioDoDia(yyyyMmDd) {
     const cuponsUtilizados = calcularCuponsUtilizados(pedidos);
     const resumoCustoMargem = calcularResumoCustoMargem(itens, cmvPorItemCombo, resumo);
 
+    // Tempo de Preparo, Etapa 2/3 — usa só `pedidos` (já sem cancelados), nenhuma consulta nova: os 3
+    // timestamps (accepted_at/ready_at/completed_at) já vêm dentro de getOrdersForReport(); a meta
+    // (metaPreparoMinutosRelatorio) já foi carregada 1x no DOMContentLoaded.
+    const desempenho = calcularDesempenhoPedidos(pedidos, metaPreparoMinutosRelatorio);
+
     verificarReconciliacoes({
       resumo,
       itens,
@@ -183,9 +202,11 @@ async function carregarRelatorioDoDia(yyyyMmDd) {
       cuponsUtilizados,
       descontoPorItemId,
       resumoCustoMargem,
+      desempenho,
     });
 
     renderizarRelatorioDiario(resumo, resumoCustoMargem);
+    renderizarDesempenhoPedidos(desempenho);
     renderizarVendasPorCategoria(vendasPorCategoria);
     renderizarProdutosVendidos(produtosVendidos);
     renderizarCombosVendidos(combosVendidos);
@@ -200,6 +221,7 @@ async function carregarRelatorioDoDia(yyyyMmDd) {
       data: yyyyMmDd,
       resumo,
       resumoCustoMargem,
+      desempenho,
       produtosVendidos,
       combosVendidos,
       consumoCombos,
@@ -505,6 +527,158 @@ function calcularCuponsUtilizados(pedidos) {
 }
 
 // ---------------------------------------------------------------------------
+// Tempo de Preparo, Etapa 2 — Desempenho dos pedidos (cálculo, funções puras sem I/O)
+//
+// Regra de ouro: usa exclusivamente os timestamps HISTÓRICOS gravados pela RPC
+// update_order_status (created_at/accepted_at/ready_at/completed_at) — nunca "agora". "Agora - X" é
+// exclusivo da tela operacional Pedidos (pedidos.js), onde o pedido ainda está em andamento; aqui o
+// relatório é sempre retrospectivo. `pedidos` já vem sem cancelados (mesmo array reaproveitado em todo
+// o resto do arquivo) — cancelado nunca entra em nenhuma métrica desta seção.
+// ---------------------------------------------------------------------------
+
+/**
+ * Duração histórica válida em segundos entre dois timestamps do banco, ou null se algum estiver
+ * ausente, inválido, ou se `fimIso` vier antes de `inicioIso` — nesse caso um console.warn identifica
+ * o pedido e a etapa (item 14 do pedido), sem quebrar o relatório. Mesma lógica de diferencaSegundos()
+ * em js/pedidos.js, mantida separada de propósito: são páginas independentes, sem carregamento
+ * cruzado, e a única peça realmente compartilhada entre as duas (formatarDuracao) já vive em utils.js.
+ */
+function duracaoValidaSegundos(inicioIso, fimIso, numeroPedido, rotuloEtapa) {
+  if (!inicioIso || !fimIso) return null;
+  const inicio = new Date(inicioIso).getTime();
+  const fim = new Date(fimIso).getTime();
+  if (isNaN(inicio) || isNaN(fim)) return null;
+
+  const diffSegundos = (fim - inicio) / 1000;
+  if (diffSegundos < 0) {
+    console.warn(`[Relatório Diário] Timestamp inconsistente no pedido ${numeroPedido} — ${rotuloEtapa}: fim anterior ao início.`);
+    return null;
+  }
+  return diffSegundos;
+}
+
+/** true quando created_at <= accepted_at <= ready_at, todos presentes e válidos (item 12 do pedido) */
+function pedidoTemMedicaoCompleta(pedido) {
+  if (!pedido.criadoEm || !pedido.aceitoEm || !pedido.prontoEm) return false;
+  const criado = new Date(pedido.criadoEm).getTime();
+  const aceito = new Date(pedido.aceitoEm).getTime();
+  const pronto = new Date(pedido.prontoEm).getTime();
+  if (isNaN(criado) || isNaN(aceito) || isNaN(pronto)) return false;
+  return criado <= aceito && aceito <= pronto;
+}
+
+/**
+ * Desempenho operacional do dia — cada média tem seu próprio denominador (item 16: nunca dividido pelo
+ * total de pedidos do dia, só pela quantidade de pedidos com aquela etapa concluída). "Mais rápido"/
+ * "mais demorado" usam SEMPRE accepted_at->ready_at (tempo efetivo de preparo, nunca created_at->
+ * ready_at, que misturaria espera com preparo — item 9/10), com desempate pelo menor order_number
+ * (item 11). Soma feita com a duração real de cada pedido, arredondamento só na formatação (item 17).
+ *
+ * Meta de Preparo/SLA (Etapa 3): `metaPreparoMinutos` (ou null, se não carregou) — elegibilidade pra
+ * meta é EXATAMENTE a mesma população de "preparo válido" (accepted_at→ready_at, item 10 do pedido),
+ * então é calculada no mesmo laço, sem uma segunda passada. "Dentro" quando preparo <= meta (item 11,
+ * empate na hora exata conta como dentro). Percentual fica null (renderizado "—") se a meta não
+ * carregou ou não há pedido elegível — nunca 0% (item 12).
+ */
+function calcularDesempenhoPedidos(pedidos, metaPreparoMinutos) {
+  let somaEspera = 0;
+  let qtdEspera = 0;
+  let somaPreparo = 0;
+  let qtdPreparo = 0;
+  let somaAteProto = 0;
+  let qtdAteProto = 0;
+  let somaAteFinalizar = 0;
+  let qtdAteFinalizar = 0;
+  let pedidosComMedicaoCompleta = 0;
+  let pedidosDentroDaMeta = 0;
+  let pedidosForaDaMeta = 0;
+
+  const metaSegundos = metaPreparoMinutos !== null && metaPreparoMinutos !== undefined ? metaPreparoMinutos * 60 : null;
+
+  let pedidoMaisRapido = null;
+  let pedidoMaisDemorado = null;
+
+  pedidos.forEach((p) => {
+    const espera = duracaoValidaSegundos(p.criadoEm, p.aceitoEm, p.numero, 'espera (created_at→accepted_at)');
+    if (espera !== null) {
+      somaEspera += espera;
+      qtdEspera += 1;
+    }
+
+    const preparo = duracaoValidaSegundos(p.aceitoEm, p.prontoEm, p.numero, 'preparo (accepted_at→ready_at)');
+    if (preparo !== null) {
+      somaPreparo += preparo;
+      qtdPreparo += 1;
+
+      if (
+        pedidoMaisRapido === null ||
+        preparo < pedidoMaisRapido.segundos ||
+        (preparo === pedidoMaisRapido.segundos && p.orderNumber < pedidoMaisRapido.orderNumber)
+      ) {
+        pedidoMaisRapido = { numero: p.numero, orderNumber: p.orderNumber, segundos: preparo };
+      }
+      if (
+        pedidoMaisDemorado === null ||
+        preparo > pedidoMaisDemorado.segundos ||
+        (preparo === pedidoMaisDemorado.segundos && p.orderNumber < pedidoMaisDemorado.orderNumber)
+      ) {
+        pedidoMaisDemorado = { numero: p.numero, orderNumber: p.orderNumber, segundos: preparo };
+      }
+
+      if (metaSegundos !== null) {
+        if (preparo <= metaSegundos) pedidosDentroDaMeta += 1;
+        else pedidosForaDaMeta += 1;
+      }
+    }
+
+    const ateProto = duracaoValidaSegundos(p.criadoEm, p.prontoEm, p.numero, 'até pronto (created_at→ready_at)');
+    if (ateProto !== null) {
+      somaAteProto += ateProto;
+      qtdAteProto += 1;
+    }
+
+    const ateFinalizar = duracaoValidaSegundos(p.criadoEm, p.finalizadoEm, p.numero, 'até finalizar (created_at→completed_at)');
+    if (ateFinalizar !== null) {
+      somaAteFinalizar += ateFinalizar;
+      qtdAteFinalizar += 1;
+    }
+
+    if (pedidoTemMedicaoCompleta(p)) pedidosComMedicaoCompleta += 1;
+  });
+
+  // Em andamento (item 13): requested/preparing/ready — completed é encerrado. Cancelado já não está
+  // em `pedidos`, então basta excluir finalizado do que sobrou.
+  const pedidosEmAndamento = pedidos.filter((p) => p.status !== STATUS_PEDIDO.FINALIZADO).length;
+
+  // pedidosElegiveisParaMeta é a mesma população de qtdPedidosPreparo — mesmo critério, sem recalcular.
+  const pedidosElegiveisParaMeta = qtdPreparo;
+  const percentualDentroDaMeta =
+    metaSegundos !== null && pedidosElegiveisParaMeta > 0 ? (pedidosDentroDaMeta / pedidosElegiveisParaMeta) * 100 : null;
+
+  return {
+    esperaMediaSegundos: qtdEspera > 0 ? somaEspera / qtdEspera : null,
+    qtdPedidosEspera: qtdEspera,
+    preparoMedioSegundos: qtdPreparo > 0 ? somaPreparo / qtdPreparo : null,
+    qtdPedidosPreparo: qtdPreparo,
+    ateProntoMedioSegundos: qtdAteProto > 0 ? somaAteProto / qtdAteProto : null,
+    qtdPedidosAteProto: qtdAteProto,
+    ateFinalizarMedioSegundos: qtdAteFinalizar > 0 ? somaAteFinalizar / qtdAteFinalizar : null,
+    qtdPedidosAteFinalizar: qtdAteFinalizar,
+    pedidoMaisRapido,
+    pedidoMaisDemorado,
+    pedidosComMedicaoCompleta,
+    totalPedidosElegiveis: pedidos.length,
+    pedidosEmAndamento,
+    // Meta de Preparo/SLA (Etapa 3)
+    metaPreparoMinutos: metaPreparoMinutos !== null && metaPreparoMinutos !== undefined ? metaPreparoMinutos : null,
+    pedidosDentroDaMeta,
+    pedidosForaDaMeta,
+    pedidosElegiveisParaMeta,
+    percentualDentroDaMeta,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Etapa 3 — CMV / Lucro bruto / Margem bruta (cálculo, funções puras sem I/O)
 //
 // Regra de ouro (histórico): CMV usa exclusivamente order_items.unit_cost_snapshot/
@@ -653,6 +827,7 @@ function verificarReconciliacoes({
   cuponsUtilizados,
   descontoPorItemId,
   resumoCustoMargem,
+  desempenho,
 }) {
   const EPSILON = 0.01;
   const diverge = (a, b) => Math.abs(a - b) > EPSILON;
@@ -767,6 +942,67 @@ function verificarReconciliacoes({
       somaLucroProdutosECombos - resumoCustoMargem.lucroBruto
     );
   }
+
+  // I) pedidosComMedicaoCompleta <= totalPedidosElegiveis (Tempo de Preparo, item 28 do pedido)
+  if (desempenho.pedidosComMedicaoCompleta > desempenho.totalPedidosElegiveis) {
+    console.warn(
+      '[Relatório Diário] Reconciliação I divergente — pedidosComMedicaoCompleta =',
+      desempenho.pedidosComMedicaoCompleta,
+      'maior que totalPedidosElegiveis =',
+      desempenho.totalPedidosElegiveis
+    );
+  }
+
+  // J) quantidade usada no preparo médio <= quantidade com espera válida (proxy de "accepted_at válido")
+  if (desempenho.qtdPedidosPreparo > desempenho.qtdPedidosEspera) {
+    console.warn(
+      '[Relatório Diário] Reconciliação J divergente — qtdPedidosPreparo =',
+      desempenho.qtdPedidosPreparo,
+      'maior que qtdPedidosEspera =',
+      desempenho.qtdPedidosEspera
+    );
+  }
+
+  // K) mais rápido <= mais demorado (quando ambos existem)
+  if (
+    desempenho.pedidoMaisRapido &&
+    desempenho.pedidoMaisDemorado &&
+    desempenho.pedidoMaisRapido.segundos > desempenho.pedidoMaisDemorado.segundos
+  ) {
+    console.warn(
+      '[Relatório Diário] Reconciliação K divergente — pedido mais rápido (',
+      desempenho.pedidoMaisRapido.segundos,
+      's) maior que o mais demorado (',
+      desempenho.pedidoMaisDemorado.segundos,
+      's)'
+    );
+  }
+
+  // L) nenhuma duração agregada de desempenho é negativa (defensivo — duracaoValidaSegundos já nunca
+  // deixa um valor negativo entrar nas somas, mas confere o resultado final também)
+  [
+    ['esperaMediaSegundos', desempenho.esperaMediaSegundos],
+    ['preparoMedioSegundos', desempenho.preparoMedioSegundos],
+    ['ateProntoMedioSegundos', desempenho.ateProntoMedioSegundos],
+    ['ateFinalizarMedioSegundos', desempenho.ateFinalizarMedioSegundos],
+  ].forEach(([nome, valor]) => {
+    if (valor !== null && valor < 0) {
+      console.warn('[Relatório Diário] Reconciliação L divergente —', nome, 'negativo:', valor);
+    }
+  });
+
+  // M) Dentro + Fora da meta === pedidosElegiveisParaMeta, quando a meta carregou (Meta/SLA, Etapa 3)
+  if (
+    desempenho.metaPreparoMinutos !== null &&
+    desempenho.pedidosDentroDaMeta + desempenho.pedidosForaDaMeta !== desempenho.pedidosElegiveisParaMeta
+  ) {
+    console.warn(
+      '[Relatório Diário] Reconciliação M divergente — Dentro + Fora da meta =',
+      desempenho.pedidosDentroDaMeta + desempenho.pedidosForaDaMeta,
+      'vs. pedidosElegiveisParaMeta =',
+      desempenho.pedidosElegiveisParaMeta
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -796,6 +1032,49 @@ function renderizarCustoMargem(rcm) {
   document.getElementById('rd-margem-bruta').textContent = rcm.margemBruta === null ? '—' : `${rcm.margemBruta.toFixed(1)}%`;
 
   document.getElementById('rd-aviso-custos-incompletos').style.display = rcm.custosCompletos ? 'none' : '';
+}
+
+/**
+ * Seção "Desempenho dos pedidos" (Tempo de Preparo, Etapa 2). Os 3 cards principais usam
+ * formatarDuracao() (js/utils.js, criada na Etapa 1 da mesma feature) — nenhuma formatação de duração
+ * duplicada aqui. "—" sempre que a média não tiver denominador (nenhum pedido concluiu aquela etapa).
+ */
+function renderizarDesempenhoPedidos(d) {
+  document.getElementById('rd-espera-media').textContent = formatarDuracao(d.esperaMediaSegundos);
+  document.getElementById('rd-preparo-medio').textContent = formatarDuracao(d.preparoMedioSegundos);
+  document.getElementById('rd-ate-pronto-medio').textContent = formatarDuracao(d.ateProntoMedioSegundos);
+
+  const linha = (rotulo, valor) => `<div class="linha-resumo"><span>${rotulo}</span><span>${valor}</span></div>`;
+
+  const linhas = [
+    linha('⚡ Mais rápido', d.pedidoMaisRapido ? `${escaparHtml(d.pedidoMaisRapido.numero)} · ${formatarDuracao(d.pedidoMaisRapido.segundos)}` : '—'),
+    linha(
+      '🐢 Mais demorado',
+      d.pedidoMaisDemorado ? `${escaparHtml(d.pedidoMaisDemorado.numero)} · ${formatarDuracao(d.pedidoMaisDemorado.segundos)}` : '—'
+    ),
+    linha('📊 Medição completa', `${d.pedidosComMedicaoCompleta} de ${d.totalPedidosElegiveis}`),
+    linha('Pedidos ainda em andamento', String(d.pedidosEmAndamento)),
+  ];
+
+  if (d.ateFinalizarMedioSegundos !== null) {
+    linhas.push(linha('Até finalizar (secundário)', formatarDuracao(d.ateFinalizarMedioSegundos)));
+  }
+
+  document.getElementById('rd-lista-desempenho-detalhes').innerHTML = linhas.join('');
+
+  renderizarMetaPreparo(d);
+}
+
+/**
+ * Meta de Preparo/SLA (Etapa 3, item 9/12/13). Meta "—" se não carregou. Percentual "—" (nunca 0%)
+ * quando a meta não carregou ou não há pedido elegível — nunca um número enganoso.
+ */
+function renderizarMetaPreparo(d) {
+  document.getElementById('rd-meta-preparo').textContent = d.metaPreparoMinutos !== null ? `${d.metaPreparoMinutos} min` : '—';
+  document.getElementById('rd-dentro-da-meta').textContent = String(d.pedidosDentroDaMeta);
+  document.getElementById('rd-fora-da-meta').textContent = String(d.pedidosForaDaMeta);
+  document.getElementById('rd-percentual-meta').textContent =
+    d.percentualDentroDaMeta === null ? '—' : `${d.percentualDentroDaMeta.toFixed(1)}%`;
 }
 
 function renderizarCardsFinanceiros(resumo) {

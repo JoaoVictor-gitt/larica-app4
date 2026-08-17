@@ -16,6 +16,14 @@ const BUSINESS_SETTINGS_COLUNAS_PUBLICAS =
   'id, orders_enabled, closed_message, delivery_enabled, collection_enabled, delivery_minimum_fee, delivery_minimum_distance_km, delivery_price_per_km, delivery_max_distance_km, delivery_origin_lat, delivery_origin_lng, timezone, updated_at, revolut_enabled, revolut_qr_path, revolut_payment_code, bank_transfer_enabled, bank_transfer_beneficiary, bank_transfer_iban, bank_transfer_bic';
 const BUSINESS_HOURS_COLUNAS_PUBLICAS = 'day_of_week, enabled, opening_time, closing_time, updated_at';
 
+// preparation_target_minutes (Tempo de Preparo, Etapa 3) — DELIBERADAMENTE fora de
+// BUSINESS_SETTINGS_COLUNAS_PUBLICAS: essa lista é lida tanto pelo admin quanto pelo checkout público
+// (js/pedido.js chama buscarConfiguracoesNegocioDoSupabase()), e a coluna não tem GRANT a anon (só
+// authenticated, ver migration 20260817150000) — colocá-la na lista pública derrubaria a consulta
+// inteira pro cliente anônimo. Por isso uma consulta própria, bem menor, usada só pelas páginas admin
+// (Pedidos, Relatórios, Configurações) — nunca por pedido.html.
+const BUSINESS_SETTINGS_COLUNA_META_PREPARO = 'id, preparation_target_minutes';
+
 function _linhaSupabaseParaConfiguracaoNegocio(linha) {
   return {
     pedidosAtivos: linha.orders_enabled,
@@ -103,6 +111,39 @@ async function atualizarConfiguracoesNegocioNoSupabase(config) {
     .single();
   if (error) throw new Error(error.message);
   return _linhaSupabaseParaConfiguracaoNegocio(data);
+}
+
+// ---------------------------------------------------------------------------
+// Meta de Preparo / SLA (Tempo de Preparo, Etapa 3) — business_settings.
+// preparation_target_minutes, coluna administrativa própria (fora da lista pública lida
+// pelo checkout, ver nota acima). Policies reais confirmadas no Supabase: SELECT/INSERT/
+// UPDATE de business_settings usam `authenticated + is_staff()` — sem distinção admin/
+// employee nessa tabela. Por isso não há checagem de admin nem aqui nem na UI
+// (configuracoes.js): qualquer staff autenticado pode ler e gravar esta coluna,
+// exatamente como já podia com as demais colunas de business_settings.
+// ---------------------------------------------------------------------------
+
+/** Meta de preparo em minutos (número inteiro) — administrativa, nunca lida pelo checkout público. */
+async function buscarMetaPreparoDoSupabase() {
+  const { data, error } = await supabaseClient.from('business_settings').select(BUSINESS_SETTINGS_COLUNA_META_PREPARO).eq('id', 1).single();
+  if (error) throw new Error(error.message);
+  return Number(data.preparation_target_minutes) || 0;
+}
+
+/**
+ * Atualiza só a meta de preparo — nunca envia o restante da linha (mesmo cuidado já usado em
+ * Revolut/Transferência: um UPDATE parcial explícito, nunca arriscando zerar outro campo por engano).
+ * RLS (authenticated + is_staff()) é a barreira real — qualquer staff autenticado pode chamar isto.
+ */
+async function atualizarMetaPreparoNoSupabase(minutos) {
+  const { data, error } = await supabaseClient
+    .from('business_settings')
+    .update({ preparation_target_minutes: minutos })
+    .eq('id', 1)
+    .select(BUSINESS_SETTINGS_COLUNA_META_PREPARO)
+    .single();
+  if (error) throw new Error(error.message);
+  return Number(data.preparation_target_minutes) || 0;
 }
 
 // ---------------------------------------------------------------------------

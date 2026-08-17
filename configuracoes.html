@@ -80,6 +80,14 @@
         </span>
         <span class="config-card-seta">→</span>
       </button>
+      <button type="button" class="config-card" data-config-abrir="preparo">
+        <span class="config-card-icone">⏱</span>
+        <span class="config-card-texto">
+          <strong>Tempo de preparo</strong>
+          <span>Defina a meta de preparo usada no Relatório Diário</span>
+        </span>
+        <span class="config-card-seta">→</span>
+      </button>
     </div>
 
     <!-- Aparência: moeda + tema — preferências locais, continuam em localStorage -->
@@ -349,6 +357,31 @@
             <button type="submit" class="btn btn-primario">Salvar horários</button>
           </div>
         </form>
+      </div>
+      </section>
+
+      <!-- Tempo de preparo (Meta/SLA) -->
+      <section class="config-secao" data-config-secao="preparo">
+      <button type="button" class="config-botao-voltar" data-config-voltar>← Voltar para Configurações</button>
+      <div class="card" style="max-width:520px;">
+        <h2 class="titulo-grafico" style="margin-top:0;">Tempo de preparo</h2>
+
+        <div class="estado-vazio" id="estado-carregando-meta-preparo">Carregando...</div>
+        <div class="estado-vazio" id="estado-erro-meta-preparo" style="display:none;"></div>
+
+        <div id="conteudo-meta-preparo" style="display:none;">
+          <form id="form-meta-preparo">
+            <div class="form-grupo">
+              <label for="campo-meta-preparo">Meta de preparo (minutos)</label>
+              <input type="number" id="campo-meta-preparo" class="input" min="1" max="240" step="1" required />
+              <p class="dica-campo">Tempo máximo desejado entre o início do preparo e o pedido ficar pronto.</p>
+            </div>
+
+            <span class="campo-erro" id="erro-meta-preparo"></span>
+
+            <button type="submit" class="btn btn-primario" id="botao-salvar-meta-preparo">Salvar meta de preparo</button>
+          </form>
+        </div>
       </div>
       </section>
     </div>

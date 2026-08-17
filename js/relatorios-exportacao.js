@@ -163,6 +163,34 @@ function construirPdfRelatorio(relatorio) {
     y += 20;
   }
 
+  // Desempenho dos pedidos (Tempo de Preparo, Etapas 2-3) — baseado só nos timestamps históricos já
+  // trazidos por getOrdersForReport() + a meta já carregada no início da página, nenhum recálculo aqui.
+  const d = relatorio.desempenho;
+  const linhaDesempenho = [
+    ['Espera média', formatarDuracao(d.esperaMediaSegundos)],
+    ['Preparo médio', formatarDuracao(d.preparoMedioSegundos)],
+    ['Até ficar pronto', formatarDuracao(d.ateProntoMedioSegundos)],
+    ['Mais rápido', d.pedidoMaisRapido ? `${d.pedidoMaisRapido.numero} · ${formatarDuracao(d.pedidoMaisRapido.segundos)}` : '—'],
+    ['Mais demorado', d.pedidoMaisDemorado ? `${d.pedidoMaisDemorado.numero} · ${formatarDuracao(d.pedidoMaisDemorado.segundos)}` : '—'],
+    ['Medição completa', `${d.pedidosComMedicaoCompleta} de ${d.totalPedidosElegiveis}`],
+    ['Pedidos ainda em andamento', String(d.pedidosEmAndamento)],
+    ['Meta de preparo', d.metaPreparoMinutos !== null ? `${d.metaPreparoMinutos} min` : '—'],
+    ['Dentro da meta', String(d.pedidosDentroDaMeta)],
+    ['Fora da meta', String(d.pedidosForaDaMeta)],
+    ['Percentual dentro da meta', d.percentualDentroDaMeta === null ? '—' : `${d.percentualDentroDaMeta.toFixed(1)}%`],
+  ];
+  if (d.ateFinalizarMedioSegundos !== null) {
+    linhaDesempenho.push(['Até finalizar (secundário)', formatarDuracao(d.ateFinalizarMedioSegundos)]);
+  }
+  y = adicionarTituloSecaoPdf(doc, 'Desempenho dos pedidos', y, margemEsquerda);
+  y = desenharTabelaPdf(doc, {
+    startY: y,
+    head: ['Indicador', 'Valor'],
+    body: linhaDesempenho,
+    margemEsquerda,
+    margemDireita,
+  });
+
   // Formas de pagamento
   y = adicionarTituloSecaoPdf(doc, 'Formas de pagamento', y, margemEsquerda);
   y = desenharTabelaPdf(doc, {
@@ -439,7 +467,57 @@ function construirExcelRelatorio(relatorio) {
   definirLargurasXlsx(wsResumo, [26, 18]);
   XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
 
-  // --- Aba 2: Pagamentos (2 tabelas empilhadas — formas de pagamento + status de pagamento) ---
+  // --- Aba 2: Desempenho (Tempo de Preparo, Etapa 2) --- Segundos sempre numérico (analisável), nunca
+  // só a string formatada — célula em branco (null) quando a média não tem denominador.
+  const d = relatorio.desempenho;
+  const aoaDesempenho = [
+    ['Indicador', 'Segundos', 'Valor formatado', 'Amostra (pedidos considerados)'],
+    ['Espera média', d.esperaMediaSegundos, d.esperaMediaSegundos === null ? null : formatarDuracao(d.esperaMediaSegundos), d.qtdPedidosEspera],
+    ['Preparo médio', d.preparoMedioSegundos, d.preparoMedioSegundos === null ? null : formatarDuracao(d.preparoMedioSegundos), d.qtdPedidosPreparo],
+    [
+      'Até ficar pronto',
+      d.ateProntoMedioSegundos,
+      d.ateProntoMedioSegundos === null ? null : formatarDuracao(d.ateProntoMedioSegundos),
+      d.qtdPedidosAteProto,
+    ],
+    [
+      'Até finalizar (secundário)',
+      d.ateFinalizarMedioSegundos,
+      d.ateFinalizarMedioSegundos === null ? null : formatarDuracao(d.ateFinalizarMedioSegundos),
+      d.qtdPedidosAteFinalizar,
+    ],
+    [],
+    ['Ranking', 'Pedido', 'Segundos', 'Valor formatado'],
+    [
+      'Mais rápido',
+      d.pedidoMaisRapido ? d.pedidoMaisRapido.numero : null,
+      d.pedidoMaisRapido ? d.pedidoMaisRapido.segundos : null,
+      d.pedidoMaisRapido ? formatarDuracao(d.pedidoMaisRapido.segundos) : null,
+    ],
+    [
+      'Mais demorado',
+      d.pedidoMaisDemorado ? d.pedidoMaisDemorado.numero : null,
+      d.pedidoMaisDemorado ? d.pedidoMaisDemorado.segundos : null,
+      d.pedidoMaisDemorado ? formatarDuracao(d.pedidoMaisDemorado.segundos) : null,
+    ],
+    [],
+    ['Medição completa', `${d.pedidosComMedicaoCompleta} de ${d.totalPedidosElegiveis}`],
+    ['Pedidos ainda em andamento', d.pedidosEmAndamento],
+    [],
+    ['Meta de preparo', 'Valor'],
+    ['Meta (minutos)', d.metaPreparoMinutos],
+    ['Pedidos elegíveis', d.pedidosElegiveisParaMeta],
+    ['Dentro da meta', d.pedidosDentroDaMeta],
+    ['Fora da meta', d.pedidosForaDaMeta],
+    ['Percentual dentro da meta', d.percentualDentroDaMeta === null ? null : d.percentualDentroDaMeta / 100],
+  ];
+  const wsDesempenho = XLSX.utils.aoa_to_sheet(aoaDesempenho);
+  // Linha 18 (0-indexed) = "Percentual dentro da meta" — número real (0.818), formatado como % na célula.
+  formatarColunaXlsx(wsDesempenho, 1, 18, 18, FORMATO_PERCENTUAL_XLSX);
+  definirLargurasXlsx(wsDesempenho, [26, 12, 16, 24]);
+  XLSX.utils.book_append_sheet(wb, wsDesempenho, 'Desempenho');
+
+  // --- Aba 3: Pagamentos (2 tabelas empilhadas — formas de pagamento + status de pagamento) ---
   const linhasFormaPagamento = Object.keys(ROTULOS_FORMA_PAGAMENTO).map((chave) => {
     const dados = r.porFormaPagamento[chave];
     return [ROTULOS_FORMA_PAGAMENTO[chave], dados.qtd, dados.valor];
@@ -464,7 +542,7 @@ function construirExcelRelatorio(relatorio) {
   definirLargurasXlsx(wsPagamentos, [24, 10, 14]);
   XLSX.utils.book_append_sheet(wb, wsPagamentos, 'Pagamentos');
 
-  // --- Aba 3: Atendimento ---
+  // --- Aba 4: Atendimento ---
   const aoaAtendimento = [
     ['Tipo', 'Pedidos', 'Valor', 'Taxas de entrega'],
     ['Retirada', r.porAtendimento.retirada.qtd, r.porAtendimento.retirada.valor, 0],
@@ -476,7 +554,7 @@ function construirExcelRelatorio(relatorio) {
   definirLargurasXlsx(wsAtendimento, [12, 10, 14, 16]);
   XLSX.utils.book_append_sheet(wb, wsAtendimento, 'Atendimento');
 
-  // --- Aba 4: Categorias ---
+  // --- Aba 5: Categorias ---
   const aoaCategorias = [
     ['Categoria', 'Quantidade', 'Valor vendido', 'Percentual'],
     ...relatorio.vendasPorCategoria.map((c) => [c.categoria, c.quantidade, c.valorVendido, c.percentual / 100]),
@@ -487,7 +565,7 @@ function construirExcelRelatorio(relatorio) {
   definirLargurasXlsx(wsCategorias, [20, 12, 14, 12]);
   XLSX.utils.book_append_sheet(wb, wsCategorias, 'Categorias');
 
-  // --- Aba 5: Produtos --- (Etapa 3: Receita líquida/Custo médio histórico/CMV/Lucro/Margem usam sempre
+  // --- Aba 6: Produtos --- (Etapa 3: Receita líquida/Custo médio histórico/CMV/Lucro/Margem usam sempre
   // o snapshot histórico do pedido — nunca o custo atual de product_costs). Custo médio histórico e
   // Margem ficam com célula vazia (null) quando não há dado, nunca uma string dentro de coluna numérica
   // (item 31) — "Custo completo" é uma coluna de status própria (Sim/Não), separada dos números.
@@ -516,7 +594,7 @@ function construirExcelRelatorio(relatorio) {
   definirLargurasXlsx(wsProdutos, [26, 18, 10, 16, 14, 14, 16, 14, 14, 10, 14]);
   XLSX.utils.book_append_sheet(wb, wsProdutos, 'Produtos');
 
-  // --- Aba 6: Combos --- (CMV vem dos componentes efetivamente escolhidos, nunca de custo fixo do combo)
+  // --- Aba 7: Combos --- (CMV vem dos componentes efetivamente escolhidos, nunca de custo fixo do combo)
   const aoaCombos = [
     [
       'Combo', 'Quantidade', 'Preço base médio', 'Acréscimos', 'Valor vendido', 'Receita líquida',
@@ -541,7 +619,7 @@ function construirExcelRelatorio(relatorio) {
   definirLargurasXlsx(wsCombos, [26, 10, 16, 12, 14, 14, 12, 12, 10, 14]);
   XLSX.utils.book_append_sheet(wb, wsCombos, 'Combos');
 
-  // --- Aba 7: Consumo Combos ---
+  // --- Aba 8: Consumo Combos ---
   const rotulosConsumoXlsx = { skewer: 'Espeto', side: 'Acompanhamento', included: 'Item incluso' };
   const linhasConsumo = [];
   ['skewer', 'side', 'included'].forEach((tipo) => {
@@ -553,7 +631,7 @@ function construirExcelRelatorio(relatorio) {
   definirLargurasXlsx(wsConsumo, [18, 26, 20]);
   XLSX.utils.book_append_sheet(wb, wsConsumo, 'Consumo Combos');
 
-  // --- Aba 8: Acréscimos ---
+  // --- Aba 9: Acréscimos ---
   const aoaAcrescimos = [
     ['Produto', 'Quantidade com acréscimo', 'Acréscimo unitário', 'Receita adicional'],
     ...relatorio.acrescimosCombos.map((a) => [a.nome, a.quantidadeComAcrescimo, a.acrescimoUnitarioMedio, a.receitaAdicional]),
@@ -564,7 +642,7 @@ function construirExcelRelatorio(relatorio) {
   definirLargurasXlsx(wsAcrescimos, [26, 20, 16, 16]);
   XLSX.utils.book_append_sheet(wb, wsAcrescimos, 'Acréscimos');
 
-  // --- Aba 9: Cupons ---
+  // --- Aba 10: Cupons ---
   const aoaCupons = [
     ['Cupom', 'Pedidos', 'Desconto concedido'],
     ...relatorio.cuponsUtilizados.map((c) => [c.codigo || 'Sem cupom / Ajuste manual', c.pedidos, c.desconto]),
@@ -574,7 +652,7 @@ function construirExcelRelatorio(relatorio) {
   definirLargurasXlsx(wsCupons, [22, 10, 16]);
   XLSX.utils.book_append_sheet(wb, wsCupons, 'Cupons');
 
-  // --- Aba 10: Cancelamentos (só se houve algum no dia) ---
+  // --- Aba 11: Cancelamentos (só se houve algum no dia) ---
   if (r.totalCancelamentos > 0) {
     const aoaCancelamentos = [
       ['Observação', 'Pedidos cancelados não integram o faturamento.'],

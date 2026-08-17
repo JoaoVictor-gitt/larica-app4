@@ -67,6 +67,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('form-configuracoes-transferencia').addEventListener('submit', salvarConfiguracoesTransferencia);
 
+  document.getElementById('form-meta-preparo').addEventListener('submit', salvarMetaPreparo);
+
   document.getElementById('botao-novo-cupom').addEventListener('click', abrirModalCriacaoCupom);
   document.getElementById('botao-fechar-modal-cupom').addEventListener('click', fecharModalCupom);
   document.getElementById('botao-cancelar-modal-cupom').addEventListener('click', fecharModalCupom);
@@ -77,6 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   carregarConfiguracoesNegocio();
   carregarCupons(); // independente de carregarConfiguracoesNegocio() — uma falha aqui não pode derrubar o resto de Configurações
+  carregarMetaPreparo(); // idem — coluna própria (preparation_target_minutes), fora da lista pública de business_settings
 });
 
 // ---------------------------------------------------------------------------
@@ -655,6 +658,76 @@ async function salvarHorarios(evento) {
     mostrarToast('Horários salvos.', 'sucesso');
   } catch (erro) {
     mostrarToast(erro.message || 'Não foi possível salvar os horários.', 'erro');
+  } finally {
+    botao.disabled = false;
+    botao.textContent = textoOriginal;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tempo de preparo / Meta (Etapa 3) — business_settings.preparation_target_minutes,
+// coluna administrativa própria (fora da lista pública lida por pedido.html — ver
+// settings-service.js). Confirmado direto nas policies reais do Supabase: SELECT/INSERT/
+// UPDATE de business_settings usam authenticated + is_staff() — NÃO existe distinção
+// admin/employee nessa tabela hoje. Por isso a UI não restringe a admin: qualquer staff
+// autenticado que acesse esta página (já passou pelo guard de página, ver app.js) pode
+// editar a meta — a barreira real de segurança é o RLS/GRANT por coluna (nunca a UI).
+// ---------------------------------------------------------------------------
+
+async function carregarMetaPreparo() {
+  const carregando = document.getElementById('estado-carregando-meta-preparo');
+  const erroEl = document.getElementById('estado-erro-meta-preparo');
+  const conteudo = document.getElementById('conteudo-meta-preparo');
+
+  carregando.style.display = '';
+  erroEl.style.display = 'none';
+  conteudo.style.display = 'none';
+
+  try {
+    const minutos = await buscarMetaPreparoDoSupabase();
+    document.getElementById('campo-meta-preparo').value = minutos;
+    carregando.style.display = 'none';
+    conteudo.style.display = '';
+  } catch (erro) {
+    carregando.style.display = 'none';
+    erroEl.textContent = 'Não foi possível carregar a meta de preparo: ' + erro.message;
+    erroEl.style.display = '';
+  }
+}
+
+/** Espelha no cliente a constraint do banco (inteiro, 1-240), só pra feedback mais rápido — o banco continua a fonte real */
+function validarMetaPreparo(valorBruto) {
+  if (valorBruto === '') return 'Informe a meta de preparo.';
+  const numero = Number(valorBruto);
+  if (!Number.isInteger(numero)) return 'A meta deve ser um número inteiro de minutos.';
+  if (numero < 1 || numero > 240) return 'A meta deve estar entre 1 e 240 minutos.';
+  return null;
+}
+
+async function salvarMetaPreparo(evento) {
+  evento.preventDefault();
+
+  const erroEl = document.getElementById('erro-meta-preparo');
+  erroEl.textContent = '';
+
+  const valorBruto = document.getElementById('campo-meta-preparo').value;
+  const erroValidacao = validarMetaPreparo(valorBruto);
+  if (erroValidacao) {
+    erroEl.textContent = erroValidacao;
+    return;
+  }
+
+  const botao = document.getElementById('botao-salvar-meta-preparo');
+  const textoOriginal = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = 'Salvando...';
+
+  try {
+    const minutos = await atualizarMetaPreparoNoSupabase(Number(valorBruto));
+    document.getElementById('campo-meta-preparo').value = minutos;
+    mostrarToast('Meta de preparo salva.', 'sucesso');
+  } catch (erro) {
+    erroEl.textContent = erro.message || 'Não foi possível salvar a meta de preparo.';
   } finally {
     botao.disabled = false;
     botao.textContent = textoOriginal;

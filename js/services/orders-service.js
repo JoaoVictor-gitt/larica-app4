@@ -310,7 +310,7 @@ async function getOrdersForReport({ desdeUtc, ateUtc } = {}) {
   let consulta = supabaseClient
     .from('orders')
     .select(
-      'id, order_number, created_at, cancelled_at, status, fulfilment_type, payment_method, payment_status, subtotal, delivery_fee, total, discount_amount, coupon_id, coupon_code, cash_amount, change_amount, needs_change'
+      'id, order_number, created_at, accepted_at, ready_at, completed_at, cancelled_at, status, fulfilment_type, payment_method, payment_status, subtotal, delivery_fee, total, discount_amount, coupon_id, coupon_code, cash_amount, change_amount, needs_change'
     )
     .order('created_at', { ascending: true });
   if (desdeUtc) consulta = consulta.gte('created_at', desdeUtc);
@@ -321,8 +321,15 @@ async function getOrdersForReport({ desdeUtc, ateUtc } = {}) {
 
   return (data || []).map((o) => ({
     id: o.id,
+    orderNumber: Number(o.order_number),
     numero: '#LARICA-' + o.order_number,
     criadoEm: o.created_at,
+    // accepted_at/ready_at/completed_at (Etapa 2 — Tempo de Preparo): mesmo padrão de nomes já usado
+    // em _linhaSupabaseParaPedido() (aceitoEm/prontoEm/finalizadoEm) — nunca com fallback pro
+    // created_at aqui (isso mascararia timestamp ausente); NULL do banco vira null aqui, sem exceção.
+    aceitoEm: o.accepted_at,
+    prontoEm: o.ready_at,
+    finalizadoEm: o.completed_at,
     canceladoEm: o.cancelled_at,
     status: ENUM_PARA_STATUS[o.status] || o.status,
     fulfilment: ENUM_PARA_FULFILMENT[o.fulfilment_type] || o.fulfilment_type,
