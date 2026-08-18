@@ -1917,9 +1917,11 @@ function adicionarComponenteTempero() {
 // ---------------------------------------------------------------------------
 // Custo do Produto (Etapa 4) — comparação e aplicação manual do custo real
 // final de um lote JÁ SALVO em product_costs.unit_cost, reaproveitando
-// inteiramente salvarCustoProdutoNoSupabase/buscarCustosProdutosDoSupabase
-// já existentes (product-costs-service.js) — nenhuma escrita nova, nenhuma
-// migration. Nunca altera o lote em si (skewer_production_batches/
+// aplicarCustoProducaoEspetoNoSupabase/buscarCustosProdutosDoSupabase já
+// existentes (product-costs-service.js) — a escrita passa pela RPC
+// apply_skewer_production_cost (SECURITY DEFINER, valida server-side que o
+// produto é da categoria Espetinhos), nunca um INSERT/UPDATE direto em
+// product_costs. Nunca altera o lote em si (skewer_production_batches/
 // skewer_batch_components) — só product_costs. O bloco reflete sempre o
 // ÚLTIMO ESTADO SALVO do lote (nunca recalculado a partir de edições ainda
 // não salvas no formulário aberto), por isso só é atualizado em
@@ -1976,10 +1978,22 @@ function ocultarBlocoCustoProduto() {
   comparacaoCustoProdutoAtual = null;
 }
 
-/** Confirmação explícita (item 10 do pedido) mostrando 4 casas — a precisão real de product_costs.unit_cost — mesmo a UI normal do bloco usando 2 casas. */
+/**
+ * Confirmação explícita (item 10 do pedido) mostrando 4 casas — a precisão
+ * real de product_costs.unit_cost — mesmo a UI normal do bloco usando 2
+ * casas. O texto da confirmação usa a comparação já calculada no client
+ * (comparacaoCustoProdutoAtual) só como PRÉVIA — a chamada real à RPC
+ * envia apenas o id do lote, nunca esse valor: a RPC recalcula tudo do
+ * zero a partir dos snapshots salvos, então é impossível aplicar um custo
+ * diferente do que o lote realmente tem, mesmo adulterando o client via
+ * DevTools. Depois do sucesso, o cache é atualizado com o valor
+ * RETORNADO pela RPC, nunca com custoLote (calculado localmente).
+ */
 async function aplicarCustoAoProdutoModal() {
   if (!souAdminProducao || !comparacaoCustoProdutoAtual) return;
-  const { produtoId, produtoNome, custoLote, custoAtual } = comparacaoCustoProdutoAtual;
+  const { produtoNome, custoLote, custoAtual } = comparacaoCustoProdutoAtual;
+  const loteId = document.getElementById('campo-id-lote-espeto').value;
+  if (!loteId) return;
 
   const diferenca = custoAtual === null ? null : custoLote - custoAtual;
   const confirmado = confirm(
@@ -1995,8 +2009,9 @@ async function aplicarCustoAoProdutoModal() {
   dicaErro.style.display = 'none';
   botao.disabled = true;
 
+  let resultado;
   try {
-    await salvarCustoProdutoNoSupabase(produtoId, custoLote);
+    resultado = await aplicarCustoProducaoEspetoNoSupabase(loteId);
   } catch (erro) {
     dicaErro.textContent = 'Não foi possível aplicar o custo. ' + erro.message;
     dicaErro.style.display = '';
@@ -2004,10 +2019,10 @@ async function aplicarCustoAoProdutoModal() {
     return;
   }
 
-  custosProdutosCache.set(produtoId, custoLote);
+  custosProdutosCache.set(resultado.produtoId, resultado.unitCost);
   mostrarToast('Custo aplicado ao produto.', 'sucesso');
 
-  const lote = lotesEspetosCache.find((l) => l.id === document.getElementById('campo-id-lote-espeto').value);
+  const lote = lotesEspetosCache.find((l) => l.id === loteId);
   if (lote) renderizarBlocoCustoProduto(lote);
 }
 

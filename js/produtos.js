@@ -119,12 +119,15 @@ function ordenarProdutos(produtos, criterio) {
   return copia;
 }
 
-/** Célula "Custo" da tabela — Variável pra combo, "Não cadastrado" (nunca €0,00) se não houver custo, ou o valor formatado */
+/** Célula "Custo" da tabela — Variável pra combo; "Sem custo de produção" pra Espetinho sem custo aplicado ainda (nunca €0,00); "Não cadastrado" pras demais categorias sem custo; senão o valor formatado. */
 function celulaCustoHtml(produto) {
   if (produto.categoria === 'Combos') return '<span class="texto-custo-indisponivel">Variável</span>';
 
   const custo = custoUnitarioDoProduto(produto);
-  if (custo === null) return '<span class="texto-custo-indisponivel">Não cadastrado</span>';
+  if (custo === null) {
+    const texto = produto.categoria === 'Espetinhos' ? 'Sem custo de produção' : 'Não cadastrado';
+    return `<span class="texto-custo-indisponivel">${texto}</span>`;
+  }
   return formatarMoeda(custo, obterConfiguracoes().moeda);
 }
 
@@ -333,36 +336,53 @@ function ligarEventoCategoria() {
 }
 
 function atualizarVisibilidadeCamposPorCategoria() {
-  const ehCombo = document.getElementById('campo-categoria').value.trim() === 'Combos';
+  const categoria = document.getElementById('campo-categoria').value.trim();
+  const ehCombo = categoria === 'Combos';
+  const ehEspetinho = categoria === 'Espetinhos';
   document.getElementById('secao-campos-combo').style.display = ehCombo ? '' : 'none';
   document.getElementById('grupo-estoque').style.display = ehCombo ? 'none' : '';
   document.getElementById('campo-estoque').required = !ehCombo;
   document.getElementById('campo-qtd-espetos').required = ehCombo;
   document.getElementById('campo-qtd-acompanhamentos').required = ehCombo;
-  atualizarEstadoCampoCusto(ehCombo);
+  atualizarEstadoCampoCusto(ehCombo, ehEspetinho);
 }
 
 /**
- * Custo unitário (Etapa 2): desabilitado + campo limpo quando é combo (custo real
- * vem dos componentes, nunca de um valor fixo aqui — item 9 do pedido); desabilitado
- * também para quem não é admin (visualização continua liberada pra staff, só a edição
- * é restrita — a barreira real é o RLS de product_costs, isto é só UX). Os dois avisos
- * são mutuamente exclusivos: combo tem prioridade sobre "somente admin" quando os dois
- * se aplicam, porque é o motivo mais específico.
+ * Custo unitário: desabilitado + campo limpo quando é combo (custo real vem dos
+ * componentes, nunca de um valor fixo aqui). Desabilitado, mas SEM limpar o valor,
+ * quando é Espetinho — decisão de negócio: custo de espeto só pode vir da Produção de
+ * Espetos ("Aplicar custo ao produto", js/producao.js), nunca digitado aqui; o valor
+ * mostrado continua sendo o real (lido de product_costs), só não é editável nesta
+ * tela. Desabilitado também para quem não é admin, nas demais categorias
+ * (visualização continua liberada pra staff, só a edição é restrita — a barreira real
+ * é o RLS de product_costs, isto é só UX). Os avisos são mutuamente exclusivos:
+ * combo > espetinho > "somente admin", do motivo mais específico pro mais genérico.
  */
-function atualizarEstadoCampoCusto(ehCombo) {
+function atualizarEstadoCampoCusto(ehCombo, ehEspetinho) {
   const campo = document.getElementById('campo-custo');
+  const rotulo = document.querySelector('label[for="campo-custo"]');
   const dicaCombo = document.getElementById('dica-custo-combo');
+  const dicaEspetinho = document.getElementById('dica-custo-espetinho');
   const dicaSomenteAdmin = document.getElementById('dica-custo-somente-admin');
 
   if (ehCombo) {
     campo.value = '';
     campo.disabled = true;
+    rotulo.textContent = 'Custo unitário (€)';
     dicaCombo.style.display = '';
+    dicaEspetinho.style.display = 'none';
+    dicaSomenteAdmin.style.display = 'none';
+  } else if (ehEspetinho) {
+    campo.disabled = true;
+    rotulo.textContent = 'Custo de produção (€)';
+    dicaCombo.style.display = 'none';
+    dicaEspetinho.style.display = '';
     dicaSomenteAdmin.style.display = 'none';
   } else {
     campo.disabled = !souAdmin;
+    rotulo.textContent = 'Custo unitário (€)';
     dicaCombo.style.display = 'none';
+    dicaEspetinho.style.display = 'none';
     dicaSomenteAdmin.style.display = souAdmin ? 'none' : '';
   }
 }
@@ -516,6 +536,7 @@ async function salvarFormularioProduto(evento) {
   const id = document.getElementById('campo-id').value;
   const categoria = document.getElementById('campo-categoria').value;
   const ehCombo = categoria === 'Combos';
+  const ehEspetinho = categoria === 'Espetinhos';
 
   const produto = {
     nome: document.getElementById('campo-nome').value.trim(),
@@ -551,15 +572,22 @@ async function salvarFormularioProduto(evento) {
     return;
   }
 
-  // Custo (Etapa 2): gravado à parte em product_costs, nunca dentro do payload de
-  // products (ver product-costs-service.js). Combo nunca grava custo fixo aqui — o
-  // campo já vem sempre limpo/desabilitado nesse caso (atualizarEstadoCampoCusto()).
-  // Produto novo com o campo vazio não precisa criar linha nenhuma (item 13 do
-  // pedido); editando um produto existente, sempre grava — inclusive vazio, pra
-  // realmente limpar um custo que já estava cadastrado (senão o valor antigo
-  // ficaria "preso" no banco enquanto a tela mostraria "Não cadastrado").
+  // Custo: gravado à parte em product_costs, nunca dentro do payload de products (ver
+  // product-costs-service.js). Combo nunca grava custo fixo aqui — o campo já vem
+  // sempre limpo/desabilitado nesse caso (atualizarEstadoCampoCusto()). Espetinho
+  // TAMBÉM nunca grava custo por aqui — decisão de negócio: custo de espeto só entra
+  // em product_costs pelo botão "Aplicar custo ao produto" da Produção de Espetos
+  // (js/producao.js). Esta guarda é defesa extra além do campo desabilitado na tela —
+  // mesmo que #campo-custo seja reabilitado via DevTools e um valor digitado, este
+  // handler nunca envia esse valor pra Espetinho. Não fecha sozinha o caminho de
+  // alguém chamar salvarCustoProdutoNoSupabase()/product_costs direto pelo console —
+  // isso exigiria mudança de RLS/RPC no banco, fora de escopo desta rodada (documentado
+  // no diagnóstico, não implementado automaticamente). Produto novo com o campo vazio
+  // não precisa criar linha nenhuma; editando um produto existente, sempre grava —
+  // inclusive vazio, pra realmente limpar um custo que já estava cadastrado (senão o
+  // valor antigo ficaria "preso" no banco enquanto a tela mostraria "Não cadastrado").
   let avisoCusto = '';
-  if (!ehCombo && souAdmin) {
+  if (!ehCombo && !ehEspetinho && souAdmin) {
     const custoDigitado = lerCustoUnitarioDoFormulario();
     if (id || custoDigitado !== null) {
       try {
