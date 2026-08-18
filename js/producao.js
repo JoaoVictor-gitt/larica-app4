@@ -46,11 +46,16 @@ let produtosCache = [];
 let insumosProducaoCache = [];
 let souAdminProducao = false;
 
+/**
+ * Cada seção roda no seu próprio try/catch — uma exceção em qualquer uma
+ * (ex. ao ligar eventos de um modal) nunca mais impede as seguintes de
+ * iniciar. Antes desta correção, o DOMContentLoaded inteiro era uma cadeia
+ * síncrona sem isolamento: uma falha em qualquer chamada anterior deixava
+ * as seções seguintes presas em "Carregando..." pra sempre, sem erro
+ * nenhum no console. Ver finalizarSecaoComErro().
+ */
 document.addEventListener('DOMContentLoaded', async () => {
   ligarEventosNavegacaoProducao();
-
-  const carregando = document.getElementById('estado-carregando-ingredientes');
-  const erro = document.getElementById('estado-erro-ingredientes');
 
   try {
     const [ingredientes, ehAdmin, produtos, insumos] = await Promise.all([
@@ -63,30 +68,78 @@ document.addEventListener('DOMContentLoaded', async () => {
     souAdminProducao = ehAdmin;
     produtosCache = produtos;
     insumosProducaoCache = insumos;
+
+    atualizarEstadoEdicaoIngredientes();
+    renderizarTabelaIngredientes();
+    ligarEventosModalIngrediente();
+    document.getElementById('estado-carregando-ingredientes').style.display = 'none';
   } catch (erroCarregamento) {
-    console.error('Erro ao carregar ingredientes:', erroCarregamento);
+    console.error('Erro ao carregar dados iniciais de Produção:', erroCarregamento);
+    // Ingredientes/Produtos/Insumos são carregados juntos aqui — se isso falhar,
+    // as 4 seções (que dependem desses dados) precisam mostrar erro, nunca ficar
+    // presas em "Carregando...".
+    finalizarSecaoComErro('estado-carregando-ingredientes', 'estado-erro-ingredientes', erroCarregamento);
+    finalizarSecaoComErro('estado-carregando-receitas', 'estado-erro-receitas', erroCarregamento);
+    finalizarSecaoComErro('estado-carregando-lotes-espetos', 'estado-erro-lotes-espetos', erroCarregamento);
+    finalizarSecaoComErro('estado-carregando-insumos', 'estado-erro-insumos', erroCarregamento);
+    return;
+  }
+
+  try {
+    ligarEventosModalNovaFicha();
+    ligarEventosModalDetalheFicha();
+    await carregarFichasTecnicas();
+  } catch (erroFichas) {
+    console.error('Erro ao preparar Fichas Técnicas:', erroFichas);
+    finalizarSecaoComErro('estado-carregando-receitas', 'estado-erro-receitas', erroFichas);
+  }
+
+  try {
+    ligarEventosModalLoteEspeto();
+    await carregarLotesEspetos();
+  } catch (erroLotes) {
+    console.error('Erro ao preparar Produção de Espetos:', erroLotes);
+    finalizarSecaoComErro('estado-carregando-lotes-espetos', 'estado-erro-lotes-espetos', erroLotes);
+  }
+
+  await carregarSecaoInsumos();
+});
+
+/** Garante que uma seção nunca fique presa em "Carregando..." — usada tanto pela falha do bloco de dados compartilhados quanto por qualquer exceção síncrona ao preparar uma seção específica. */
+function finalizarSecaoComErro(idCarregando, idErro, erro) {
+  const elCarregando = document.getElementById(idCarregando);
+  if (elCarregando) elCarregando.style.display = 'none';
+  const elErro = document.getElementById(idErro);
+  if (elErro) {
+    elErro.textContent = 'Não foi possível carregar os dados. ' + (erro && erro.message ? erro.message : '');
+    elErro.style.display = 'block';
+  }
+}
+
+/**
+ * Insumos nunca teve uma função carregarX() própria (Etapa 3A) — os dados já
+ * vêm do Promise.all inicial acima, mas faltava esconder "Carregando
+ * insumos..." depois de renderizar (bug real: renderizarTabelaInsumos()
+ * nunca tocava nesse elemento). Corrigido aqui, no mesmo formato de
+ * carregarFichasTecnicas/carregarLotesEspetos — sempre esconde o loading
+ * nos dois caminhos (sucesso e erro).
+ */
+async function carregarSecaoInsumos() {
+  const carregando = document.getElementById('estado-carregando-insumos');
+  const erro = document.getElementById('estado-erro-insumos');
+  try {
+    atualizarEstadoEdicaoInsumos();
+    renderizarTabelaInsumos();
+    ligarEventosModalInsumo();
+  } catch (erroInsumos) {
+    console.error('Erro ao preparar Insumos de Produção:', erroInsumos);
     carregando.style.display = 'none';
-    erro.textContent = 'Não foi possível carregar os ingredientes. ' + erroCarregamento.message;
+    erro.textContent = 'Não foi possível carregar os insumos. ' + erroInsumos.message;
     erro.style.display = 'block';
     return;
   }
   carregando.style.display = 'none';
-
-  atualizarEstadoEdicaoIngredientes();
-  renderizarTabelaIngredientes();
-  ligarEventosModalIngrediente();
-
-  ligarEventosModalNovaFicha();
-  ligarEventosModalDetalheFicha();
-  await carregarFichasTecnicas();
-
-  ligarEventosModalLoteEspeto();
-  await carregarLotesEspetos();
-
-  atualizarEstadoEdicaoInsumos();
-  renderizarTabelaInsumos();
-  ligarEventosModalInsumo();
-});
+}
 
 // ---------------------------------------------------------------------------
 // Navegação (central de Produção <-> seções, mesmo padrão de configuracoes.js)
@@ -1526,15 +1579,31 @@ function popularOpcoesTemperoLote() {
   const select = document.getElementById('campo-referencia-tempero-lote');
   document.getElementById('rotulo-referencia-tempero-lote').textContent = tipo === 'recipe' ? 'Preparo' : 'Ingrediente';
 
+  let candidatos;
   if (tipo === 'recipe') {
-    const candidatos = receitasCache
-      .filter((r) => r.ativo && calcularRendimentoReceita(r.id).disponivel)
-      .sort((a, b) => a.nome.localeCompare(b.nome));
-    select.innerHTML = candidatos.map((r) => `<option value="${r.id}">${escaparHtml(r.nome)}</option>`).join('');
+    candidatos = receitasCache.filter((r) => r.ativo && calcularRendimentoReceita(r.id).disponivel).sort((a, b) => a.nome.localeCompare(b.nome));
   } else {
-    const candidatos = ingredientesCache.filter((i) => i.ativo && ehIngredienteTempero(i)).sort((a, b) => a.nome.localeCompare(b.nome));
-    select.innerHTML = candidatos.map((i) => `<option value="${i.id}">${escaparHtml(i.nome)}</option>`).join('');
+    candidatos = ingredientesCache.filter((i) => i.ativo && ehIngredienteTempero(i)).sort((a, b) => a.nome.localeCompare(b.nome));
   }
+  select.innerHTML = candidatos.map((c) => `<option value="${c.id}">${escaparHtml(c.nome)}</option>`).join('');
+
+  atualizarEstadoSemOpcoesTempero(tipo, candidatos.length === 0);
+}
+
+/**
+ * Mantém a regra de filtro intacta (categoria Temperos, case/trim-
+ * insensitive) — só melhora a UX quando não há nenhum candidato
+ * selecionável: mostra um aviso específico pro caso de Ingrediente (regra
+ * mais restritiva, exige categorização manual) e desabilita
+ * Quantidade/Adicionar pra qualquer um dos dois tipos enquanto o select
+ * estiver vazio.
+ */
+function atualizarEstadoSemOpcoesTempero(tipo, semOpcoes) {
+  const dica = document.getElementById('dica-tempero-sem-opcoes');
+  dica.style.display = semOpcoes && tipo === 'ingredient' ? '' : 'none';
+
+  document.getElementById('campo-quantidade-tempero-lote').disabled = semOpcoes;
+  document.getElementById('botao-adicionar-tempero-lote').disabled = semOpcoes || !souAdminProducao;
 }
 
 // ---------------------------------------------------------------------------

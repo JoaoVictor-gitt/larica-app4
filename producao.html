@@ -405,7 +405,8 @@
             <select id="campo-produto-lote" class="input" required></select>
           </div>
 
-          <div class="form-grupo">
+          <!-- Vínculo técnico com ingredients (ingredient_id) preservado no banco/RPC por compatibilidade, mas não exposto na UI — a UI de Custos Adicionais (Temperos/Preparos) é o lugar certo pra referenciar ingredientes/preparos usados no lote. Novo lote sempre envia NULL aqui (o campo nasce vazio e nunca é tocado pelo usuário); ao editar um lote antigo que já tenha esse valor, ele é preservado e reenviado sem alteração (ver abrirModalLoteEspeto/salvarFormularioLoteEspeto). -->
+          <div class="form-grupo" style="display:none;">
             <label for="campo-ingrediente-lote">Matéria-prima (opcional)</label>
             <select id="campo-ingrediente-lote" class="input"></select>
           </div>
@@ -529,6 +530,7 @@
               <button type="button" class="btn btn-secundario" id="botao-adicionar-tempero-lote">+ Adicionar tempero/preparo</button>
             </div>
           </div>
+          <p class="dica-campo" id="dica-tempero-sem-opcoes" style="display:none;">Nenhum ingrediente ativo na categoria Temperos. Cadastre ou edite Sal/Sal de Parrilha em Produção → Ingredientes e use Categoria = Temperos.</p>
           <p class="producao-preview-custo" id="preview-tempero-lote"></p>
           <p class="dica-campo" id="dica-tempero-lote-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
 
