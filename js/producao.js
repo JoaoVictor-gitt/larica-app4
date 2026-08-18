@@ -2457,21 +2457,73 @@ function componentesDoLoteAcompanhamento(loteId) {
 // ---------------------------------------------------------------------------
 
 /**
- * lote = { rendimentoFinalQuantidade, porcaoQuantidade, porcoesReais }.
- * componentes = lista de { quantidade, custoPorUnidadePreview } — para
- * listagem/comparação de custo, custoPorUnidadePreview é sempre o
+ * lote = { rendimentoFinalQuantidade, rendimentoFinalUnidade, porcaoQuantidade, porcoesReais }.
+ * componentes = lista de { quantidade, unidade, custoPorUnidadePreview } —
+ * para listagem/comparação de custo, custoPorUnidadePreview é sempre o
  * custoPorUnidadeSnapshot histórico (nunca recalculado); para o modal de
  * edição aberto, é o valor mostrado na prévia daquele momento (ingredient
  * sempre atual; recipe recalculado de novo só no instante de salvar, ver
  * montarComponentesPayloadParaSalvarAcompanhamento).
+ *
+ * SEMPRE retorna um objeto (nunca null) — rendimentoTeoricoComponentes/
+ * custoTotal continuam calculáveis mesmo sem rendimento/porção preenchidos
+ * ainda; cada campo é individualmente null/NaN-safe, quem consome checa
+ * campo a campo com Number.isFinite(...), nunca a verdade do objeto inteiro.
  */
 function calcularIndicadoresLoteAcompanhamento(lote, componentes) {
-  const { rendimentoFinalQuantidade, porcaoQuantidade, porcoesReais } = lote;
+  const { rendimentoFinalQuantidade, rendimentoFinalUnidade, porcaoQuantidade, porcoesReais } = lote;
 
-  if (!Number.isFinite(rendimentoFinalQuantidade) || rendimentoFinalQuantidade <= 0) return null;
-  if (!Number.isFinite(porcaoQuantidade) || porcaoQuantidade <= 0) return null;
+  // Rendimento teórico dos componentes — SUM(component.quantity) só quando
+  // há componentes E todos estão na mesma unidade (nunca soma unidades
+  // diferentes, nunca converte g<->ml). Só uma referência operacional —
+  // nunca persistida, nunca confundida com o rendimento automático de
+  // Fichas Técnicas (calcularRendimentoReceita, que deriva de recipe_items).
+  let rendimentoTeoricoComponentes = null;
+  let unidadeRendimentoTeorico = null;
+  if (componentes.length > 0) {
+    const unidades = new Set(componentes.map((c) => c.unidade));
+    if (unidades.size === 1) {
+      rendimentoTeoricoComponentes = componentes.reduce((soma, c) => soma + c.quantidade, 0);
+      unidadeRendimentoTeorico = componentes[0].unidade;
+    }
+  }
 
   const custoTotal = componentes.reduce((soma, c) => soma + c.quantidade * c.custoPorUnidadePreview, 0);
+
+  const rendimentoValido = Number.isFinite(rendimentoFinalQuantidade) && rendimentoFinalQuantidade > 0;
+  const porcaoValida = Number.isFinite(porcaoQuantidade) && porcaoQuantidade > 0;
+
+  // Comparação só quando o teórico existe E está na MESMA unidade do
+  // rendimento real informado (nunca compara g com un).
+  let diferencaRendimento = null;
+  let rendimentoPercentual = null;
+  let perdaQuantidade = null;
+  let perdaPercentual = null;
+  if (rendimentoValido && rendimentoTeoricoComponentes !== null && unidadeRendimentoTeorico === rendimentoFinalUnidade) {
+    diferencaRendimento = rendimentoFinalQuantidade - rendimentoTeoricoComponentes;
+    rendimentoPercentual = (rendimentoFinalQuantidade / rendimentoTeoricoComponentes) * 100;
+    perdaQuantidade = rendimentoTeoricoComponentes - rendimentoFinalQuantidade;
+    perdaPercentual = 100 - rendimentoPercentual;
+  }
+
+  if (!rendimentoValido || !porcaoValida) {
+    return {
+      rendimentoTeoricoComponentes,
+      unidadeRendimentoTeorico,
+      diferencaRendimento,
+      rendimentoPercentual,
+      perdaQuantidade,
+      perdaPercentual,
+      quantidadeTeorica: null,
+      sobra: null,
+      diferencaPorcoes: null,
+      custoTotal,
+      custoPorBase: null,
+      custoTeoricoPorPorcao: null,
+      quantidadeFinal: null,
+      custoRealPorPorcao: null,
+    };
+  }
 
   // Arredonda a razão a 6 casas antes do floor — mesma blindagem contra
   // imprecisão de ponto flutuante já usada em calcularIndicadoresLoteEspetos.
@@ -2479,15 +2531,34 @@ function calcularIndicadoresLoteAcompanhamento(lote, componentes) {
   const quantidadeTeorica = Math.floor(razao);
   const sobra = rendimentoFinalQuantidade - quantidadeTeorica * porcaoQuantidade;
 
-  const custoPorBase = custoTotal / rendimentoFinalQuantidade;
-  // Fórmula principal: porção × custo por base — nunca custoTotal/quantidadeTeorica,
+  // Custos — fórmulas intocadas: sempre baseadas no rendimento REAL
+  // informado, nunca no rendimento teórico dos componentes. Fórmula
+  // principal: porção × custo por base — nunca custoTotal/quantidadeTeorica,
   // que distorceria o custo teórico quando há sobra.
+  const custoPorBase = custoTotal / rendimentoFinalQuantidade;
   const custoTeoricoPorPorcao = porcaoQuantidade * custoPorBase;
 
   const quantidadeFinal = Number.isFinite(porcoesReais) && porcoesReais > 0 ? porcoesReais : quantidadeTeorica;
   const custoRealPorPorcao = quantidadeFinal > 0 ? custoTotal / quantidadeFinal : null;
 
-  return { custoTotal, quantidadeTeorica, sobra, custoPorBase, custoTeoricoPorPorcao, quantidadeFinal, custoRealPorPorcao };
+  const diferencaPorcoes = Number.isFinite(porcoesReais) && porcoesReais > 0 ? porcoesReais - quantidadeTeorica : null;
+
+  return {
+    rendimentoTeoricoComponentes,
+    unidadeRendimentoTeorico,
+    diferencaRendimento,
+    rendimentoPercentual,
+    perdaQuantidade,
+    perdaPercentual,
+    quantidadeTeorica,
+    sobra,
+    diferencaPorcoes,
+    custoTotal,
+    custoPorBase,
+    custoTeoricoPorPorcao,
+    quantidadeFinal,
+    custoRealPorPorcao,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -2519,16 +2590,17 @@ function linhaLoteAcompanhamentoHtml(lote) {
 
   const componentesSnapshot = componentesDoLoteAcompanhamento(lote.id).map((c) => ({
     quantidade: c.quantidade,
+    unidade: c.unidade,
     custoPorUnidadePreview: c.custoPorUnidadeSnapshot,
   }));
   const indicadores = calcularIndicadoresLoteAcompanhamento(lote, componentesSnapshot);
 
   const rendimentoTexto = `${formatarQuantidadeRendimento(lote.rendimentoFinalQuantidade)} ${lote.rendimentoFinalUnidade}`;
   const porcaoTexto = `${formatarQuantidadeRendimento(lote.porcaoQuantidade)} ${lote.porcaoUnidade}`;
-  const qtdTeoricaTexto = indicadores ? String(indicadores.quantidadeTeorica) : '—';
+  const qtdTeoricaTexto = Number.isFinite(indicadores.quantidadeTeorica) ? String(indicadores.quantidadeTeorica) : '—';
   const qtdRealTexto = lote.porcoesReais === null ? 'Não informada' : String(lote.porcoesReais);
-  const custoTotalTexto = indicadores ? formatarMoeda(indicadores.custoTotal) : '—';
-  const custoRealTexto = indicadores && Number.isFinite(indicadores.custoRealPorPorcao) ? formatarMoeda(indicadores.custoRealPorPorcao) : '—';
+  const custoTotalTexto = formatarMoeda(indicadores.custoTotal);
+  const custoRealTexto = Number.isFinite(indicadores.custoRealPorPorcao) ? formatarMoeda(indicadores.custoRealPorPorcao) : '—';
 
   return `
     <tr>
@@ -2778,44 +2850,96 @@ function atualizarPreviewLoteAcompanhamento() {
 }
 
 /** Soma custo dos componentes atuais do estado do modal + rendimento/porção/porções reais lidos direto dos campos — sempre client-side. Mostra o aviso de rendimento inválido e desabilita Salvar quando quantidadeTeorica < 1, mesmo com porções reais preenchidas. */
+/**
+ * Escreve as 10 linhas do bloco "Indicadores da Produção", escondendo cada
+ * uma individualmente quando não calculável (nunca mostra "—" pra algo que
+ * simplesmente não se aplica ainda). "Perda" só aparece quando o rendimento
+ * real é MENOR que o teórico dos componentes — se for maior/igual, mostra só
+ * Diferença (com sinal "+") e Rendimento (>100%), nunca "perda negativa".
+ */
+function renderizarIndicadoresProducaoAcompanhamento(dados, indicadores) {
+  const definir = (id, texto) => {
+    document.getElementById(id).textContent = texto;
+  };
+  const mostrarLinha = (idLinha, mostrar) => {
+    document.getElementById(idLinha).style.display = mostrar ? '' : 'none';
+  };
+
+  const temComponentes = componentesAcompanhamentoEmEdicao.length > 0;
+  mostrarLinha('linha-indicador-rendimento-teorico', temComponentes);
+  if (temComponentes) {
+    definir(
+      'indicadores-rendimento-teorico',
+      indicadores.rendimentoTeoricoComponentes === null
+        ? 'Indisponível para unidades mistas'
+        : `${formatarQuantidadeRendimento(indicadores.rendimentoTeoricoComponentes)} ${indicadores.unidadeRendimentoTeorico}`
+    );
+  }
+
+  const rendimentoValido = Number.isFinite(dados.rendimentoFinalQuantidade) && dados.rendimentoFinalQuantidade > 0;
+  mostrarLinha('linha-indicador-rendimento-real', rendimentoValido);
+  if (rendimentoValido) {
+    definir('indicadores-rendimento-real', `${formatarQuantidadeRendimento(dados.rendimentoFinalQuantidade)} ${dados.rendimentoFinalUnidade}`);
+  }
+
+  const comparacaoDisponivel = indicadores.diferencaRendimento !== null;
+  mostrarLinha('linha-indicador-diferenca-rendimento', comparacaoDisponivel);
+  mostrarLinha('linha-indicador-rendimento-percentual', comparacaoDisponivel);
+  mostrarLinha('linha-indicador-perda', comparacaoDisponivel && indicadores.diferencaRendimento < 0);
+  if (comparacaoDisponivel) {
+    const sinal = indicadores.diferencaRendimento > 0 ? '+' : '';
+    definir('indicadores-diferenca-rendimento', `${sinal}${formatarQuantidadeRendimento(indicadores.diferencaRendimento)} ${dados.rendimentoFinalUnidade}`);
+    definir('indicadores-rendimento-percentual', formatarPercentual(indicadores.rendimentoPercentual));
+    if (indicadores.diferencaRendimento < 0) {
+      definir(
+        'indicadores-perda',
+        `${formatarQuantidadeRendimento(indicadores.perdaQuantidade)} ${dados.rendimentoFinalUnidade} (${formatarPercentual(indicadores.perdaPercentual)})`
+      );
+    }
+  }
+
+  const porcaoValida = Number.isFinite(dados.porcaoQuantidade) && dados.porcaoQuantidade > 0;
+  mostrarLinha('linha-indicador-porcao', porcaoValida);
+  if (porcaoValida) definir('indicadores-porcao', `${formatarQuantidadeRendimento(dados.porcaoQuantidade)} ${dados.porcaoUnidade}`);
+
+  const teoricaDisponivel = Number.isFinite(indicadores.quantidadeTeorica);
+  mostrarLinha('linha-indicador-porcoes-teoricas', teoricaDisponivel);
+  if (teoricaDisponivel) definir('indicadores-porcoes-teoricas', String(indicadores.quantidadeTeorica));
+
+  const reaisInformadas = dados.porcoesReais !== null;
+  mostrarLinha('linha-indicador-porcoes-reais', reaisInformadas);
+  if (reaisInformadas) definir('indicadores-porcoes-reais', String(dados.porcoesReais));
+
+  const diferencaPorcoesDisponivel = indicadores.diferencaPorcoes !== null;
+  mostrarLinha('linha-indicador-diferenca-porcoes', diferencaPorcoesDisponivel);
+  if (diferencaPorcoesDisponivel) {
+    const sinal = indicadores.diferencaPorcoes > 0 ? '+' : '';
+    definir('indicadores-diferenca-porcoes', `${sinal}${indicadores.diferencaPorcoes}`);
+  }
+
+  const sobraDisponivel = Number.isFinite(indicadores.sobra);
+  mostrarLinha('linha-indicador-sobra', sobraDisponivel);
+  if (sobraDisponivel) definir('indicadores-sobra', `${formatarQuantidadeRendimento(indicadores.sobra)} ${dados.rendimentoFinalUnidade}`);
+}
+
+/** Orquestrador chamado a cada input/change relevante — indicadores comparativos + resumo de custos + aviso/desabilitação de Salvar quando rendimento/porção não produz nenhuma porção válida. */
 function atualizarResumoLoteAcompanhamento() {
   const dados = lerDadosFormularioLoteAcompanhamento();
   const indicadores = calcularIndicadoresLoteAcompanhamento(dados, componentesAcompanhamentoEmEdicao);
 
+  renderizarIndicadoresProducaoAcompanhamento(dados, indicadores);
+
   const definir = (id, texto) => {
     document.getElementById(id).textContent = texto;
   };
-  const dicaInvalida = document.getElementById('dica-acomp-rendimento-invalido');
-  const botaoSalvar = document.getElementById('botao-salvar-lote-acompanhamento');
-
-  if (!indicadores) {
-    [
-      'resumo-acomp-custo-total',
-      'resumo-acomp-rendimento',
-      'resumo-acomp-custo-base',
-      'resumo-acomp-porcao',
-      'resumo-acomp-qtd-teorica',
-      'resumo-acomp-qtd-real',
-      'resumo-acomp-sobra',
-      'resumo-acomp-custo-teorico',
-      'resumo-acomp-custo-real',
-    ].forEach((id) => definir(id, '—'));
-    dicaInvalida.style.display = 'none';
-    botaoSalvar.disabled = !souAdminProducao;
-    return;
-  }
-
   definir('resumo-acomp-custo-total', formatarMoeda(indicadores.custoTotal));
-  definir('resumo-acomp-rendimento', `${formatarQuantidadeRendimento(dados.rendimentoFinalQuantidade)} ${dados.rendimentoFinalUnidade}`);
-  definir('resumo-acomp-custo-base', formatarCustoPorRendimento(indicadores.custoPorBase, dados.rendimentoFinalUnidade));
-  definir('resumo-acomp-porcao', `${formatarQuantidadeRendimento(dados.porcaoQuantidade)} ${dados.porcaoUnidade}`);
-  definir('resumo-acomp-qtd-teorica', String(indicadores.quantidadeTeorica));
-  definir('resumo-acomp-qtd-real', dados.porcoesReais !== null ? String(dados.porcoesReais) : 'Não informada');
-  definir('resumo-acomp-sobra', `${formatarQuantidadeRendimento(indicadores.sobra)} ${dados.rendimentoFinalUnidade}`);
+  definir('resumo-acomp-custo-base', Number.isFinite(indicadores.custoPorBase) ? formatarCustoPorRendimento(indicadores.custoPorBase, dados.rendimentoFinalUnidade) : '—');
   definir('resumo-acomp-custo-teorico', Number.isFinite(indicadores.custoTeoricoPorPorcao) ? formatarMoeda(indicadores.custoTeoricoPorPorcao) + '/porção' : '—');
   definir('resumo-acomp-custo-real', Number.isFinite(indicadores.custoRealPorPorcao) ? formatarMoeda(indicadores.custoRealPorPorcao) + '/porção' : '—');
 
-  const rendimentoInvalido = indicadores.quantidadeTeorica < 1;
+  const dicaInvalida = document.getElementById('dica-acomp-rendimento-invalido');
+  const botaoSalvar = document.getElementById('botao-salvar-lote-acompanhamento');
+  const rendimentoInvalido = Number.isFinite(indicadores.quantidadeTeorica) && indicadores.quantidadeTeorica < 1;
   dicaInvalida.style.display = rendimentoInvalido ? '' : 'none';
   botaoSalvar.disabled = !souAdminProducao || rendimentoInvalido;
 }
@@ -2842,10 +2966,11 @@ function renderizarBlocoCustoAcompanhamentoProduto(lote) {
   const produto = produtoPorId(lote.produtoId);
   const componentesSnapshot = componentesDoLoteAcompanhamento(lote.id).map((c) => ({
     quantidade: c.quantidade,
+    unidade: c.unidade,
     custoPorUnidadePreview: c.custoPorUnidadeSnapshot,
   }));
   const indicadores = calcularIndicadoresLoteAcompanhamento(lote, componentesSnapshot);
-  const custoLote = indicadores ? indicadores.custoRealPorPorcao : null;
+  const custoLote = indicadores.custoRealPorPorcao;
   const custoAtual = custosProdutosCache.has(lote.produtoId) ? custosProdutosCache.get(lote.produtoId) : null;
   const comparacao = calcularComparacaoCustoProduto(custoAtual, Number.isFinite(custoLote) ? custoLote : NaN);
 

@@ -637,44 +637,6 @@
             <input type="date" id="campo-data-acompanhamento" class="input" required />
           </div>
 
-          <h3 class="producao-subtitulo">Rendimento</h3>
-          <div style="display:flex; gap:12px;">
-            <div class="form-grupo" style="flex:2;">
-              <label for="campo-rendimento-quantidade-acompanhamento">Rendimento final</label>
-              <input type="number" id="campo-rendimento-quantidade-acompanhamento" class="input" min="0" step="0.001" required />
-            </div>
-            <div class="form-grupo" style="flex:1;">
-              <label for="campo-rendimento-unidade-acompanhamento">Unidade</label>
-              <select id="campo-rendimento-unidade-acompanhamento" class="input">
-                <option value="g">g</option>
-                <option value="ml">ml</option>
-                <option value="un">un</option>
-              </select>
-            </div>
-          </div>
-          <p class="dica-campo">Informe o rendimento REAL obtido depois da produção — nunca calculado automaticamente pela soma dos componentes.</p>
-
-          <h3 class="producao-subtitulo">Porção</h3>
-          <div style="display:flex; gap:12px; align-items:flex-end;">
-            <div class="form-grupo" style="flex:2;">
-              <label for="campo-porcao-quantidade-acompanhamento">Tamanho da porção</label>
-              <input type="number" id="campo-porcao-quantidade-acompanhamento" class="input" min="0" step="0.001" required />
-            </div>
-            <div class="form-grupo" style="flex:1;">
-              <label>Unidade</label>
-              <span class="producao-unidade-travada" id="texto-unidade-porcao-acompanhamento">g</span>
-            </div>
-          </div>
-          <p class="dica-campo">A unidade da porção acompanha sempre a unidade do rendimento.</p>
-
-          <div class="form-grupo">
-            <label for="campo-porcoes-reais-acompanhamento">Quantidade real de porções</label>
-            <input type="number" id="campo-porcoes-reais-acompanhamento" class="input" min="1" step="1" placeholder="Opcional" />
-            <p class="dica-campo">Informe se a quantidade realmente montada foi diferente da quantidade teórica.</p>
-          </div>
-
-          <p class="dica-campo" id="dica-acomp-rendimento-invalido" style="display:none; color:var(--cor-status-vermelho);">O rendimento informado não produz nenhuma porção válida.</p>
-
           <h3 class="producao-subtitulo">Ingredientes / Preparos</h3>
           <div class="producao-lista-componentes-lote" id="lista-componentes-acompanhamento"></div>
           <div class="estado-vazio" id="estado-vazio-componentes-acompanhamento" style="display:none;">Nenhum ingrediente ou preparo adicionado a este lote.</div>
@@ -706,15 +668,61 @@
           <p class="producao-preview-custo" id="preview-componente-acompanhamento"></p>
           <p class="dica-campo" id="dica-componente-acompanhamento-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
 
+          <h3 class="producao-subtitulo">Rendimento e Porções</h3>
+          <div style="display:flex; gap:12px;">
+            <div class="form-grupo" style="flex:2;">
+              <label for="campo-rendimento-quantidade-acompanhamento">Rendimento final</label>
+              <input type="number" id="campo-rendimento-quantidade-acompanhamento" class="input" min="0" step="0.001" required />
+            </div>
+            <div class="form-grupo" style="flex:1;">
+              <label for="campo-rendimento-unidade-acompanhamento">Unidade</label>
+              <select id="campo-rendimento-unidade-acompanhamento" class="input">
+                <option value="g">g</option>
+                <option value="ml">ml</option>
+                <option value="un">un</option>
+              </select>
+            </div>
+          </div>
+          <p class="dica-campo">Informe o rendimento REAL obtido depois da produção — nunca calculado automaticamente pela soma dos componentes.</p>
+
+          <div style="display:flex; gap:12px; align-items:flex-end;">
+            <div class="form-grupo" style="flex:2;">
+              <label for="campo-porcao-quantidade-acompanhamento">Tamanho da porção</label>
+              <input type="number" id="campo-porcao-quantidade-acompanhamento" class="input" min="0" step="0.001" required />
+            </div>
+            <div class="form-grupo" style="flex:1;">
+              <label>Unidade</label>
+              <span class="producao-unidade-travada" id="texto-unidade-porcao-acompanhamento">g</span>
+            </div>
+          </div>
+          <p class="dica-campo">A unidade da porção acompanha sempre a unidade do rendimento.</p>
+
+          <div class="form-grupo">
+            <label for="campo-porcoes-reais-acompanhamento">Quantidade real produzida</label>
+            <input type="number" id="campo-porcoes-reais-acompanhamento" class="input" min="1" step="1" placeholder="Opcional" />
+            <p class="dica-campo">Informe quantas porções você realmente conseguiu montar.</p>
+          </div>
+
+          <p class="dica-campo" id="dica-acomp-rendimento-invalido" style="display:none; color:var(--cor-status-vermelho);">O rendimento informado não produz nenhuma porção válida.</p>
+
+          <h3 class="producao-subtitulo">Indicadores da Produção</h3>
+          <div class="producao-resumo-final-lote">
+            <div id="linha-indicador-rendimento-teorico"><span>Rendimento teórico dos componentes</span><strong id="indicadores-rendimento-teorico">—</strong></div>
+            <div id="linha-indicador-rendimento-real"><span>Rendimento real</span><strong id="indicadores-rendimento-real">—</strong></div>
+            <div id="linha-indicador-diferenca-rendimento"><span>Diferença</span><strong id="indicadores-diferenca-rendimento">—</strong></div>
+            <div id="linha-indicador-rendimento-percentual"><span>Rendimento</span><strong id="indicadores-rendimento-percentual">—</strong></div>
+            <div id="linha-indicador-perda"><span>Perda</span><strong id="indicadores-perda">—</strong></div>
+            <div id="linha-indicador-porcao"><span>Porção</span><strong id="indicadores-porcao">—</strong></div>
+            <div id="linha-indicador-porcoes-teoricas"><span>Porções teóricas</span><strong id="indicadores-porcoes-teoricas">—</strong></div>
+            <div id="linha-indicador-porcoes-reais"><span>Porções reais</span><strong id="indicadores-porcoes-reais">—</strong></div>
+            <div id="linha-indicador-diferenca-porcoes"><span>Diferença de porções</span><strong id="indicadores-diferenca-porcoes">—</strong></div>
+            <div id="linha-indicador-sobra"><span>Sobra teórica</span><strong id="indicadores-sobra">—</strong></div>
+          </div>
+
           <h3 class="producao-subtitulo">Resumo do Lote</h3>
           <div class="producao-resumo-final-lote">
             <div><span>Custo total</span><strong id="resumo-acomp-custo-total">—</strong></div>
-            <div><span>Rendimento</span><strong id="resumo-acomp-rendimento">—</strong></div>
             <div><span>Custo por base</span><strong id="resumo-acomp-custo-base">—</strong></div>
-            <div><span>Porção</span><strong id="resumo-acomp-porcao">—</strong></div>
-            <div><span>Qtd. teórica</span><strong id="resumo-acomp-qtd-teorica">—</strong></div>
-            <div><span>Qtd. real</span><strong id="resumo-acomp-qtd-real">—</strong></div>
-            <div><span>Sobra</span><strong id="resumo-acomp-sobra">—</strong></div>
             <div><span>Custo teórico/porção</span><strong id="resumo-acomp-custo-teorico">—</strong></div>
             <div class="producao-resumo-final-lote-destaque"><span>Custo real/porção</span><strong id="resumo-acomp-custo-real">—</strong></div>
           </div>
