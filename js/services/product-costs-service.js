@@ -5,17 +5,23 @@
  * anon não tem GRANT nenhum aqui, só authenticated (SELECT para staff — ver
  * migration 20260817140000). Escrita (criar/atualizar custo) passa inteira
  * por RPC administrativa desde a migration 20260818120000: nunca um INSERT/
- * UPDATE direto na tabela — authenticated não tem mais esse GRANT. Duas
+ * UPDATE direto na tabela — authenticated não tem mais esse GRANT. Três
  * RPCs, cada uma validando a categoria real do produto NO BANCO (nunca
  * confiando em nada vindo do client):
  *   - save_product_cost_manual: fluxo manual (produtos.js), rejeita
  *     produtos da categoria 'skewers' (Espetinhos só recebem custo pela
- *     Produção).
+ *     Produção). Ainda não rejeita 'sides' (Acompanhamentos) — bloqueio
+ *     planejado como etapa futura separada, depois da feature validada.
  *   - apply_skewer_production_cost: fluxo de Produção de Espetos
  *     (producao.js) — recebe só o id do lote, nunca um custo; a RPC
  *     recalcula o valor inteiramente a partir dos snapshots do lote e
  *     resolve o produto sozinha (skewer_production_batches.product_id),
  *     rejeitando quando esse produto não é da categoria 'skewers'.
+ *   - apply_side_production_cost (migration 20260818140000): mesmo padrão
+ *     de apply_skewer_production_cost, pra Produção de Acompanhamentos —
+ *     recebe só o id do lote, resolve o produto sozinha
+ *     (side_production_batches.product_id), rejeitando quando esse
+ *     produto não é da categoria 'sides'.
  * NUNCA carregar este arquivo em pedido.html/js/pedido.js (área pública) —
  * só nas páginas admin que precisam mostrar/editar custo (produtos.js,
  * producao.js). Depende de js/supabase.js (supabaseClient), carregado
@@ -69,6 +75,34 @@ async function salvarCustoProdutoNoSupabase(productId, unitCost) {
  */
 async function aplicarCustoProducaoEspetoNoSupabase(batchId) {
   const { data, error } = await supabaseClient.rpc('apply_skewer_production_cost', {
+    p_batch_id: batchId,
+  });
+  if (error) throw new Error(error.message);
+  return {
+    produtoId: data.product_id,
+    loteId: data.batch_id,
+    unitCost: data.unit_cost === null || data.unit_cost === undefined ? null : Number(data.unit_cost),
+    atualizadoEm: data.updated_at,
+    atualizadoPor: data.updated_by,
+  };
+}
+
+/**
+ * Aplica o custo real final de um lote de Produção de Acompanhamentos ao
+ * produto — chama a RPC apply_side_production_cost (SECURITY DEFINER),
+ * passando só o id do lote. A RPC recalcula o custo inteiramente a partir
+ * dos snapshots salvos (SUM(quantity × unit_cost_snapshot) dos componentes,
+ * dividido pela quantidade de porções real ou teórica) e resolve o
+ * product_id sozinha, a partir do próprio lote — nunca confia em nenhum
+ * valor calculado no client. Único caminho autorizado pra esse custo;
+ * nunca chamar salvarCustoProdutoNoSupabase para um Acompanhamento cujo
+ * custo venha de um lote de produção. Retorna o que a RPC gravou de fato
+ * (product_id, batch_id, unit_cost, updated_at, updated_by) — quem chama
+ * deve usar esse retorno pra atualizar cache/UI, nunca o valor calculado
+ * localmente. RLS/RPC restringem esta operação a admin.
+ */
+async function aplicarCustoProducaoAcompanhamentoNoSupabase(batchId) {
+  const { data, error } = await supabaseClient.rpc('apply_side_production_cost', {
     p_batch_id: batchId,
   });
   if (error) throw new Error(error.message);

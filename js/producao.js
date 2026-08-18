@@ -86,6 +86,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     finalizarSecaoComErro('estado-carregando-ingredientes', 'estado-erro-ingredientes', erroCarregamento);
     finalizarSecaoComErro('estado-carregando-receitas', 'estado-erro-receitas', erroCarregamento);
     finalizarSecaoComErro('estado-carregando-lotes-espetos', 'estado-erro-lotes-espetos', erroCarregamento);
+    finalizarSecaoComErro('estado-carregando-acompanhamentos', 'estado-erro-acompanhamentos', erroCarregamento);
     finalizarSecaoComErro('estado-carregando-insumos', 'estado-erro-insumos', erroCarregamento);
     return;
   }
@@ -105,6 +106,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (erroLotes) {
     console.error('Erro ao preparar Produção de Espetos:', erroLotes);
     finalizarSecaoComErro('estado-carregando-lotes-espetos', 'estado-erro-lotes-espetos', erroLotes);
+  }
+
+  try {
+    ligarEventosModalLoteAcompanhamento();
+    await carregarLotesAcompanhamentos();
+  } catch (erroAcompanhamentos) {
+    console.error('Erro ao preparar Produção de Acompanhamentos:', erroAcompanhamentos);
+    finalizarSecaoComErro('estado-carregando-acompanhamentos', 'estado-erro-acompanhamentos', erroAcompanhamentos);
   }
 
   await carregarSecaoInsumos();
@@ -2374,6 +2383,787 @@ async function excluirLoteEspetoModal() {
   fecharModalLoteEspeto();
   renderizarTabelaLotesEspetos();
   mostrarToast('Lote de produção excluído.', 'sucesso');
+}
+
+// =============================================================================
+// PRODUÇÃO DE ACOMPANHAMENTOS — side_production_batches + side_batch_components
+// (Etapa C). Lote de acompanhamento (Salada de Maionese, Vinagrete, Arroz,
+// Farofa, Molho de Alho...): rendimento final e porção são sempre digitados
+// (rendimento nunca calculado pela soma dos componentes — captura perda real
+// de cocção/evaporação/absorção), quantidade de porções é sempre derivada
+// (teórica) ou informada (real, opcional). Todo custo do lote vem da soma
+// dos componentes (ingredient/recipe, sem supply) — diferente de Espetos,
+// não existe aqui um "custo da carne" separado. Escrita (criar/editar lote +
+// substituir componentes) passa inteira pela RPC save_side_production_batch;
+// aplicar custo ao produto passa inteira por apply_side_production_cost
+// (product-costs-service.js), que nunca recebe nenhum número do
+// client, só o id do lote. Funções desta seção nunca reaproveitam nem
+// misturam estado com as de Produção de Espetos (calcularIndicadoresLote
+// Acompanhamento/calcularCustosFinaisLoteEspetos são independentes, mesmo
+// quando a fórmula é parecida) — cada seção tem seu próprio cache/estado de
+// modal. Depende de js/services/side-production-service.js e reaproveita
+// (sem alterar) ingredientesCache/receitasCache/produtosCache/
+// custosProdutosCache/calcularRendimentoReceita/custoTotalReceita/
+// formatarQuantidadeRendimento/formatarCustoPorRendimento/
+// calcularComparacaoCustoProduto/formatarMoeda4Casas já existentes.
+// =============================================================================
+
+let lotesAcompanhamentosCache = [];
+let componentesLotesAcompanhamentosCache = [];
+let componentesAcompanhamentoEmEdicao = [];
+
+async function carregarLotesAcompanhamentos() {
+  const carregando = document.getElementById('estado-carregando-acompanhamentos');
+  const erro = document.getElementById('estado-erro-acompanhamentos');
+
+  try {
+    const [lotes, componentes] = await Promise.all([
+      buscarLotesAcompanhamentosDoSupabase(),
+      buscarComponentesLotesAcompanhamentosDoSupabase(),
+    ]);
+    lotesAcompanhamentosCache = lotes;
+    componentesLotesAcompanhamentosCache = componentes;
+  } catch (erroCarregamento) {
+    console.error('Erro ao carregar lotes de produção de acompanhamentos:', erroCarregamento);
+    carregando.style.display = 'none';
+    erro.textContent = 'Não foi possível carregar os lotes de acompanhamento. ' + erroCarregamento.message;
+    erro.style.display = 'block';
+    return;
+  }
+  carregando.style.display = 'none';
+
+  atualizarEstadoEdicaoLotesAcompanhamentos();
+  renderizarTabelaLotesAcompanhamentos();
+}
+
+function atualizarEstadoEdicaoLotesAcompanhamentos() {
+  const botaoNovo = document.getElementById('botao-novo-lote-acompanhamento');
+  const dica = document.getElementById('dica-acompanhamentos-somente-admin');
+  botaoNovo.disabled = !souAdminProducao;
+  dica.style.display = souAdminProducao ? 'none' : '';
+}
+
+/** Componentes já salvos de um lote — histórico, nunca recalculado (mesmo padrão de componentesDoLote/itensDaReceita). */
+function componentesDoLoteAcompanhamento(loteId) {
+  return componentesLotesAcompanhamentosCache.filter((c) => c.loteId === loteId);
+}
+
+// ---------------------------------------------------------------------------
+// Cálculo — função pura única, usada na prévia do modal, na listagem e ao
+// reabrir o modal pra editar. Diferente de calcularIndicadoresLoteEspetos:
+// retorna o objeto mesmo quando quantidadeTeorica < 1 (nunca null nesse
+// caso) — a UI precisa desse valor pra mostrar o erro específico e
+// desabilitar Salvar (rendimento menor que a porção).
+// ---------------------------------------------------------------------------
+
+/**
+ * lote = { rendimentoFinalQuantidade, porcaoQuantidade, porcoesReais }.
+ * componentes = lista de { quantidade, custoPorUnidadePreview } — para
+ * listagem/comparação de custo, custoPorUnidadePreview é sempre o
+ * custoPorUnidadeSnapshot histórico (nunca recalculado); para o modal de
+ * edição aberto, é o valor mostrado na prévia daquele momento (ingredient
+ * sempre atual; recipe recalculado de novo só no instante de salvar, ver
+ * montarComponentesPayloadParaSalvarAcompanhamento).
+ */
+function calcularIndicadoresLoteAcompanhamento(lote, componentes) {
+  const { rendimentoFinalQuantidade, porcaoQuantidade, porcoesReais } = lote;
+
+  if (!Number.isFinite(rendimentoFinalQuantidade) || rendimentoFinalQuantidade <= 0) return null;
+  if (!Number.isFinite(porcaoQuantidade) || porcaoQuantidade <= 0) return null;
+
+  const custoTotal = componentes.reduce((soma, c) => soma + c.quantidade * c.custoPorUnidadePreview, 0);
+
+  // Arredonda a razão a 6 casas antes do floor — mesma blindagem contra
+  // imprecisão de ponto flutuante já usada em calcularIndicadoresLoteEspetos.
+  const razao = Math.round((rendimentoFinalQuantidade / porcaoQuantidade) * 1e6) / 1e6;
+  const quantidadeTeorica = Math.floor(razao);
+  const sobra = rendimentoFinalQuantidade - quantidadeTeorica * porcaoQuantidade;
+
+  const custoPorBase = custoTotal / rendimentoFinalQuantidade;
+  // Fórmula principal: porção × custo por base — nunca custoTotal/quantidadeTeorica,
+  // que distorceria o custo teórico quando há sobra.
+  const custoTeoricoPorPorcao = porcaoQuantidade * custoPorBase;
+
+  const quantidadeFinal = Number.isFinite(porcoesReais) && porcoesReais > 0 ? porcoesReais : quantidadeTeorica;
+  const custoRealPorPorcao = quantidadeFinal > 0 ? custoTotal / quantidadeFinal : null;
+
+  return { custoTotal, quantidadeTeorica, sobra, custoPorBase, custoTeoricoPorPorcao, quantidadeFinal, custoRealPorPorcao };
+}
+
+// ---------------------------------------------------------------------------
+// Listagem
+// ---------------------------------------------------------------------------
+
+function renderizarTabelaLotesAcompanhamentos() {
+  const corpo = document.getElementById('corpo-tabela-acompanhamentos');
+  const vazio = document.getElementById('estado-vazio-acompanhamentos');
+
+  if (lotesAcompanhamentosCache.length === 0) {
+    corpo.innerHTML = '';
+    vazio.style.display = 'block';
+    return;
+  }
+  vazio.style.display = 'none';
+
+  corpo.innerHTML = lotesAcompanhamentosCache.map(linhaLoteAcompanhamentoHtml).join('');
+
+  corpo.querySelectorAll('[data-acao-editar-lote-acompanhamento]').forEach((botao) => {
+    botao.addEventListener('click', () => abrirModalLoteAcompanhamento(botao.dataset.acaoEditarLoteAcompanhamento));
+  });
+}
+
+/** Nome do produto sempre vem de produtosCache completo (nunca filtrado) — produto inativo continua aparecendo em lotes antigos. Custo total/real sempre a partir de custoPorUnidadeSnapshot histórico (zero query por linha). */
+function linhaLoteAcompanhamentoHtml(lote) {
+  const produto = produtoPorId(lote.produtoId);
+  const nomeProduto = produto ? produto.nome : '(produto removido)';
+
+  const componentesSnapshot = componentesDoLoteAcompanhamento(lote.id).map((c) => ({
+    quantidade: c.quantidade,
+    custoPorUnidadePreview: c.custoPorUnidadeSnapshot,
+  }));
+  const indicadores = calcularIndicadoresLoteAcompanhamento(lote, componentesSnapshot);
+
+  const rendimentoTexto = `${formatarQuantidadeRendimento(lote.rendimentoFinalQuantidade)} ${lote.rendimentoFinalUnidade}`;
+  const porcaoTexto = `${formatarQuantidadeRendimento(lote.porcaoQuantidade)} ${lote.porcaoUnidade}`;
+  const qtdTeoricaTexto = indicadores ? String(indicadores.quantidadeTeorica) : '—';
+  const qtdRealTexto = lote.porcoesReais === null ? 'Não informada' : String(lote.porcoesReais);
+  const custoTotalTexto = indicadores ? formatarMoeda(indicadores.custoTotal) : '—';
+  const custoRealTexto = indicadores && Number.isFinite(indicadores.custoRealPorPorcao) ? formatarMoeda(indicadores.custoRealPorPorcao) : '—';
+
+  return `
+    <tr>
+      <td>${formatarDataProducao(lote.produzidoEm)}</td>
+      <td>${escaparHtml(nomeProduto)}</td>
+      <td>${rendimentoTexto}</td>
+      <td>${porcaoTexto}</td>
+      <td>${qtdTeoricaTexto}</td>
+      <td>${qtdRealTexto}</td>
+      <td>${custoTotalTexto}</td>
+      <td>${custoRealTexto}</td>
+      <td>
+        <button class="btn-icone" data-acao-editar-lote-acompanhamento="${lote.id}" title="Editar" ${souAdminProducao ? '' : 'disabled'}>✏️</button>
+      </td>
+    </tr>`;
+}
+
+// ---------------------------------------------------------------------------
+// Opções de produto no modal — só ativos da categoria Acompanhamentos pra um
+// lote NOVO (categoria já mapeada pt-BR por products-service.js — valor real
+// no banco é 'sides'). product_id continua editável num lote existente, então
+// ao editar um lote cujo produto não está mais na lista de ativos, ele é
+// incluído como opção extra rotulada — mesmo padrão de popularOpcoesProdutoLote.
+// ---------------------------------------------------------------------------
+
+function popularOpcoesProdutoAcompanhamento(produtoAtualId) {
+  const select = document.getElementById('campo-produto-acompanhamento');
+  const disponiveis = produtosCache
+    .filter((p) => p.categoria === 'Acompanhamentos' && p.status === 'ativo')
+    .sort((a, b) => a.nome.localeCompare(b.nome));
+
+  let opcoesHtml = disponiveis.map((p) => `<option value="${p.id}">${escaparHtml(p.nome)}</option>`).join('');
+
+  const atual = produtoAtualId ? produtoPorId(produtoAtualId) : null;
+  if (atual && !disponiveis.some((p) => p.id === atual.id)) {
+    opcoesHtml += `<option value="${atual.id}">${escaparHtml(atual.nome)} (inativo ou fora de Acompanhamentos)</option>`;
+  }
+
+  select.innerHTML = opcoesHtml;
+}
+
+// ---------------------------------------------------------------------------
+// Componentes (Ingredientes/Preparos) — estado só de memória
+// (componentesAcompanhamentoEmEdicao) até "Salvar". A RPC substitui a lista
+// inteira no banco — remover aqui só tira do estado do modal, nunca chama o
+// Supabase isoladamente.
+// ---------------------------------------------------------------------------
+
+/**
+ * Tipo=Ingrediente: TODOS os ingredientes ativos (sem filtro de categoria —
+ * diferente de Temperos/Preparos de Espetos, Acompanhamentos pode usar
+ * Batata/Cenoura/Maionese/Sal/etc). Tipo=Preparo: só receitas ativas com
+ * rendimento derivado disponível (reaproveita calcularRendimentoReceita já
+ * existente, mesmo filtro de popularOpcoesTemperoLote/popularOpcoesPreparoItem
+ * — sem duplicar regra).
+ */
+function popularOpcoesComponenteAcompanhamento() {
+  const tipo = document.getElementById('campo-tipo-componente-acompanhamento').value;
+  const select = document.getElementById('campo-referencia-componente-acompanhamento');
+  document.getElementById('rotulo-referencia-componente-acompanhamento').textContent = tipo === 'recipe' ? 'Preparo' : 'Ingrediente';
+
+  let candidatos;
+  if (tipo === 'recipe') {
+    candidatos = receitasCache.filter((r) => r.ativo && calcularRendimentoReceita(r.id).disponivel).sort((a, b) => a.nome.localeCompare(b.nome));
+  } else {
+    candidatos = ingredientesCache.filter((i) => i.ativo).sort((a, b) => a.nome.localeCompare(b.nome));
+  }
+  select.innerHTML = candidatos.map((c) => `<option value="${c.id}">${escaparHtml(c.nome)}</option>`).join('');
+
+  atualizarUnidadeComponenteAcompanhamento();
+}
+
+function atualizarUnidadeComponenteAcompanhamento() {
+  const tipo = document.getElementById('campo-tipo-componente-acompanhamento').value;
+  const referenciaId = document.getElementById('campo-referencia-componente-acompanhamento').value;
+  const textoUnidade = document.getElementById('texto-unidade-componente-acompanhamento');
+
+  if (!referenciaId) {
+    textoUnidade.textContent = '—';
+    return;
+  }
+  if (tipo === 'recipe') {
+    const rendimento = calcularRendimentoReceita(referenciaId);
+    textoUnidade.textContent = rendimento.disponivel ? rendimento.unidade : '—';
+  } else {
+    const ingrediente = ingredientePorId(referenciaId);
+    textoUnidade.textContent = ingrediente ? ingrediente.unidadeBase : '—';
+  }
+}
+
+/** Reaproveita custoTotalReceita/calcularRendimentoReceita (Fichas Técnicas) pra Preparo, e cost_per_base_unit direto pra Ingrediente — nunca duplica fórmula. */
+function atualizarPreviewComponenteAcompanhamento() {
+  const preview = document.getElementById('preview-componente-acompanhamento');
+  const tipo = document.getElementById('campo-tipo-componente-acompanhamento').value;
+  const referenciaId = document.getElementById('campo-referencia-componente-acompanhamento').value;
+  const quantidade = Number(document.getElementById('campo-quantidade-componente-acompanhamento').value);
+
+  if (!referenciaId || !Number.isFinite(quantidade) || quantidade <= 0) {
+    preview.textContent = '';
+    return;
+  }
+
+  if (tipo === 'recipe') {
+    const receita = receitaPorId(referenciaId);
+    const rendimento = calcularRendimentoReceita(referenciaId);
+    if (!receita || !rendimento.disponivel) {
+      preview.textContent = '';
+      return;
+    }
+    const custoTotalSub = custoTotalReceita(referenciaId, new Map());
+    const custoPorUnidade = custoTotalSub / rendimento.quantidade;
+    const custoEstimado = quantidade * custoPorUnidade;
+    preview.textContent =
+      `${receita.nome} · Rendimento: ${formatarQuantidadeRendimento(rendimento.quantidade)} ${rendimento.unidade} · ` +
+      `Custo total: ${formatarMoeda(custoTotalSub)} · Custo: ${formatarCustoPorRendimento(custoPorUnidade, rendimento.unidade)} · ` +
+      `Custo estimado: ${formatarMoeda(custoEstimado)}`;
+  } else {
+    const ingrediente = ingredientePorId(referenciaId);
+    if (!ingrediente) {
+      preview.textContent = '';
+      return;
+    }
+    const custoEstimado = quantidade * ingrediente.custoPorUnidadeBase;
+    preview.textContent = `${quantidade} ${ingrediente.unidadeBase} × ${formatarCustoBaseIngrediente(ingrediente.custoPorUnidadeBase, ingrediente.unidadeBase)} = ${formatarMoeda(custoEstimado)}`;
+  }
+}
+
+function adicionarComponenteAcompanhamento() {
+  if (!souAdminProducao) return;
+  const dicaErro = document.getElementById('dica-componente-acompanhamento-erro');
+  const tipo = document.getElementById('campo-tipo-componente-acompanhamento').value;
+  const referenciaId = document.getElementById('campo-referencia-componente-acompanhamento').value;
+  const quantidade = Number(document.getElementById('campo-quantidade-componente-acompanhamento').value);
+
+  if (!referenciaId) {
+    dicaErro.textContent = tipo === 'recipe' ? 'Selecione um preparo.' : 'Selecione um ingrediente.';
+    dicaErro.style.display = '';
+    return;
+  }
+  if (!Number.isFinite(quantidade) || quantidade <= 0) {
+    dicaErro.textContent = 'Informe uma quantidade maior que zero.';
+    dicaErro.style.display = '';
+    return;
+  }
+  if (componentesAcompanhamentoEmEdicao.some((c) => c.tipoItem === tipo && c.referenciaId === referenciaId)) {
+    dicaErro.textContent = tipo === 'recipe' ? 'Este preparo já foi adicionado a este lote.' : 'Este ingrediente já foi adicionado a este lote.';
+    dicaErro.style.display = '';
+    return;
+  }
+
+  let nome;
+  let unidade;
+  let custoPorUnidadePreview;
+
+  if (tipo === 'recipe') {
+    const receita = receitaPorId(referenciaId);
+    const rendimento = calcularRendimentoReceita(referenciaId);
+    if (!receita || !rendimento.disponivel) {
+      dicaErro.textContent = 'Este preparo não tem rendimento disponível.';
+      dicaErro.style.display = '';
+      return;
+    }
+    const custoTotalSub = custoTotalReceita(referenciaId, new Map());
+    nome = receita.nome;
+    unidade = rendimento.unidade;
+    custoPorUnidadePreview = custoTotalSub / rendimento.quantidade;
+  } else {
+    const ingrediente = ingredientePorId(referenciaId);
+    if (!ingrediente) {
+      dicaErro.textContent = 'Ingrediente não encontrado.';
+      dicaErro.style.display = '';
+      return;
+    }
+    nome = ingrediente.nome;
+    unidade = ingrediente.unidadeBase;
+    custoPorUnidadePreview = ingrediente.custoPorUnidadeBase;
+  }
+
+  dicaErro.style.display = 'none';
+  componentesAcompanhamentoEmEdicao.push({ tipoItem: tipo, referenciaId, quantidade, unidade, nome, custoPorUnidadePreview });
+
+  document.getElementById('campo-quantidade-componente-acompanhamento').value = '';
+  document.getElementById('preview-componente-acompanhamento').textContent = '';
+  renderizarListaComponentesAcompanhamento();
+}
+
+/** Versão dedicada (não reaproveita renderizarListaComponentes/linhaComponenteLoteHtml de Espetos, que fecham sobre componentesLoteEmEdicao) — mesmas classes CSS já existentes. */
+function renderizarListaComponentesAcompanhamento() {
+  const lista = document.getElementById('lista-componentes-acompanhamento');
+  const vazio = document.getElementById('estado-vazio-componentes-acompanhamento');
+  const itens = componentesAcompanhamentoEmEdicao;
+
+  if (itens.length === 0) {
+    lista.innerHTML = '';
+    vazio.style.display = 'block';
+  } else {
+    vazio.style.display = 'none';
+    lista.innerHTML = itens.map(linhaComponenteAcompanhamentoHtml).join('');
+    lista.querySelectorAll('[data-acao-remover-componente-acompanhamento]').forEach((botao) => {
+      botao.addEventListener('click', () => removerComponenteAcompanhamento(Number(botao.dataset.acaoRemoverComponenteAcompanhamento)));
+    });
+  }
+
+  atualizarResumoLoteAcompanhamento();
+}
+
+function linhaComponenteAcompanhamentoHtml(componente) {
+  const indice = componentesAcompanhamentoEmEdicao.indexOf(componente);
+  const tipoLabel = componente.tipoItem === 'recipe' ? 'Preparo' : 'Ingrediente';
+  const quantidadeTexto = Number.isInteger(componente.quantidade) ? componente.quantidade : componente.quantidade.toString().replace('.', ',');
+  const custoLinha = componente.quantidade * componente.custoPorUnidadePreview;
+
+  return `
+    <div class="producao-linha-componente-lote">
+      <span class="producao-linha-componente-nome">${escaparHtml(componente.nome)}</span>
+      <span class="producao-linha-componente-tipo">${tipoLabel}</span>
+      <span class="producao-linha-componente-quantidade">${quantidadeTexto} ${componente.unidade}</span>
+      <span class="producao-linha-componente-custo">${formatarMoeda(custoLinha)}</span>
+      <button type="button" class="btn-icone" data-acao-remover-componente-acompanhamento="${indice}" title="Remover" ${souAdminProducao ? '' : 'disabled'}>🗑️</button>
+    </div>`;
+}
+
+function removerComponenteAcompanhamento(indice) {
+  if (!souAdminProducao) return;
+  componentesAcompanhamentoEmEdicao.splice(indice, 1);
+  renderizarListaComponentesAcompanhamento();
+}
+
+/** Lê rendimento/porção/porções reais do formulário — porcaoUnidade sempre igual à unidade do rendimento corrente (travada na UI, nunca um select independente). */
+function lerDadosFormularioLoteAcompanhamento() {
+  const unidade = document.getElementById('campo-rendimento-unidade-acompanhamento').value;
+  const porcoesReaisTexto = document.getElementById('campo-porcoes-reais-acompanhamento').value;
+  return {
+    rendimentoFinalQuantidade: Number(document.getElementById('campo-rendimento-quantidade-acompanhamento').value),
+    rendimentoFinalUnidade: unidade,
+    porcaoQuantidade: Number(document.getElementById('campo-porcao-quantidade-acompanhamento').value),
+    porcaoUnidade: unidade,
+    porcoesReais: porcoesReaisTexto === '' ? null : Number(porcoesReaisTexto),
+  };
+}
+
+/** Recalculada a cada tecla/troca de unidade, sempre client-side — nunca consulta o Supabase. */
+function atualizarPreviewLoteAcompanhamento() {
+  document.getElementById('texto-unidade-porcao-acompanhamento').textContent =
+    document.getElementById('campo-rendimento-unidade-acompanhamento').value;
+  atualizarResumoLoteAcompanhamento();
+}
+
+/** Soma custo dos componentes atuais do estado do modal + rendimento/porção/porções reais lidos direto dos campos — sempre client-side. Mostra o aviso de rendimento inválido e desabilita Salvar quando quantidadeTeorica < 1, mesmo com porções reais preenchidas. */
+function atualizarResumoLoteAcompanhamento() {
+  const dados = lerDadosFormularioLoteAcompanhamento();
+  const indicadores = calcularIndicadoresLoteAcompanhamento(dados, componentesAcompanhamentoEmEdicao);
+
+  const definir = (id, texto) => {
+    document.getElementById(id).textContent = texto;
+  };
+  const dicaInvalida = document.getElementById('dica-acomp-rendimento-invalido');
+  const botaoSalvar = document.getElementById('botao-salvar-lote-acompanhamento');
+
+  if (!indicadores) {
+    [
+      'resumo-acomp-custo-total',
+      'resumo-acomp-rendimento',
+      'resumo-acomp-custo-base',
+      'resumo-acomp-porcao',
+      'resumo-acomp-qtd-teorica',
+      'resumo-acomp-qtd-real',
+      'resumo-acomp-sobra',
+      'resumo-acomp-custo-teorico',
+      'resumo-acomp-custo-real',
+    ].forEach((id) => definir(id, '—'));
+    dicaInvalida.style.display = 'none';
+    botaoSalvar.disabled = !souAdminProducao;
+    return;
+  }
+
+  definir('resumo-acomp-custo-total', formatarMoeda(indicadores.custoTotal));
+  definir('resumo-acomp-rendimento', `${formatarQuantidadeRendimento(dados.rendimentoFinalQuantidade)} ${dados.rendimentoFinalUnidade}`);
+  definir('resumo-acomp-custo-base', formatarCustoPorRendimento(indicadores.custoPorBase, dados.rendimentoFinalUnidade));
+  definir('resumo-acomp-porcao', `${formatarQuantidadeRendimento(dados.porcaoQuantidade)} ${dados.porcaoUnidade}`);
+  definir('resumo-acomp-qtd-teorica', String(indicadores.quantidadeTeorica));
+  definir('resumo-acomp-qtd-real', dados.porcoesReais !== null ? String(dados.porcoesReais) : 'Não informada');
+  definir('resumo-acomp-sobra', `${formatarQuantidadeRendimento(indicadores.sobra)} ${dados.rendimentoFinalUnidade}`);
+  definir('resumo-acomp-custo-teorico', Number.isFinite(indicadores.custoTeoricoPorPorcao) ? formatarMoeda(indicadores.custoTeoricoPorPorcao) + '/porção' : '—');
+  definir('resumo-acomp-custo-real', Number.isFinite(indicadores.custoRealPorPorcao) ? formatarMoeda(indicadores.custoRealPorPorcao) + '/porção' : '—');
+
+  const rendimentoInvalido = indicadores.quantidadeTeorica < 1;
+  dicaInvalida.style.display = rendimentoInvalido ? '' : 'none';
+  botaoSalvar.disabled = !souAdminProducao || rendimentoInvalido;
+}
+
+// ---------------------------------------------------------------------------
+// Custo do Produto — comparação e aplicação manual do custo real por porção
+// de um lote JÁ SALVO em product_costs.unit_cost, reaproveitando
+// calcularComparacaoCustoProduto/aplicarCustoProducaoAcompanhamentoNoSupabase/
+// custosProdutosCache já existentes — a escrita passa pela RPC
+// apply_side_production_cost (SECURITY DEFINER, valida server-side que o
+// produto é da categoria Acompanhamentos), nunca um INSERT/UPDATE direto em
+// product_costs. Nunca altera o lote em si. O bloco reflete sempre o ÚLTIMO
+// ESTADO SALVO do lote — só atualizado em abrirModalLoteAcompanhamento() e
+// depois de aplicar com sucesso, nunca reativo a edições ainda não salvas.
+// ---------------------------------------------------------------------------
+
+/** Guarda { produtoId, produtoNome, custoLote, custoAtual } do lote atualmente aberto no modal, ou null. */
+let comparacaoCustoAcompanhamentoAtual = null;
+
+/** Só chamada por abrirModalLoteAcompanhamento (lote já salvo) — nunca por abrirModalNovoLoteAcompanhamento. */
+function renderizarBlocoCustoAcompanhamentoProduto(lote) {
+  const bloco = document.getElementById('bloco-custo-acomp-produto');
+
+  const produto = produtoPorId(lote.produtoId);
+  const componentesSnapshot = componentesDoLoteAcompanhamento(lote.id).map((c) => ({
+    quantidade: c.quantidade,
+    custoPorUnidadePreview: c.custoPorUnidadeSnapshot,
+  }));
+  const indicadores = calcularIndicadoresLoteAcompanhamento(lote, componentesSnapshot);
+  const custoLote = indicadores ? indicadores.custoRealPorPorcao : null;
+  const custoAtual = custosProdutosCache.has(lote.produtoId) ? custosProdutosCache.get(lote.produtoId) : null;
+  const comparacao = calcularComparacaoCustoProduto(custoAtual, Number.isFinite(custoLote) ? custoLote : NaN);
+
+  document.getElementById('custoproduto-acomp-nome-produto').textContent = produto ? produto.nome : '(produto removido)';
+  document.getElementById('custoproduto-acomp-origem-lote').textContent = `Lote de ${formatarDataProducao(lote.produzidoEm)}`;
+  document.getElementById('custoproduto-acomp-custo-atual').textContent =
+    comparacao.custoAtual === null ? 'Sem custo cadastrado' : formatarMoeda(comparacao.custoAtual);
+  document.getElementById('custoproduto-acomp-custo-lote').textContent = Number.isFinite(custoLote) ? formatarMoeda(custoLote) : '—';
+  document.getElementById('custoproduto-acomp-diferenca').textContent = formatarDiferencaCusto(comparacao.diferenca);
+  document.getElementById('custoproduto-acomp-variacao').textContent = formatarVariacaoPercentual(comparacao.variacaoPercentual);
+
+  document.getElementById('dica-produto-acomp-inativo-custo').style.display = produto && produto.status !== 'ativo' ? '' : 'none';
+  document.getElementById('dica-custo-acomp-ja-aplicado').style.display = comparacao.mesmoCustoPersistido ? '' : 'none';
+  document.getElementById('dica-custo-acomp-produto-erro').style.display = 'none';
+
+  document.getElementById('botao-aplicar-custo-acomp-produto').disabled =
+    !souAdminProducao || comparacao.mesmoCustoPersistido || !Number.isFinite(custoLote);
+
+  comparacaoCustoAcompanhamentoAtual = Number.isFinite(custoLote)
+    ? {
+        produtoId: lote.produtoId,
+        produtoNome: produto ? produto.nome : '(produto removido)',
+        custoLote,
+        custoAtual: comparacao.custoAtual,
+      }
+    : null;
+
+  bloco.style.display = '';
+}
+
+function ocultarBlocoCustoAcompanhamentoProduto() {
+  document.getElementById('bloco-custo-acomp-produto').style.display = 'none';
+  comparacaoCustoAcompanhamentoAtual = null;
+}
+
+/**
+ * Confirmação explícita mostrando 4 casas (precisão real de
+ * product_costs.unit_cost) — a chamada real à RPC envia apenas o id do
+ * lote, nunca esse valor: apply_side_production_cost recalcula tudo do zero
+ * a partir dos snapshots salvos. Depois do sucesso, o cache é atualizado com
+ * o valor RETORNADO pela RPC, nunca com custoLote (calculado localmente).
+ */
+async function aplicarCustoAoProdutoAcompanhamentoModal() {
+  if (!souAdminProducao || !comparacaoCustoAcompanhamentoAtual) return;
+  const { produtoNome, custoLote, custoAtual } = comparacaoCustoAcompanhamentoAtual;
+  const loteId = document.getElementById('campo-id-lote-acompanhamento').value;
+  if (!loteId) return;
+
+  const diferenca = custoAtual === null ? null : custoLote - custoAtual;
+  const confirmado = confirm(
+    `Aplicar ${formatarMoeda4Casas(custoLote)} como novo custo do produto ${produtoNome}?\n\n` +
+      `Custo atual: ${custoAtual === null ? 'Sem custo cadastrado' : formatarMoeda4Casas(custoAtual)}\n` +
+      `Novo custo: ${formatarMoeda4Casas(custoLote)}\n` +
+      `Diferença: ${formatarDiferenca4Casas(diferenca)}`
+  );
+  if (!confirmado) return;
+
+  const dicaErro = document.getElementById('dica-custo-acomp-produto-erro');
+  const botao = document.getElementById('botao-aplicar-custo-acomp-produto');
+  dicaErro.style.display = 'none';
+  botao.disabled = true;
+
+  let resultado;
+  try {
+    resultado = await aplicarCustoProducaoAcompanhamentoNoSupabase(loteId);
+  } catch (erro) {
+    dicaErro.textContent = 'Não foi possível aplicar o custo. ' + erro.message;
+    dicaErro.style.display = '';
+    botao.disabled = false;
+    return;
+  }
+
+  custosProdutosCache.set(resultado.produtoId, resultado.unitCost);
+  mostrarToast('Custo aplicado ao produto.', 'sucesso');
+
+  const lote = lotesAcompanhamentosCache.find((l) => l.id === loteId);
+  if (lote) renderizarBlocoCustoAcompanhamentoProduto(lote);
+}
+
+// ---------------------------------------------------------------------------
+// Modal: novo/editar lote de acompanhamento
+// ---------------------------------------------------------------------------
+
+function ligarEventosModalLoteAcompanhamento() {
+  document.getElementById('botao-novo-lote-acompanhamento').addEventListener('click', abrirModalNovoLoteAcompanhamento);
+  document.getElementById('botao-fechar-modal-lote-acompanhamento').addEventListener('click', fecharModalLoteAcompanhamento);
+  document.getElementById('botao-cancelar-lote-acompanhamento').addEventListener('click', fecharModalLoteAcompanhamento);
+  document.getElementById('modal-overlay-lote-acompanhamento').addEventListener('click', (evento) => {
+    if (evento.target.id === 'modal-overlay-lote-acompanhamento') fecharModalLoteAcompanhamento();
+  });
+
+  ['campo-rendimento-quantidade-acompanhamento', 'campo-rendimento-unidade-acompanhamento', 'campo-porcao-quantidade-acompanhamento', 'campo-porcoes-reais-acompanhamento'].forEach(
+    (idCampo) => {
+      const campo = document.getElementById(idCampo);
+      campo.addEventListener('input', atualizarPreviewLoteAcompanhamento);
+      campo.addEventListener('change', atualizarPreviewLoteAcompanhamento);
+    }
+  );
+
+  document.getElementById('botao-excluir-lote-acompanhamento').addEventListener('click', excluirLoteAcompanhamentoModal);
+  document.getElementById('form-lote-acompanhamento').addEventListener('submit', salvarFormularioLoteAcompanhamento);
+  document.getElementById('botao-aplicar-custo-acomp-produto').addEventListener('click', aplicarCustoAoProdutoAcompanhamentoModal);
+
+  document.getElementById('campo-tipo-componente-acompanhamento').addEventListener('change', () => {
+    popularOpcoesComponenteAcompanhamento();
+    atualizarPreviewComponenteAcompanhamento();
+  });
+  document.getElementById('campo-referencia-componente-acompanhamento').addEventListener('change', () => {
+    atualizarUnidadeComponenteAcompanhamento();
+    atualizarPreviewComponenteAcompanhamento();
+  });
+  document.getElementById('campo-quantidade-componente-acompanhamento').addEventListener('input', atualizarPreviewComponenteAcompanhamento);
+  document.getElementById('botao-adicionar-componente-acompanhamento').addEventListener('click', adicionarComponenteAcompanhamento);
+}
+
+/** Estado do formulário de "+ Adicionar" componente, reiniciado toda vez que o modal abre (novo ou editar). */
+function reiniciarFormularioComponenteAcompanhamento() {
+  document.getElementById('campo-tipo-componente-acompanhamento').value = 'ingredient';
+  popularOpcoesComponenteAcompanhamento();
+  document.getElementById('campo-quantidade-componente-acompanhamento').value = '';
+  document.getElementById('preview-componente-acompanhamento').textContent = '';
+  document.getElementById('dica-componente-acompanhamento-erro').style.display = 'none';
+  renderizarListaComponentesAcompanhamento();
+}
+
+function abrirModalNovoLoteAcompanhamento() {
+  if (!souAdminProducao) return;
+
+  document.getElementById('titulo-modal-lote-acompanhamento').textContent = 'Nova Produção de Acompanhamento';
+  document.getElementById('campo-id-lote-acompanhamento').value = '';
+  popularOpcoesProdutoAcompanhamento(null);
+  document.getElementById('campo-produto-acompanhamento').value = '';
+  document.getElementById('campo-data-acompanhamento').value = dataHojeLocal();
+  document.getElementById('campo-rendimento-quantidade-acompanhamento').value = '';
+  document.getElementById('campo-rendimento-unidade-acompanhamento').value = 'g';
+  document.getElementById('campo-porcao-quantidade-acompanhamento').value = '';
+  document.getElementById('campo-porcoes-reais-acompanhamento').value = '';
+  document.getElementById('dica-lote-acompanhamento-erro').style.display = 'none';
+  document.getElementById('botao-excluir-lote-acompanhamento').style.display = 'none';
+
+  componentesAcompanhamentoEmEdicao = [];
+  reiniciarFormularioComponenteAcompanhamento();
+  ocultarBlocoCustoAcompanhamentoProduto();
+
+  atualizarPreviewLoteAcompanhamento();
+  abrirModal('modal-overlay-lote-acompanhamento');
+}
+
+/**
+ * Carrega os componentes já salvos: nome/quantidade/unidade/custo
+ * EXATAMENTE como estão em componentesDoLoteAcompanhamento (histórico, não
+ * recalculado) — isso é só a EXIBIÇÃO inicial. Ao salvar, ingredient é
+ * sempre resolvido de novo pela RPC e recipe é sempre recalculado pelo
+ * client no momento do save (ver montarComponentesPayloadParaSalvarAcompanhamento)
+ * — editar o lote redefine seu estado final com custos atuais, mesmo padrão
+ * já documentado em Produção de Espetos.
+ */
+function abrirModalLoteAcompanhamento(id) {
+  if (!souAdminProducao) return;
+  const lote = lotesAcompanhamentosCache.find((l) => l.id === id);
+  if (!lote) return;
+
+  document.getElementById('titulo-modal-lote-acompanhamento').textContent = 'Editar Produção de Acompanhamento';
+  document.getElementById('campo-id-lote-acompanhamento').value = lote.id;
+  popularOpcoesProdutoAcompanhamento(lote.produtoId);
+  document.getElementById('campo-produto-acompanhamento').value = lote.produtoId;
+  document.getElementById('campo-data-acompanhamento').value = lote.produzidoEm;
+  document.getElementById('campo-rendimento-quantidade-acompanhamento').value = lote.rendimentoFinalQuantidade;
+  document.getElementById('campo-rendimento-unidade-acompanhamento').value = lote.rendimentoFinalUnidade;
+  document.getElementById('campo-porcao-quantidade-acompanhamento').value = lote.porcaoQuantidade;
+  document.getElementById('campo-porcoes-reais-acompanhamento').value = lote.porcoesReais === null ? '' : lote.porcoesReais;
+  document.getElementById('dica-lote-acompanhamento-erro').style.display = 'none';
+  document.getElementById('botao-excluir-lote-acompanhamento').style.display = souAdminProducao ? '' : 'none';
+
+  componentesAcompanhamentoEmEdicao = componentesDoLoteAcompanhamento(lote.id).map((c) => ({
+    tipoItem: c.tipoItem,
+    referenciaId: c.ingredienteId || c.receitaId,
+    quantidade: c.quantidade,
+    unidade: c.unidade,
+    nome: c.nomeSnapshot,
+    custoPorUnidadePreview: c.custoPorUnidadeSnapshot,
+  }));
+  reiniciarFormularioComponenteAcompanhamento();
+  renderizarBlocoCustoAcompanhamentoProduto(lote);
+
+  atualizarPreviewLoteAcompanhamento();
+  abrirModal('modal-overlay-lote-acompanhamento');
+}
+
+function fecharModalLoteAcompanhamento() {
+  fecharModal('modal-overlay-lote-acompanhamento');
+}
+
+/** Espelha no cliente os CHECKs/validações da RPC, só pra feedback mais rápido — o banco continua a fonte real. */
+function validarFormularioLoteAcompanhamento({ produtoId, dataProducao, rendimentoFinalQuantidade, rendimentoFinalUnidade, porcaoQuantidade, porcaoUnidade, porcoesReais }) {
+  if (!produtoId) return 'Selecione o produto.';
+  if (!dataProducao) return 'Informe a data da produção.';
+  if (!Number.isFinite(rendimentoFinalQuantidade) || rendimentoFinalQuantidade <= 0) return 'Informe um rendimento final válido, maior que zero.';
+  if (!rendimentoFinalUnidade) return 'Selecione a unidade do rendimento.';
+  if (!Number.isFinite(porcaoQuantidade) || porcaoQuantidade <= 0) return 'Informe uma porção válida, maior que zero.';
+  if (porcaoUnidade !== rendimentoFinalUnidade) return 'A unidade da porção deve ser igual à do rendimento.';
+  if (porcoesReais !== null && (!Number.isFinite(porcoesReais) || porcoesReais <= 0)) return 'Quantidade real de porções deve ser maior que zero.';
+
+  const razao = Math.round((rendimentoFinalQuantidade / porcaoQuantidade) * 1e6) / 1e6;
+  if (Math.floor(razao) < 1) return 'O rendimento informado não produz nenhuma porção válida.';
+
+  if (componentesAcompanhamentoEmEdicao.length === 0) return 'Adicione pelo menos um ingrediente ou preparo.';
+
+  return null;
+}
+
+/**
+ * Monta o payload de componentes pro service/RPC a partir do estado do
+ * modal. ingredient nunca leva custo (a RPC resolve sozinha, sempre com o
+ * valor atual). recipe é a ÚNICA exceção: o custo é sempre RECALCULADO
+ * AGORA (nunca reaproveita custoPorUnidadePreview, que pode ter sido
+ * carregado de um snapshot antigo ao abrir o modal) — mesma disciplina de
+ * montarComponentesPayloadParaSalvar (Espetos): editar o lote redefine seu
+ * estado final, então um preparo usado num lote antigo passa a refletir o
+ * custo atual da ficha técnica no momento do save.
+ */
+function montarComponentesPayloadParaSalvarAcompanhamento() {
+  return componentesAcompanhamentoEmEdicao.map((componente) => {
+    if (componente.tipoItem !== 'recipe') {
+      return {
+        tipoItem: componente.tipoItem,
+        referenciaId: componente.referenciaId,
+        quantidade: componente.quantidade,
+        unidade: componente.unidade,
+      };
+    }
+
+    const rendimento = calcularRendimentoReceita(componente.referenciaId);
+    const custoPorUnidadeAtual = rendimento.disponivel
+      ? custoTotalReceita(componente.referenciaId, new Map()) / rendimento.quantidade
+      : componente.custoPorUnidadePreview;
+
+    return {
+      tipoItem: 'recipe',
+      referenciaId: componente.referenciaId,
+      quantidade: componente.quantidade,
+      unidade: componente.unidade,
+      custoPorUnidadeSnapshot: custoPorUnidadeAtual,
+    };
+  });
+}
+
+async function salvarFormularioLoteAcompanhamento(evento) {
+  evento.preventDefault();
+  if (!souAdminProducao) return;
+
+  const id = document.getElementById('campo-id-lote-acompanhamento').value;
+  const produtoId = document.getElementById('campo-produto-acompanhamento').value;
+  const dataProducao = document.getElementById('campo-data-acompanhamento').value;
+  const dados = lerDadosFormularioLoteAcompanhamento();
+
+  const erroValidacao = validarFormularioLoteAcompanhamento({ produtoId, dataProducao, ...dados });
+  const dicaErro = document.getElementById('dica-lote-acompanhamento-erro');
+  if (erroValidacao) {
+    dicaErro.textContent = erroValidacao;
+    dicaErro.style.display = '';
+    return;
+  }
+  dicaErro.style.display = 'none';
+
+  const payload = {
+    produtoId,
+    produzidoEm: dataProducao,
+    rendimentoFinalQuantidade: dados.rendimentoFinalQuantidade,
+    rendimentoFinalUnidade: dados.rendimentoFinalUnidade,
+    porcaoQuantidade: dados.porcaoQuantidade,
+    porcaoUnidade: dados.porcaoUnidade,
+    porcoesReais: dados.porcoesReais,
+    componentes: montarComponentesPayloadParaSalvarAcompanhamento(),
+  };
+
+  try {
+    await salvarLoteAcompanhamentoNoSupabase(id || null, payload);
+  } catch (erro) {
+    dicaErro.textContent = 'Não foi possível salvar o lote. ' + erro.message;
+    dicaErro.style.display = '';
+    return;
+  }
+
+  mostrarToast('Produção de acompanhamento salva.', 'sucesso');
+  fecharModalLoteAcompanhamento();
+
+  try {
+    const [lotes, componentes] = await Promise.all([buscarLotesAcompanhamentosDoSupabase(), buscarComponentesLotesAcompanhamentosDoSupabase()]);
+    lotesAcompanhamentosCache = lotes;
+    componentesLotesAcompanhamentosCache = componentes;
+  } catch (erroRecarregar) {
+    console.error('Erro ao recarregar lotes de produção de acompanhamentos:', erroRecarregar);
+  }
+  renderizarTabelaLotesAcompanhamentos();
+}
+
+/** Exclusão física — admin only, confirmação explícita. Cascata (side_batch_components.batch_id ON DELETE CASCADE) remove os componentes automaticamente. */
+async function excluirLoteAcompanhamentoModal() {
+  const id = document.getElementById('campo-id-lote-acompanhamento').value;
+  if (!id || !souAdminProducao) return;
+  const lote = lotesAcompanhamentosCache.find((l) => l.id === id);
+  if (!lote) return;
+
+  if (!confirm('Excluir esta produção de acompanhamento?\n\nEsta ação remove o registro de produção.')) return;
+
+  try {
+    await excluirLoteAcompanhamentoNoSupabase(id);
+  } catch (erro) {
+    mostrarToast('Não foi possível excluir o lote. ' + erro.message, 'erro');
+    return;
+  }
+
+  lotesAcompanhamentosCache = lotesAcompanhamentosCache.filter((l) => l.id !== id);
+  componentesLotesAcompanhamentosCache = componentesLotesAcompanhamentosCache.filter((c) => c.loteId !== id);
+  fecharModalLoteAcompanhamento();
+  renderizarTabelaLotesAcompanhamentos();
+  mostrarToast('Produção de acompanhamento excluída.', 'sucesso');
 }
 
 // =============================================================================
