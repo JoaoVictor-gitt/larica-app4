@@ -1,17 +1,36 @@
 /*
  * skewer-production-service.js
  * Único arquivo que fala com o Supabase para public.skewer_production_batches
- * (Produção de Espetos, Etapa 2). Mesmo padrão de segurança de ingredients/
- * recipes: anon sem GRANT nenhum, staff só visualiza, admin cria/edita/
- * exclui (RLS, ver migration 20260818090000). Isolado de products-service.js
- * e ingredients-service.js de propósito — um lote de produção não é nem um
- * produto nem um ingrediente, só referencia os dois por id.
+ * e public.skewer_batch_components (Produção de Espetos, Etapas 2-3B). Mesmo
+ * padrão de segurança de ingredients/recipes: anon sem GRANT nenhum, staff só
+ * visualiza, admin escreve. Isolado de products-service.js/ingredients-
+ * service.js/production-supplies-service.js de propósito — um lote de
+ * produção não é nem um produto, nem um ingrediente, nem um insumo, só
+ * referencia todos eles por id.
  *
- * Perda, rendimento, custos, quantidade teórica e sobra NUNCA são calculados
- * nem persistidos aqui — sempre on-read em js/producao.js
- * (calcularIndicadoresLoteEspetos), a partir dos campos brutos gravados
- * nesta tabela. Depende de js/supabase.js (supabaseClient), carregado antes
- * deste arquivo.
+ * Escrita (criar/editar) de um lote — incluindo seus componentes (insumo/
+ * ingrediente/preparo usados, ex. palito, sal, Tempero Larica) — passa
+ * inteira pela RPC administrativa save_skewer_production_batch (migration
+ * 20260818110000): nunca um INSERT/UPDATE direto em skewer_production_batches
+ * nem em skewer_batch_components (a Etapa 3B revogou esse GRANT direto,
+ * mesma correção já aplicada em recipe_items). A RPC resolve nome/custo de
+ * ingredient/supply inteiramente server-side; só o custo de um componente
+ * do tipo 'recipe' vem do client (reaproveitando o cálculo recursivo já
+ * existente em producao.js, sem duplicar fórmula em SQL), com validação de
+ * sanidade dentro da RPC. Exclusão de lote continua um DELETE direto (RLS já
+ * basta; a cascata de skewer_batch_components.batch_id cuida dos
+ * componentes automaticamente).
+ *
+ * criarLoteEspetosNoSupabase/atualizarLoteEspetosNoSupabase mantêm
+ * exatamente a mesma assinatura e retorno já usados por js/producao.js
+ * (Etapa 2) — por dentro, viraram wrappers finos da RPC. Isso permite a
+ * Etapa 3B fechar o GRANT direto sem exigir NENHUMA mudança na UI: como a
+ * Etapa 2 nunca preenche `dados.componentes`, o payload de componentes vai
+ * sempre `[]`, reproduzindo exatamente o comportamento de hoje (lote só com
+ * carne). Perda, rendimento, custos, quantidade teórica e sobra continuam
+ * NUNCA calculados nem persistidos aqui — sempre on-read em js/producao.js
+ * (calcularIndicadoresLoteEspetos), a partir dos campos brutos. Depende de
+ * js/supabase.js (supabaseClient), carregado antes deste arquivo.
  */
 
 /** Converte uma linha crua do Supabase (snake_case) pro formato pt-BR usado no restante do projeto. */
@@ -33,6 +52,23 @@ function _linhaSupabaseParaLoteEspeto(linha) {
   };
 }
 
+/** Converte uma linha crua de skewer_batch_components pro formato pt-BR usado no restante do projeto. */
+function _linhaSupabaseParaComponenteLote(linha) {
+  return {
+    id: linha.id,
+    loteId: linha.batch_id,
+    tipoItem: linha.item_type,
+    ingredienteId: linha.ingredient_id,
+    receitaId: linha.recipe_id,
+    insumoId: linha.supply_id,
+    nomeSnapshot: linha.name_snapshot,
+    quantidade: Number(linha.quantity),
+    unidade: linha.unit,
+    custoPorUnidadeSnapshot: Number(linha.unit_cost_snapshot),
+    criadoEm: linha.created_at,
+  };
+}
+
 /** Busca todos os lotes numa única consulta (nunca N+1), mais recentes primeiro (produzido em, depois criado em). */
 async function buscarLotesEspetosDoSupabase() {
   const { data, error } = await supabaseClient
@@ -45,72 +81,74 @@ async function buscarLotesEspetosDoSupabase() {
 }
 
 /**
- * Cria um lote de produção. `dados` já deve trazer os pesos convertidos pra
- * gramas (a conversão kg->g acontece na tela, nunca aqui) e `produzidoEm`
- * como string 'YYYY-MM-DD' (sem conversão de fuso). RLS restringe esta
- * operação a admin. Grava created_by E updated_by com o usuário atual —
- * diferente de ingredients/recipes (só updated_by), esta tabela tem as duas
- * colunas desde a Etapa 1.
+ * Busca TODOS os componentes de TODOS os lotes numa única consulta, sem
+ * filtro por batch_id — quem chama agrupa em memória (Map por loteId).
+ * Evita N+1: nunca uma consulta por lote. Ainda não é chamada por nenhuma
+ * UI (Etapa 3C consome isso pra montar a tela de componentes).
  */
+async function buscarComponentesLotesEspetosDoSupabase() {
+  const { data, error } = await supabaseClient.from('skewer_batch_components').select('*');
+  if (error) throw new Error(error.message);
+  return (data || []).map(_linhaSupabaseParaComponenteLote);
+}
+
+/**
+ * Único ponto de escrita real: chama a RPC save_skewer_production_batch,
+ * que cria/edita o lote E substitui seus componentes numa única transação
+ * (batchId null = criar; preenchido = editar). `dados.componentes`
+ * (opcional, default []) é uma lista de
+ * `{ tipoItem, referenciaId, quantidade, unidade, custoPorUnidadeSnapshot }`
+ * — `custoPorUnidadeSnapshot` só é enviado (e só é necessário) quando
+ * `tipoItem === 'recipe'`; para 'ingredient'/'supply' a RPC resolve o custo
+ * sozinha e ignora qualquer custo enviado pelo client.
+ */
+async function _salvarLoteEspetosViaRpc(batchId, dados) {
+  const componentesPayload = (dados.componentes || []).map((componente) => {
+    const item = {
+      item_type: componente.tipoItem,
+      reference_id: componente.referenciaId,
+      quantity: componente.quantidade,
+      unit: componente.unidade,
+    };
+    if (componente.tipoItem === 'recipe') {
+      item.unit_cost_snapshot = componente.custoPorUnidadeSnapshot;
+    }
+    return item;
+  });
+
+  const { data, error } = await supabaseClient.rpc('save_skewer_production_batch', {
+    p_batch_id: batchId,
+    p_product_id: dados.produtoId,
+    p_ingredient_id: dados.ingredienteId || null,
+    p_produced_at: dados.produzidoEm,
+    p_gross_weight_g: dados.pesoBrutoG,
+    p_usable_weight_g: dados.pesoUtilG,
+    p_total_cost: dados.custoTotal,
+    p_skewer_weight_g: dados.pesoEspetoG,
+    p_actual_quantity: dados.quantidadeReal,
+    p_components: componentesPayload,
+  });
+  if (error) throw new Error(error.message);
+
+  return {
+    lote: _linhaSupabaseParaLoteEspeto(data.batch),
+    componentes: (data.components || []).map(_linhaSupabaseParaComponenteLote),
+  };
+}
+
+/** Cria um lote de produção (e seus componentes, se enviados). Mesma assinatura/retorno de antes da Etapa 3B — ver comentário do topo do arquivo. RLS/RPC restringem esta operação a admin. */
 async function criarLoteEspetosNoSupabase(dados) {
-  const {
-    data: { session },
-    error: erroSessao,
-  } = await supabaseClient.auth.getSession();
-  if (erroSessao) throw new Error(erroSessao.message);
-  const userId = session && session.user ? session.user.id : null;
-
-  const { data, error } = await supabaseClient
-    .from('skewer_production_batches')
-    .insert({
-      product_id: dados.produtoId,
-      ingredient_id: dados.ingredienteId || null,
-      produced_at: dados.produzidoEm,
-      gross_weight_g: dados.pesoBrutoG,
-      usable_weight_g: dados.pesoUtilG,
-      total_cost: dados.custoTotal,
-      skewer_weight_g: dados.pesoEspetoG,
-      actual_quantity: dados.quantidadeReal,
-      created_by: userId,
-      updated_by: userId,
-    })
-    .select('*')
-    .single();
-  if (error) throw new Error(error.message);
-  return _linhaSupabaseParaLoteEspeto(data);
+  const resultado = await _salvarLoteEspetosViaRpc(null, dados);
+  return resultado.lote;
 }
 
-/** Atualiza um lote existente — sempre reenvia todos os campos editáveis. Nunca toca created_by. RLS restringe esta operação a admin. */
+/** Atualiza um lote existente (e substitui seus componentes, se enviados). Mesma assinatura/retorno de antes da Etapa 3B — ver comentário do topo do arquivo. RLS/RPC restringem esta operação a admin. */
 async function atualizarLoteEspetosNoSupabase(id, dados) {
-  const {
-    data: { session },
-    error: erroSessao,
-  } = await supabaseClient.auth.getSession();
-  if (erroSessao) throw new Error(erroSessao.message);
-  const userId = session && session.user ? session.user.id : null;
-
-  const { data, error } = await supabaseClient
-    .from('skewer_production_batches')
-    .update({
-      product_id: dados.produtoId,
-      ingredient_id: dados.ingredienteId || null,
-      produced_at: dados.produzidoEm,
-      gross_weight_g: dados.pesoBrutoG,
-      usable_weight_g: dados.pesoUtilG,
-      total_cost: dados.custoTotal,
-      skewer_weight_g: dados.pesoEspetoG,
-      actual_quantity: dados.quantidadeReal,
-      updated_at: new Date().toISOString(),
-      updated_by: userId,
-    })
-    .eq('id', id)
-    .select('*')
-    .single();
-  if (error) throw new Error(error.message);
-  return _linhaSupabaseParaLoteEspeto(data);
+  const resultado = await _salvarLoteEspetosViaRpc(id, dados);
+  return resultado.lote;
 }
 
-/** Exclusão física — nesta etapa nenhuma tabela referencia skewer_production_batches (sem stock_movements automático ainda), então nenhum erro de FK é esperado. RLS restringe a admin. */
+/** Exclusão física — cascata (skewer_batch_components.batch_id ON DELETE CASCADE) remove os componentes automaticamente. RLS restringe a admin. */
 async function excluirLoteEspetosNoSupabase(id) {
   const { error } = await supabaseClient.from('skewer_production_batches').delete().eq('id', id);
   if (error) throw new Error(error.message);

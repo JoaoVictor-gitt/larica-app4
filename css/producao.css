@@ -347,3 +347,143 @@
   color: var(--cor-terracota);
   font-size: 1.15rem;
 }
+
+/*
+ * Insumos de Produção — tabela de listagem (mesma estrutura de
+ * #corpo-tabela-ingredientes).
+ */
+#corpo-tabela-insumos td:nth-child(1) { font-weight: 600; }
+
+#corpo-tabela-insumos td:nth-child(3),
+#corpo-tabela-insumos td:nth-child(4) {
+  text-align: right;
+}
+
+#corpo-tabela-insumos td:last-child {
+  text-align: right;
+}
+
+/*
+ * Produção de Espetos — Custos Adicionais (Etapa 3C): sub-título das duas
+ * subseções (Insumos / Temperos-Preparos), lista de componentes já
+ * adicionados ao lote em edição, mini-formulário de adicionar componente, e
+ * resumo final de custos (carne + insumos + temperos/preparos).
+ */
+.producao-subtitulo-menor {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin: var(--espaco-md) 0 var(--espaco-xs);
+  color: var(--cor-texto-secundario);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.producao-lista-componentes-lote {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: var(--espaco-xs);
+}
+
+.producao-linha-componente-lote {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  padding: 6px var(--espaco-sm);
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-sm);
+  font-size: 0.85rem;
+}
+
+.producao-linha-componente-nome {
+  flex: 2;
+  min-width: 100px;
+  font-weight: 600;
+}
+
+.producao-linha-componente-tipo {
+  flex: 1;
+  min-width: 70px;
+  color: var(--cor-texto-secundario);
+  font-size: 0.78rem;
+}
+
+.producao-linha-componente-quantidade {
+  flex: 1;
+  min-width: 70px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.producao-linha-componente-custo {
+  flex: 1;
+  min-width: 70px;
+  text-align: right;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.producao-adicionar-componente {
+  display: flex;
+  gap: var(--espaco-sm);
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: var(--espaco-xs);
+}
+
+.producao-botao-adicionar-componente {
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 1px;
+}
+
+.producao-unidade-travada {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 var(--espaco-sm);
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-sm);
+  color: var(--cor-texto-secundario);
+  font-size: 0.85rem;
+}
+
+.producao-resumo-final-lote {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  margin-bottom: var(--espaco-md);
+  font-size: 0.9rem;
+}
+
+.producao-resumo-final-lote > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--espaco-md);
+}
+
+.producao-resumo-final-lote-total {
+  border-top: 1px solid var(--cor-borda);
+  padding-top: 4px;
+  margin-top: 4px;
+  font-weight: 600;
+}
+
+.producao-resumo-final-lote-destaque {
+  font-size: 1.05rem;
+}
+
+.producao-resumo-final-lote-destaque strong {
+  color: var(--cor-terracota);
+  font-size: 1.2rem;
+}
+
+/* Linha secundária "Carne: €X,XX" abaixo do custo real final, na listagem — só aparece quando o lote tem componentes (item 24 do pedido). */
+.producao-custo-secundario {
+  font-size: 0.75rem;
+  color: var(--cor-texto-secundario);
+  font-weight: 400;
+}

@@ -7,9 +7,14 @@
  * a partir de peças de carne com perda de limpeza (skewer_production_batches)
  * — perda, rendimento e custos sempre calculados on-read
  * (calcularIndicadoresLoteEspetos), nunca persistidos, nunca lidos de
- * product_costs (isso só entra numa etapa futura). Depende de utils.js,
+ * product_costs (isso só entra numa etapa futura). Insumos de Produção:
+ * quarta aba, cadastro standalone de insumos contados por unidade
+ * (production_supplies — palito hoje, embalagem/bandeja no futuro) — Etapa
+ * 3A, ainda SEM nenhuma integração com o lote de espetos (isso só entra na
+ * Etapa 3B, via skewer_batch_components + RPC). Depende de utils.js,
  * js/services/ingredients-service.js, js/services/recipes-service.js,
- * js/services/products-service.js e js/services/skewer-production-service.js.
+ * js/services/products-service.js, js/services/skewer-production-service.js
+ * e js/services/production-supplies-service.js.
  *
  * souAdminProducao decide só a edição (criar/editar/ativar/desativar/
  * excluir) — visualização já é liberada pra qualquer staff que acesse esta
@@ -38,6 +43,7 @@ const UNIDADE_BASE_POR_TIPO_INGREDIENTE = { peso: 'g', volume: 'ml', contagem: '
 
 let ingredientesCache = [];
 let produtosCache = [];
+let insumosProducaoCache = [];
 let souAdminProducao = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -47,14 +53,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   const erro = document.getElementById('estado-erro-ingredientes');
 
   try {
-    const [ingredientes, ehAdmin, produtos] = await Promise.all([
+    const [ingredientes, ehAdmin, produtos, insumos] = await Promise.all([
       buscarIngredientesDoSupabase(),
       usuarioEhAdminNoSupabase(),
       buscarProdutosDoSupabase(),
+      buscarInsumosProducaoDoSupabase(),
     ]);
     ingredientesCache = ingredientes;
     souAdminProducao = ehAdmin;
     produtosCache = produtos;
+    insumosProducaoCache = insumos;
   } catch (erroCarregamento) {
     console.error('Erro ao carregar ingredientes:', erroCarregamento);
     carregando.style.display = 'none';
@@ -74,6 +82,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   ligarEventosModalLoteEspeto();
   await carregarLotesEspetos();
+
+  atualizarEstadoEdicaoInsumos();
+  renderizarTabelaInsumos();
+  ligarEventosModalInsumo();
 });
 
 // ---------------------------------------------------------------------------
@@ -1193,13 +1205,17 @@ async function adicionarItemReceita(evento) {
 // =============================================================================
 
 let lotesEspetosCache = [];
+let componentesLotesEspetosCache = [];
+let componentesLoteEmEdicao = [];
 
 async function carregarLotesEspetos() {
   const carregando = document.getElementById('estado-carregando-lotes-espetos');
   const erro = document.getElementById('estado-erro-lotes-espetos');
 
   try {
-    lotesEspetosCache = await buscarLotesEspetosDoSupabase();
+    const [lotes, componentes] = await Promise.all([buscarLotesEspetosDoSupabase(), buscarComponentesLotesEspetosDoSupabase()]);
+    lotesEspetosCache = lotes;
+    componentesLotesEspetosCache = componentes;
   } catch (erroCarregamento) {
     console.error('Erro ao carregar lotes de produção de espetos:', erroCarregamento);
     carregando.style.display = 'none';
@@ -1222,6 +1238,21 @@ function atualizarEstadoEdicaoLotesEspetos() {
 
 function produtoPorId(id) {
   return produtosCache.find((p) => p.id === id);
+}
+
+/** Componentes já salvos de um lote — histórico, nunca recalculado (mesmo padrão de itensDaReceita). */
+function componentesDoLote(loteId) {
+  return componentesLotesEspetosCache.filter((c) => c.loteId === loteId);
+}
+
+/** Tolerante a maiúsculas/minúsculas e espaços — "Temperos"/"temperos"/" TEMPEROS " todos batem. Sem migration, sem flag nova: usa ingredients.category já existente. */
+function normalizarCategoria(texto) {
+  return (texto || '').trim().toLowerCase();
+}
+
+/** Só ingredientes categorizados como Temperos aparecem no select de "Adicionar tempero/preparo" — evita listar toda a cozinha (Batata, Cenoura, etc.). Se Sal/Sal de Parrilha ainda não estiverem categorizados assim, o select fica vazio até isso ser feito na tela de Ingredientes. */
+function ehIngredienteTempero(ingrediente) {
+  return normalizarCategoria(ingrediente.categoria) === 'temperos';
 }
 
 // ---------------------------------------------------------------------------
@@ -1280,6 +1311,42 @@ function calcularIndicadoresLoteEspetos(dados) {
     custoTeoricoPorEspeto,
     custoRealPorEspeto,
     diferencaQuantidade,
+  };
+}
+
+/**
+ * Segunda função pura, independente da anterior (calcularIndicadoresLoteEspetos
+ * não é alterada) — soma o custo da carne aos componentes adicionais
+ * (insumos + temperos/preparos). `componentes` é uma lista de
+ * `{ tipoItem, quantidade, custoPorUnidadePreview }` — para componentes já
+ * salvos (listagem) `custoPorUnidadePreview` é sempre o `custoPorUnidadeSnapshot`
+ * histórico (nunca recalculado); para o modal de edição aberto, é o valor
+ * mostrado na prévia daquele momento (ver nota sobre recipe ser
+ * recalculado de novo só no instante de salvar, em salvarFormularioLoteEspeto).
+ * Sem arredondamento intermediário — só na formatação final.
+ */
+function calcularCustosFinaisLoteEspetos(lote, componentes) {
+  const somaPorTipo = (tipo) =>
+    componentes.filter((c) => c.tipoItem === tipo).reduce((soma, c) => soma + c.quantidade * c.custoPorUnidadePreview, 0);
+
+  const custoCarne = lote.custoTotal;
+  const custoInsumos = somaPorTipo('supply');
+  const custoIngredientes = somaPorTipo('ingredient');
+  const custoPreparos = somaPorTipo('recipe');
+  const custoTemperosTotal = custoIngredientes + custoPreparos;
+  const custoComponentesTotal = custoInsumos + custoTemperosTotal;
+  const custoFinalLote = custoCarne + custoComponentesTotal;
+  const custoRealFinalPorEspeto = lote.quantidadeReal > 0 ? custoFinalLote / lote.quantidadeReal : null;
+
+  return {
+    custoCarne,
+    custoInsumos,
+    custoIngredientes,
+    custoPreparos,
+    custoTemperosTotal,
+    custoComponentesTotal,
+    custoFinalLote,
+    custoRealFinalPorEspeto,
   };
 }
 
@@ -1351,15 +1418,36 @@ function renderizarTabelaLotesEspetos() {
   });
 }
 
-/** Nome do produto sempre vem de produtosCache completo (nunca filtrado) — um produto inativo ou fora de Espetinhos continua aparecendo em lotes antigos (item 26 do pedido). */
+/**
+ * Nome do produto sempre vem de produtosCache completo (nunca filtrado) — um
+ * produto inativo ou fora de Espetinhos continua aparecendo em lotes antigos
+ * (item 26 do pedido). Coluna de custo mostra o CUSTO REAL FINAL (carne +
+ * insumos + temperos/preparos) — para componentes já salvos, sempre usando
+ * custoPorUnidadeSnapshot histórico, nunca recalculado (dado persistido).
+ * Lote sem componentes: custoComponentesTotal=0, resultado idêntico ao
+ * cálculo antigo (zero regressão).
+ */
 function linhaLoteEspetoHtml(lote) {
   const indicadores = calcularIndicadoresLoteEspetos(lote);
   const produto = produtoPorId(lote.produtoId);
   const nomeProduto = produto ? produto.nome : '(produto removido)';
 
+  const componentesSnapshot = componentesDoLote(lote.id).map((c) => ({
+    tipoItem: c.tipoItem,
+    quantidade: c.quantidade,
+    custoPorUnidadePreview: c.custoPorUnidadeSnapshot,
+  }));
+  const custosFinais = calcularCustosFinaisLoteEspetos(lote, componentesSnapshot);
+
   const perdaTexto = indicadores ? `${formatarPesoGramas(indicadores.perdaG)} (${formatarPercentual(indicadores.perdaPercentual)})` : '—';
   const rendimentoTexto = indicadores ? formatarPercentual(indicadores.rendimentoPercentual) : '—';
-  const custoRealTexto = indicadores ? formatarMoeda(indicadores.custoRealPorEspeto) : '—';
+  const custoRealFinalTexto = Number.isFinite(custosFinais.custoRealFinalPorEspeto)
+    ? formatarMoeda(custosFinais.custoRealFinalPorEspeto)
+    : '—';
+  const custoCarneSecundario =
+    custosFinais.custoComponentesTotal > 0 && indicadores
+      ? `<br><span class="producao-custo-secundario">Carne: ${formatarMoeda(indicadores.custoRealPorEspeto)}</span>`
+      : '';
 
   return `
     <tr>
@@ -1370,7 +1458,7 @@ function linhaLoteEspetoHtml(lote) {
       <td>${perdaTexto}</td>
       <td>${rendimentoTexto}</td>
       <td>${lote.quantidadeReal}</td>
-      <td>${custoRealTexto}</td>
+      <td>${custoRealFinalTexto}${custoCarneSecundario}</td>
       <td>
         <button class="btn-icone" data-acao-editar-lote="${lote.id}" title="Editar" ${souAdminProducao ? '' : 'disabled'}>✏️</button>
       </td>
@@ -1417,6 +1505,302 @@ function popularOpcoesIngredienteLote(ingredienteAtualId) {
   select.innerHTML = opcoesHtml;
 }
 
+/** Só insumos ativos — igual ao padrão já usado pra produto/ingrediente do lote (item 27 do pedido: insumo inativo não aparece pra um componente NOVO). */
+function popularOpcoesSupplyLote() {
+  const select = document.getElementById('campo-supply-lote');
+  const ativos = insumosProducaoCache.filter((i) => i.ativo).sort((a, b) => a.nome.localeCompare(b.nome));
+  select.innerHTML = ativos.map((i) => `<option value="${i.id}">${escaparHtml(i.nome)}</option>`).join('');
+}
+
+/**
+ * Tipo=Preparo: só receitas ativas com rendimento derivado disponível
+ * (reaproveita calcularRendimentoReceita já existente, mesma regra usada em
+ * popularOpcoesPreparoItem de Fichas Técnicas — sem duplicar). Tipo=
+ * Ingrediente: só ingredientes ativos categorizados como Temperos
+ * (ehIngredienteTempero). Item 28/29 do pedido: inativos nunca aparecem
+ * aqui, só em componentes já salvos (componentesLoteEmEdicao carregado por
+ * fora desta função).
+ */
+function popularOpcoesTemperoLote() {
+  const tipo = document.getElementById('campo-tipo-tempero-lote').value;
+  const select = document.getElementById('campo-referencia-tempero-lote');
+  document.getElementById('rotulo-referencia-tempero-lote').textContent = tipo === 'recipe' ? 'Preparo' : 'Ingrediente';
+
+  if (tipo === 'recipe') {
+    const candidatos = receitasCache
+      .filter((r) => r.ativo && calcularRendimentoReceita(r.id).disponivel)
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+    select.innerHTML = candidatos.map((r) => `<option value="${r.id}">${escaparHtml(r.nome)}</option>`).join('');
+  } else {
+    const candidatos = ingredientesCache.filter((i) => i.ativo && ehIngredienteTempero(i)).sort((a, b) => a.nome.localeCompare(b.nome));
+    select.innerHTML = candidatos.map((i) => `<option value="${i.id}">${escaparHtml(i.nome)}</option>`).join('');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Custos Adicionais — componentes do lote (insumo/ingrediente/preparo),
+// estado só de memória (componentesLoteEmEdicao) até "Salvar Lote". A RPC
+// substitui a lista inteira no banco (mesmo padrão já usado desde a Etapa
+// 3B) — remover aqui só tira do estado do modal, nunca chama o Supabase
+// isoladamente.
+// ---------------------------------------------------------------------------
+
+function insumoProducaoPorId(id) {
+  return insumosProducaoCache.find((i) => i.id === id);
+}
+
+function renderizarListasComponentesLote() {
+  const insumos = componentesLoteEmEdicao.filter((c) => c.tipoItem === 'supply');
+  const temperos = componentesLoteEmEdicao.filter((c) => c.tipoItem !== 'supply');
+
+  renderizarListaComponentes('lista-insumos-lote', 'estado-vazio-insumos-lote', insumos);
+  renderizarListaComponentes('lista-temperos-lote', 'estado-vazio-temperos-lote', temperos);
+
+  atualizarResumoCustosLote();
+}
+
+function renderizarListaComponentes(idLista, idVazio, itens) {
+  const lista = document.getElementById(idLista);
+  const vazio = document.getElementById(idVazio);
+
+  if (itens.length === 0) {
+    lista.innerHTML = '';
+    vazio.style.display = 'block';
+    return;
+  }
+  vazio.style.display = 'none';
+
+  lista.innerHTML = itens.map(linhaComponenteLoteHtml).join('');
+
+  lista.querySelectorAll('[data-acao-remover-componente]').forEach((botao) => {
+    botao.addEventListener('click', () => removerComponenteLote(Number(botao.dataset.acaoRemoverComponente)));
+  });
+}
+
+/** Índice é sempre o índice real dentro de componentesLoteEmEdicao (não da sub-lista filtrada), pra remoção funcionar mesmo com as duas sub-listas intercaladas. */
+function linhaComponenteLoteHtml(componente) {
+  const indice = componentesLoteEmEdicao.indexOf(componente);
+  const tipoLabel = componente.tipoItem === 'supply' ? 'Insumo' : componente.tipoItem === 'recipe' ? 'Preparo' : 'Ingrediente';
+  const quantidadeTexto = Number.isInteger(componente.quantidade) ? componente.quantidade : componente.quantidade.toString().replace('.', ',');
+  const custoLinha = componente.quantidade * componente.custoPorUnidadePreview;
+
+  return `
+    <div class="producao-linha-componente-lote">
+      <span class="producao-linha-componente-nome">${escaparHtml(componente.nome)}</span>
+      <span class="producao-linha-componente-tipo">${tipoLabel}</span>
+      <span class="producao-linha-componente-quantidade">${quantidadeTexto} ${componente.unidade}</span>
+      <span class="producao-linha-componente-custo">${formatarMoeda(custoLinha)}</span>
+      <button type="button" class="btn-icone" data-acao-remover-componente="${indice}" title="Remover" ${souAdminProducao ? '' : 'disabled'}>🗑️</button>
+    </div>`;
+}
+
+function removerComponenteLote(indice) {
+  if (!souAdminProducao) return;
+  componentesLoteEmEdicao.splice(indice, 1);
+  renderizarListasComponentesLote();
+}
+
+/** Soma carne + componentes atuais do estado do modal — lida direto dos campos do formulário (carne) e de componentesLoteEmEdicao, sempre client-side. */
+function atualizarResumoCustosLote() {
+  const dados = lerDadosFormularioLoteEspeto();
+  const loteParcial = { custoTotal: dados.custoTotal, quantidadeReal: dados.quantidadeReal };
+  const custosFinais = calcularCustosFinaisLoteEspetos(loteParcial, componentesLoteEmEdicao);
+
+  const definir = (id, texto) => {
+    document.getElementById(id).textContent = texto;
+  };
+
+  definir('resumo-custo-carne', Number.isFinite(custosFinais.custoCarne) ? formatarMoeda(custosFinais.custoCarne) : '—');
+  definir('resumo-custo-insumos', formatarMoeda(custosFinais.custoInsumos));
+  definir('resumo-custo-temperos', formatarMoeda(custosFinais.custoTemperosTotal));
+  definir('resumo-custo-final', Number.isFinite(custosFinais.custoFinalLote) ? formatarMoeda(custosFinais.custoFinalLote) : '—');
+  definir('resumo-qtd-produzida', Number.isFinite(dados.quantidadeReal) && dados.quantidadeReal > 0 ? String(dados.quantidadeReal) : '—');
+  definir(
+    'resumo-custo-real-final',
+    Number.isFinite(custosFinais.custoRealFinalPorEspeto) ? formatarMoeda(custosFinais.custoRealFinalPorEspeto) + '/espeto' : '—'
+  );
+}
+
+// --- Insumos --------------------------------------------------------------
+
+/** Se o insumo escolhido parece ser palito e a quantidade ainda está vazia, sugere quantidade = quantidade real do lote (item 9 do pedido) — só uma sugestão, sempre editável. */
+function sugerirQuantidadePalito() {
+  const insumo = insumoProducaoPorId(document.getElementById('campo-supply-lote').value);
+  const campoQuantidade = document.getElementById('campo-quantidade-supply-lote');
+  const quantidadeReal = document.getElementById('campo-quantidade-real-lote').value;
+
+  if (insumo && /palito/i.test(insumo.nome) && !campoQuantidade.value && quantidadeReal) {
+    campoQuantidade.value = quantidadeReal;
+  }
+}
+
+/** Sempre usa o custo ATUAL de production_supplies (item 10 do pedido) — no payload de salvamento nunca se envia esse custo, a RPC resolve sozinha. */
+function atualizarPreviewSupplyLote() {
+  const preview = document.getElementById('preview-supply-lote');
+  const insumo = insumoProducaoPorId(document.getElementById('campo-supply-lote').value);
+  const quantidade = Number(document.getElementById('campo-quantidade-supply-lote').value);
+
+  if (!insumo || !Number.isFinite(quantidade) || quantidade <= 0) {
+    preview.textContent = '';
+    return;
+  }
+
+  preview.textContent = `${quantidade} un × ${formatarCustoInsumo(insumo.custoPorUnidade)} = ${formatarMoeda(quantidade * insumo.custoPorUnidade)}`;
+}
+
+function adicionarComponenteSupply() {
+  if (!souAdminProducao) return;
+  const dicaErro = document.getElementById('dica-supply-lote-erro');
+  const insumo = insumoProducaoPorId(document.getElementById('campo-supply-lote').value);
+  const quantidade = Number(document.getElementById('campo-quantidade-supply-lote').value);
+
+  if (!insumo) {
+    dicaErro.textContent = 'Selecione um insumo.';
+    dicaErro.style.display = '';
+    return;
+  }
+  if (!Number.isFinite(quantidade) || quantidade <= 0) {
+    dicaErro.textContent = 'Informe uma quantidade maior que zero.';
+    dicaErro.style.display = '';
+    return;
+  }
+  if (componentesLoteEmEdicao.some((c) => c.tipoItem === 'supply' && c.referenciaId === insumo.id)) {
+    dicaErro.textContent = 'Este insumo já foi adicionado a este lote.';
+    dicaErro.style.display = '';
+    return;
+  }
+  dicaErro.style.display = 'none';
+
+  componentesLoteEmEdicao.push({
+    tipoItem: 'supply',
+    referenciaId: insumo.id,
+    quantidade,
+    unidade: 'un',
+    nome: insumo.nome,
+    custoPorUnidadePreview: insumo.custoPorUnidade,
+  });
+
+  document.getElementById('campo-quantidade-supply-lote').value = '';
+  document.getElementById('preview-supply-lote').textContent = '';
+  renderizarListasComponentesLote();
+}
+
+// --- Temperos / Preparos ----------------------------------------------------
+
+function atualizarUnidadeTemperoLote() {
+  const tipo = document.getElementById('campo-tipo-tempero-lote').value;
+  const referenciaId = document.getElementById('campo-referencia-tempero-lote').value;
+  const textoUnidade = document.getElementById('texto-unidade-tempero-lote');
+
+  if (!referenciaId) {
+    textoUnidade.textContent = '—';
+    return;
+  }
+  if (tipo === 'recipe') {
+    const rendimento = calcularRendimentoReceita(referenciaId);
+    textoUnidade.textContent = rendimento.disponivel ? rendimento.unidade : '—';
+  } else {
+    const ingrediente = ingredientePorId(referenciaId);
+    textoUnidade.textContent = ingrediente ? ingrediente.unidadeBase : '—';
+  }
+}
+
+/** Reaproveita custoTotalReceita/calcularRendimentoReceita (Fichas Técnicas) pra Preparo, e cost_per_base_unit direto pra Ingrediente — nunca duplica fórmula (item 5/13/14 do pedido). */
+function atualizarPreviewTemperoLote() {
+  const preview = document.getElementById('preview-tempero-lote');
+  const tipo = document.getElementById('campo-tipo-tempero-lote').value;
+  const referenciaId = document.getElementById('campo-referencia-tempero-lote').value;
+  const quantidade = Number(document.getElementById('campo-quantidade-tempero-lote').value);
+
+  if (!referenciaId || !Number.isFinite(quantidade) || quantidade <= 0) {
+    preview.textContent = '';
+    return;
+  }
+
+  if (tipo === 'recipe') {
+    const receita = receitaPorId(referenciaId);
+    const rendimento = calcularRendimentoReceita(referenciaId);
+    if (!receita || !rendimento.disponivel) {
+      preview.textContent = '';
+      return;
+    }
+    const custoTotalSub = custoTotalReceita(referenciaId, new Map());
+    const custoPorUnidade = custoTotalSub / rendimento.quantidade;
+    const custoEstimado = quantidade * custoPorUnidade;
+    preview.textContent =
+      `${receita.nome} · Rendimento: ${formatarQuantidadeRendimento(rendimento.quantidade)} ${rendimento.unidade} · ` +
+      `Custo total: ${formatarMoeda(custoTotalSub)} · Custo: ${formatarCustoPorRendimento(custoPorUnidade, rendimento.unidade)} · ` +
+      `Custo estimado: ${formatarMoeda(custoEstimado)}`;
+  } else {
+    const ingrediente = ingredientePorId(referenciaId);
+    if (!ingrediente) {
+      preview.textContent = '';
+      return;
+    }
+    const custoEstimado = quantidade * ingrediente.custoPorUnidadeBase;
+    preview.textContent = `${quantidade} ${ingrediente.unidadeBase} × ${formatarCustoBaseIngrediente(ingrediente.custoPorUnidadeBase, ingrediente.unidadeBase)} = ${formatarMoeda(custoEstimado)}`;
+  }
+}
+
+function adicionarComponenteTempero() {
+  if (!souAdminProducao) return;
+  const dicaErro = document.getElementById('dica-tempero-lote-erro');
+  const tipo = document.getElementById('campo-tipo-tempero-lote').value;
+  const referenciaId = document.getElementById('campo-referencia-tempero-lote').value;
+  const quantidade = Number(document.getElementById('campo-quantidade-tempero-lote').value);
+
+  if (!referenciaId) {
+    dicaErro.textContent = tipo === 'recipe' ? 'Selecione um preparo.' : 'Selecione um ingrediente.';
+    dicaErro.style.display = '';
+    return;
+  }
+  if (!Number.isFinite(quantidade) || quantidade <= 0) {
+    dicaErro.textContent = 'Informe uma quantidade maior que zero.';
+    dicaErro.style.display = '';
+    return;
+  }
+  if (componentesLoteEmEdicao.some((c) => c.tipoItem === tipo && c.referenciaId === referenciaId)) {
+    dicaErro.textContent = tipo === 'recipe' ? 'Este preparo já foi adicionado a este lote.' : 'Este ingrediente já foi adicionado a este lote.';
+    dicaErro.style.display = '';
+    return;
+  }
+
+  let nome;
+  let unidade;
+  let custoPorUnidadePreview;
+
+  if (tipo === 'recipe') {
+    const receita = receitaPorId(referenciaId);
+    const rendimento = calcularRendimentoReceita(referenciaId);
+    if (!receita || !rendimento.disponivel) {
+      dicaErro.textContent = 'Este preparo não tem rendimento disponível.';
+      dicaErro.style.display = '';
+      return;
+    }
+    const custoTotalSub = custoTotalReceita(referenciaId, new Map());
+    nome = receita.nome;
+    unidade = rendimento.unidade;
+    custoPorUnidadePreview = custoTotalSub / rendimento.quantidade;
+  } else {
+    const ingrediente = ingredientePorId(referenciaId);
+    if (!ingrediente) {
+      dicaErro.textContent = 'Ingrediente não encontrado.';
+      dicaErro.style.display = '';
+      return;
+    }
+    nome = ingrediente.nome;
+    unidade = ingrediente.unidadeBase;
+    custoPorUnidadePreview = ingrediente.custoPorUnidadeBase;
+  }
+
+  dicaErro.style.display = 'none';
+  componentesLoteEmEdicao.push({ tipoItem: tipo, referenciaId, quantidade, unidade, nome, custoPorUnidadePreview });
+
+  document.getElementById('campo-quantidade-tempero-lote').value = '';
+  document.getElementById('preview-tempero-lote').textContent = '';
+  renderizarListasComponentesLote();
+}
+
 // ---------------------------------------------------------------------------
 // Modal: novo/editar lote
 // ---------------------------------------------------------------------------
@@ -1445,6 +1829,25 @@ function ligarEventosModalLoteEspeto() {
 
   document.getElementById('botao-excluir-lote-espeto').addEventListener('click', excluirLoteEspetoModal);
   document.getElementById('form-lote-espeto').addEventListener('submit', salvarFormularioLoteEspeto);
+
+  document.getElementById('campo-supply-lote').addEventListener('change', () => {
+    sugerirQuantidadePalito();
+    atualizarPreviewSupplyLote();
+  });
+  document.getElementById('campo-quantidade-supply-lote').addEventListener('input', atualizarPreviewSupplyLote);
+  document.getElementById('botao-adicionar-supply-lote').addEventListener('click', adicionarComponenteSupply);
+
+  document.getElementById('campo-tipo-tempero-lote').addEventListener('change', () => {
+    popularOpcoesTemperoLote();
+    atualizarUnidadeTemperoLote();
+    atualizarPreviewTemperoLote();
+  });
+  document.getElementById('campo-referencia-tempero-lote').addEventListener('change', () => {
+    atualizarUnidadeTemperoLote();
+    atualizarPreviewTemperoLote();
+  });
+  document.getElementById('campo-quantidade-tempero-lote').addEventListener('input', atualizarPreviewTemperoLote);
+  document.getElementById('botao-adicionar-tempero-lote').addEventListener('click', adicionarComponenteTempero);
 }
 
 /** Lê um peso do formulário (par valor+unidade) já convertido pra gramas — reaproveita FATORES_CONVERSAO_UNIDADE_INGREDIENTE (kg:1000, g:1), a mesma tabela já usada em Ingredientes. */
@@ -1477,6 +1880,23 @@ function preencherCampoPeso(idValor, idUnidade, valorG) {
   }
 }
 
+/** Estado comum às duas subseções de Custos Adicionais, reiniciado toda vez que o modal abre (novo ou editar) — evita duplicar isso nas duas funções abaixo. */
+function reiniciarFormularioCustosAdicionaisLote() {
+  popularOpcoesSupplyLote();
+  document.getElementById('campo-quantidade-supply-lote').value = '';
+  document.getElementById('preview-supply-lote').textContent = '';
+  document.getElementById('dica-supply-lote-erro').style.display = 'none';
+
+  document.getElementById('campo-tipo-tempero-lote').value = 'recipe';
+  popularOpcoesTemperoLote();
+  atualizarUnidadeTemperoLote();
+  document.getElementById('campo-quantidade-tempero-lote').value = '';
+  document.getElementById('preview-tempero-lote').textContent = '';
+  document.getElementById('dica-tempero-lote-erro').style.display = 'none';
+
+  renderizarListasComponentesLote();
+}
+
 function abrirModalNovoLoteEspeto() {
   if (!souAdminProducao) return;
 
@@ -1497,10 +1917,23 @@ function abrirModalNovoLoteEspeto() {
   document.getElementById('dica-lote-espeto-erro').style.display = 'none';
   document.getElementById('botao-excluir-lote-espeto').style.display = 'none';
 
+  componentesLoteEmEdicao = [];
+  reiniciarFormularioCustosAdicionaisLote();
+
   atualizarPreviewLoteEspeto();
   abrirModal('modal-overlay-lote-espeto');
 }
 
+/**
+ * Carrega os componentes já salvos (item 16 do pedido): nome/quantidade/
+ * unidade/custo exatamente como estão em componentesDoLote (histórico, não
+ * recalculado). Importante — isso é só a EXIBIÇÃO inicial; ao salvar,
+ * ingredient/supply são sempre resolvidos de novo pela RPC e recipe é
+ * sempre recalculado pelo client no momento do save (ver
+ * salvarFormularioLoteEspeto) — comportamento documentado no item 17 do
+ * pedido, não escondido (aviso também visível na própria UI, seção
+ * Temperos/Preparos).
+ */
 function abrirModalLoteEspeto(id) {
   if (!souAdminProducao) return;
   const lote = lotesEspetosCache.find((l) => l.id === id);
@@ -1523,6 +1956,16 @@ function abrirModalLoteEspeto(id) {
   document.getElementById('dica-lote-espeto-erro').style.display = 'none';
   document.getElementById('botao-excluir-lote-espeto').style.display = souAdminProducao ? '' : 'none';
 
+  componentesLoteEmEdicao = componentesDoLote(lote.id).map((c) => ({
+    tipoItem: c.tipoItem,
+    referenciaId: c.ingredienteId || c.receitaId || c.insumoId,
+    quantidade: c.quantidade,
+    unidade: c.unidade,
+    nome: c.nomeSnapshot,
+    custoPorUnidadePreview: c.custoPorUnidadeSnapshot,
+  }));
+  reiniciarFormularioCustosAdicionaisLote();
+
   atualizarPreviewLoteEspeto();
   abrirModal('modal-overlay-lote-espeto');
 }
@@ -1536,6 +1979,7 @@ function atualizarPreviewLoteEspeto() {
   const dados = lerDadosFormularioLoteEspeto();
   const indicadores = calcularIndicadoresLoteEspetos(dados);
   preencherPreviewLoteEspeto(dados, indicadores);
+  atualizarResumoCustosLote();
 }
 
 function preencherPreviewLoteEspeto(dados, indicadores) {
@@ -1589,6 +2033,42 @@ function validarFormularioLoteEspeto({ produtoId, dataProducao, pesoBrutoG, peso
   return null;
 }
 
+/**
+ * Monta o payload de componentes pro service/RPC a partir do estado do
+ * modal. ingredient/supply nunca levam custo (a RPC resolve sozinha,
+ * sempre com o valor atual). recipe é a ÚNICA exceção: o custo é sempre
+ * RECALCULADO AGORA (nunca reaproveita custoPorUnidadePreview, que pode ter
+ * sido carregado de um snapshot antigo ao abrir o modal) — mesma disciplina
+ * documentada no item 17 do pedido: editar o lote redefine seu estado
+ * final, então um preparo usado num lote antigo passa a refletir o custo
+ * atual da ficha técnica no momento do save, não o que estava salvo antes.
+ */
+function montarComponentesPayloadParaSalvar() {
+  return componentesLoteEmEdicao.map((componente) => {
+    if (componente.tipoItem !== 'recipe') {
+      return {
+        tipoItem: componente.tipoItem,
+        referenciaId: componente.referenciaId,
+        quantidade: componente.quantidade,
+        unidade: componente.unidade,
+      };
+    }
+
+    const rendimento = calcularRendimentoReceita(componente.referenciaId);
+    const custoPorUnidadeAtual = rendimento.disponivel
+      ? custoTotalReceita(componente.referenciaId, new Map()) / rendimento.quantidade
+      : componente.custoPorUnidadePreview;
+
+    return {
+      tipoItem: 'recipe',
+      referenciaId: componente.referenciaId,
+      quantidade: componente.quantidade,
+      unidade: componente.unidade,
+      custoPorUnidadeSnapshot: custoPorUnidadeAtual,
+    };
+  });
+}
+
 async function salvarFormularioLoteEspeto(evento) {
   evento.preventDefault();
   if (!souAdminProducao) return;
@@ -1617,6 +2097,7 @@ async function salvarFormularioLoteEspeto(evento) {
     custoTotal: dados.custoTotal,
     pesoEspetoG: dados.pesoEspetoG,
     quantidadeReal: dados.quantidadeReal,
+    componentes: montarComponentesPayloadParaSalvar(),
   };
 
   try {
@@ -1635,7 +2116,9 @@ async function salvarFormularioLoteEspeto(evento) {
   fecharModalLoteEspeto();
 
   try {
-    lotesEspetosCache = await buscarLotesEspetosDoSupabase();
+    const [lotes, componentes] = await Promise.all([buscarLotesEspetosDoSupabase(), buscarComponentesLotesEspetosDoSupabase()]);
+    lotesEspetosCache = lotes;
+    componentesLotesEspetosCache = componentes;
   } catch (erroRecarregar) {
     console.error('Erro ao recarregar lotes de produção:', erroRecarregar);
   }
@@ -1659,7 +2142,194 @@ async function excluirLoteEspetoModal() {
   }
 
   lotesEspetosCache = lotesEspetosCache.filter((l) => l.id !== id);
+  componentesLotesEspetosCache = componentesLotesEspetosCache.filter((c) => c.loteId !== id);
   fecharModalLoteEspeto();
   renderizarTabelaLotesEspetos();
   mostrarToast('Lote de produção excluído.', 'sucesso');
+}
+
+// =============================================================================
+// INSUMOS DE PRODUÇÃO — production_supplies (Etapa 3A). Cadastro standalone
+// de insumos contados por unidade (palito de espeto hoje; embalagem/bandeja
+// no futuro, sem migration nova — só uma linha nova aqui). Custo por
+// unidade (custoPorUnidade) vem sempre de cost_per_unit, coluna GERADA no
+// banco (purchase_price / purchase_quantity) — nunca calculado nem digitado
+// aqui. NENHUMA integração com skewer_production_batches/lotes ainda — essa
+// leitura só entra na Etapa 3B (skewer_batch_components + RPC
+// save_skewer_production_batch).
+// =============================================================================
+
+function atualizarEstadoEdicaoInsumos() {
+  const botaoNovo = document.getElementById('botao-novo-insumo');
+  const dica = document.getElementById('dica-insumos-somente-admin');
+  botaoNovo.disabled = !souAdminProducao;
+  dica.style.display = souAdminProducao ? 'none' : '';
+}
+
+/** "€0,012000/un" — mesma disciplina de formatarCustoBaseIngrediente (nunca esconder precisão real). */
+function formatarCustoInsumo(valor) {
+  if (valor === null || !Number.isFinite(valor)) return '—';
+  return '€' + valor.toFixed(6).replace('.', ',') + '/un';
+}
+
+/** "1000 un" — quantidade comprada, sempre em unidades inteiras nesta V1. */
+function formatarQuantidadeInsumo(insumo) {
+  const quantidade = insumo.quantidadeCompra;
+  const texto = Number.isInteger(quantidade) ? String(quantidade) : String(quantidade).replace('.', ',');
+  return `${texto} un`;
+}
+
+function renderizarTabelaInsumos() {
+  const corpo = document.getElementById('corpo-tabela-insumos');
+  const vazio = document.getElementById('estado-vazio-insumos');
+
+  if (insumosProducaoCache.length === 0) {
+    corpo.innerHTML = '';
+    vazio.style.display = 'block';
+    return;
+  }
+  vazio.style.display = 'none';
+
+  corpo.innerHTML = insumosProducaoCache.map(linhaInsumoHtml).join('');
+
+  corpo.querySelectorAll('[data-acao-editar-insumo]').forEach((botao) => {
+    botao.addEventListener('click', () => abrirModalInsumo(botao.dataset.acaoEditarInsumo));
+  });
+}
+
+function linhaInsumoHtml(insumo) {
+  return `
+    <tr>
+      <td>${escaparHtml(insumo.nome)}</td>
+      <td>${escaparHtml(formatarQuantidadeInsumo(insumo))}</td>
+      <td>${formatarMoeda(insumo.precoCompra)}</td>
+      <td>${formatarCustoInsumo(insumo.custoPorUnidade)}</td>
+      <td>${formatarData(insumo.atualizadoEm)}</td>
+      <td><span class="badge badge-${insumo.ativo ? 'ativo' : 'inativo'}">${insumo.ativo ? 'Ativo' : 'Inativo'}</span></td>
+      <td>
+        <button class="btn-icone" data-acao-editar-insumo="${insumo.id}" title="Editar" ${souAdminProducao ? '' : 'disabled'}>✏️</button>
+      </td>
+    </tr>`;
+}
+
+// ---------------------------------------------------------------------------
+// Modal
+// ---------------------------------------------------------------------------
+
+function ligarEventosModalInsumo() {
+  document.getElementById('botao-novo-insumo').addEventListener('click', abrirModalNovoInsumo);
+  document.getElementById('botao-fechar-modal-insumo').addEventListener('click', fecharModalInsumo);
+  document.getElementById('botao-cancelar-insumo').addEventListener('click', fecharModalInsumo);
+  document.getElementById('modal-overlay-insumo').addEventListener('click', (evento) => {
+    if (evento.target.id === 'modal-overlay-insumo') fecharModalInsumo();
+  });
+
+  document.getElementById('campo-quantidade-insumo').addEventListener('input', atualizarPreviewCustoInsumo);
+  document.getElementById('campo-preco-insumo').addEventListener('input', atualizarPreviewCustoInsumo);
+
+  document.getElementById('form-insumo').addEventListener('submit', salvarFormularioInsumo);
+}
+
+function atualizarPreviewCustoInsumo() {
+  const preview = document.getElementById('preview-custo-insumo');
+  const quantidade = Number(document.getElementById('campo-quantidade-insumo').value);
+  const preco = Number(document.getElementById('campo-preco-insumo').value);
+
+  if (!Number.isFinite(quantidade) || quantidade <= 0 || !Number.isFinite(preco) || preco < 0) {
+    preview.textContent = '';
+    return;
+  }
+
+  const custo = preco / quantidade;
+  const quantidadeTexto = Number.isInteger(quantidade) ? quantidade : quantidade.toString().replace('.', ',');
+
+  preview.textContent = `${quantidadeTexto} unidades por ${formatarMoeda(preco)} · Custo unitário: ${formatarCustoInsumo(custo)}`;
+}
+
+function abrirModalNovoInsumo() {
+  if (!souAdminProducao) return;
+
+  document.getElementById('titulo-modal-insumo').textContent = 'Novo Insumo';
+  document.getElementById('campo-id-insumo').value = '';
+  document.getElementById('campo-nome-insumo').value = '';
+  document.getElementById('campo-quantidade-insumo').value = '';
+  document.getElementById('campo-preco-insumo').value = '';
+  document.getElementById('campo-status-insumo').value = 'ativo';
+  document.getElementById('dica-insumo-erro').style.display = 'none';
+
+  atualizarPreviewCustoInsumo();
+  abrirModal('modal-overlay-insumo');
+}
+
+function abrirModalInsumo(id) {
+  if (!souAdminProducao) return;
+  const insumo = insumosProducaoCache.find((i) => i.id === id);
+  if (!insumo) return;
+
+  document.getElementById('titulo-modal-insumo').textContent = 'Editar Insumo';
+  document.getElementById('campo-id-insumo').value = insumo.id;
+  document.getElementById('campo-nome-insumo').value = insumo.nome;
+  document.getElementById('campo-quantidade-insumo').value = insumo.quantidadeCompra;
+  document.getElementById('campo-preco-insumo').value = insumo.precoCompra;
+  document.getElementById('campo-status-insumo').value = insumo.ativo ? 'ativo' : 'inativo';
+  document.getElementById('dica-insumo-erro').style.display = 'none';
+
+  atualizarPreviewCustoInsumo();
+  abrirModal('modal-overlay-insumo');
+}
+
+function fecharModalInsumo() {
+  fecharModal('modal-overlay-insumo');
+}
+
+/** Espelha no cliente os CHECKs do banco, só pra feedback mais rápido — o banco continua a fonte real. */
+function validarFormularioInsumo({ nome, quantidade, preco }) {
+  if (!nome) return 'Informe o nome do insumo.';
+  if (!Number.isFinite(quantidade) || quantidade <= 0) return 'Informe uma quantidade comprada maior que zero.';
+  if (!Number.isFinite(preco) || preco < 0) return 'Informe um preço pago válido (não pode ser negativo).';
+  return null;
+}
+
+async function salvarFormularioInsumo(evento) {
+  evento.preventDefault();
+  if (!souAdminProducao) return;
+
+  const id = document.getElementById('campo-id-insumo').value;
+  const nome = document.getElementById('campo-nome-insumo').value.trim();
+  const quantidade = Number(document.getElementById('campo-quantidade-insumo').value);
+  const preco = Number(document.getElementById('campo-preco-insumo').value);
+  const ativo = document.getElementById('campo-status-insumo').value === 'ativo';
+
+  const erroValidacao = validarFormularioInsumo({ nome, quantidade, preco });
+  const dicaErro = document.getElementById('dica-insumo-erro');
+  if (erroValidacao) {
+    dicaErro.textContent = erroValidacao;
+    dicaErro.style.display = '';
+    return;
+  }
+  dicaErro.style.display = 'none';
+
+  const dados = { nome, quantidadeCompra: quantidade, precoCompra: preco, ativo };
+
+  try {
+    if (id) {
+      await atualizarInsumoProducaoNoSupabase(id, dados);
+    } else {
+      await criarInsumoProducaoNoSupabase(dados);
+    }
+  } catch (erro) {
+    dicaErro.textContent = 'Não foi possível salvar o insumo. ' + erro.message;
+    dicaErro.style.display = '';
+    return;
+  }
+
+  mostrarToast('Insumo salvo.', 'sucesso');
+  fecharModalInsumo();
+
+  try {
+    insumosProducaoCache = await buscarInsumosProducaoDoSupabase();
+  } catch (erroRecarregar) {
+    console.error('Erro ao recarregar insumos:', erroRecarregar);
+  }
+  renderizarTabelaInsumos();
 }
