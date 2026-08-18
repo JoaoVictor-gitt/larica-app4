@@ -544,6 +544,25 @@
             <div class="producao-resumo-final-lote-destaque"><span>Custo real final / espeto</span><strong id="resumo-custo-real-final">—</strong></div>
           </div>
 
+          <!-- Só aparece em lote já salvo (item 5) — reaproveita salvarCustoProdutoNoSupabase já existente, nunca altera o lote em si. -->
+          <div id="bloco-custo-produto" style="display:none;">
+            <h3 class="producao-subtitulo">Custo do Produto</h3>
+            <div class="producao-resumo-final-lote">
+              <div><span>Produto</span><strong id="custoproduto-nome-produto">—</strong></div>
+              <div><span>Origem</span><strong id="custoproduto-origem-lote">—</strong></div>
+              <div><span>Custo atual</span><strong id="custoproduto-custo-atual">—</strong></div>
+              <div><span>Custo deste lote</span><strong id="custoproduto-custo-lote">—</strong></div>
+              <div><span>Diferença</span><strong id="custoproduto-diferenca">—</strong></div>
+              <div><span>Variação</span><strong id="custoproduto-variacao">—</strong></div>
+            </div>
+            <p class="dica-campo" id="dica-produto-inativo-custo" style="display:none;">⚠ Produto inativo.</p>
+            <p class="dica-campo" id="dica-custo-ja-aplicado" style="display:none;">Este custo já está aplicado.</p>
+            <div style="display:flex; justify-content:flex-end;">
+              <button type="button" class="btn btn-secundario" id="botao-aplicar-custo-produto">Aplicar custo ao produto</button>
+            </div>
+            <p class="dica-campo" id="dica-custo-produto-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
+          </div>
+
           <p class="dica-campo" id="dica-lote-espeto-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
         </div>
         <div class="modal-rodape">
@@ -609,6 +628,7 @@
   <script src="js/services/products-service.js"></script>
   <script src="js/services/skewer-production-service.js"></script>
   <script src="js/services/production-supplies-service.js"></script>
+  <script src="js/services/product-costs-service.js"></script>
   <script src="js/app.js"></script>
   <script src="js/producao.js"></script>
 </body>

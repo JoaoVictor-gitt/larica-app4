@@ -44,6 +44,7 @@ const UNIDADE_BASE_POR_TIPO_INGREDIENTE = { peso: 'g', volume: 'ml', contagem: '
 let ingredientesCache = [];
 let produtosCache = [];
 let insumosProducaoCache = [];
+let custosProdutosCache = new Map();
 let souAdminProducao = false;
 
 /**
@@ -58,16 +59,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   ligarEventosNavegacaoProducao();
 
   try {
-    const [ingredientes, ehAdmin, produtos, insumos] = await Promise.all([
+    const [ingredientes, ehAdmin, produtos, insumos, custosProdutos] = await Promise.all([
       buscarIngredientesDoSupabase(),
       usuarioEhAdminNoSupabase(),
       buscarProdutosDoSupabase(),
       buscarInsumosProducaoDoSupabase(),
+      buscarCustosProdutosDoSupabase(),
     ]);
     ingredientesCache = ingredientes;
     souAdminProducao = ehAdmin;
     produtosCache = produtos;
     insumosProducaoCache = insumos;
+    custosProdutosCache = new Map(
+      custosProdutos.map((l) => [l.product_id, l.unit_cost === null || l.unit_cost === undefined ? null : Number(l.unit_cost)])
+    );
 
     atualizarEstadoEdicaoIngredientes();
     renderizarTabelaIngredientes();
@@ -1403,6 +1408,22 @@ function calcularCustosFinaisLoteEspetos(lote, componentes) {
   };
 }
 
+/**
+ * Compara o custo atual do produto (product_costs.unit_cost, ou null se não
+ * cadastrado) com o custo final histórico de um lote já salvo. Nunca divide
+ * por zero: variacaoPercentual só é calculada quando custoAtual > 0.
+ * mesmoCustoPersistido compara os dois valores já multiplicados por 10000 e
+ * arredondados a inteiro (nunca dividindo de volta) — evita qualquer
+ * resíduo de ponto flutuante na comparação, na mesma precisão de 4 casas
+ * realmente persistida em product_costs.unit_cost (numeric(12,4)).
+ */
+function calcularComparacaoCustoProduto(custoAtual, custoLote) {
+  const diferenca = custoAtual === null ? null : custoLote - custoAtual;
+  const variacaoPercentual = custoAtual !== null && custoAtual > 0 ? ((custoLote - custoAtual) / custoAtual) * 100 : null;
+  const mesmoCustoPersistido = custoAtual !== null && Math.round(custoAtual * 10000) === Math.round(custoLote * 10000);
+  return { custoAtual, custoLote, diferenca, variacaoPercentual, mesmoCustoPersistido };
+}
+
 // ---------------------------------------------------------------------------
 // Formatação
 // ---------------------------------------------------------------------------
@@ -1429,6 +1450,29 @@ function formatarPercentual(valor) {
 function formatarMoedaPorKg(valor) {
   if (!Number.isFinite(valor)) return '—';
   return formatarMoeda(valor) + '/kg';
+}
+
+/** "+€0,15" / "-€0,10" / "€0,00" — mesma disciplina de sinal do resto da tela de comparação de custo. */
+function formatarDiferencaCusto(valor) {
+  if (!Number.isFinite(valor)) return '—';
+  return (valor > 0 ? '+' : '') + formatarMoeda(valor);
+}
+
+/** "+16,00%" / "-8,50%" / "—" — 2 casas, sempre com sinal explícito quando positivo (negativo já vem com "-" do próprio número). */
+function formatarVariacaoPercentual(valor) {
+  if (!Number.isFinite(valor)) return '—';
+  return (valor > 0 ? '+' : '') + valor.toFixed(2).replace('.', ',') + '%';
+}
+
+/** 4 casas — só usada na confirmação de "Aplicar custo ao produto" (item 10 do pedido), pra mostrar a precisão real de product_costs.unit_cost (numeric(12,4)). A UI normal do bloco usa formatarMoeda (2 casas), nunca esta. */
+function formatarMoeda4Casas(valor) {
+  if (!Number.isFinite(valor)) return '—';
+  return '€' + valor.toFixed(4).replace('.', ',');
+}
+
+function formatarDiferenca4Casas(valor) {
+  if (!Number.isFinite(valor)) return '—';
+  return (valor > 0 ? '+' : '') + formatarMoeda4Casas(valor);
 }
 
 /** 'YYYY-MM-DD' -> 'DD/MM/AAAA', sem passar por Date/fuso horário nenhum — produced_at é um date puro, nunca timestamptz (ver diagnóstico). */
@@ -1871,6 +1915,103 @@ function adicionarComponenteTempero() {
 }
 
 // ---------------------------------------------------------------------------
+// Custo do Produto (Etapa 4) — comparação e aplicação manual do custo real
+// final de um lote JÁ SALVO em product_costs.unit_cost, reaproveitando
+// inteiramente salvarCustoProdutoNoSupabase/buscarCustosProdutosDoSupabase
+// já existentes (product-costs-service.js) — nenhuma escrita nova, nenhuma
+// migration. Nunca altera o lote em si (skewer_production_batches/
+// skewer_batch_components) — só product_costs. O bloco reflete sempre o
+// ÚLTIMO ESTADO SALVO do lote (nunca recalculado a partir de edições ainda
+// não salvas no formulário aberto), por isso só é atualizado em
+// abrirModalLoteEspeto() e depois de aplicar com sucesso — nunca reativo às
+// mudanças ao vivo dos campos da carne/componentes.
+// ---------------------------------------------------------------------------
+
+/** Guarda { produtoId, produtoNome, custoLote, custoAtual } do lote atualmente aberto no modal, ou null — usado pelo clique do botão sem reserializar o valor (evita qualquer perda de precisão por ida-e-volta string↔número). */
+let comparacaoCustoProdutoAtual = null;
+
+/** Só chamada por abrirModalLoteEspeto (lote já salvo) — nunca por abrirModalNovoLoteEspeto. */
+function renderizarBlocoCustoProduto(lote) {
+  const bloco = document.getElementById('bloco-custo-produto');
+
+  const produto = produtoPorId(lote.produtoId);
+  const componentesSnapshot = componentesDoLote(lote.id).map((c) => ({
+    tipoItem: c.tipoItem,
+    quantidade: c.quantidade,
+    custoPorUnidadePreview: c.custoPorUnidadeSnapshot,
+  }));
+  const custoLote = calcularCustosFinaisLoteEspetos(lote, componentesSnapshot).custoRealFinalPorEspeto;
+  const custoAtual = custosProdutosCache.has(lote.produtoId) ? custosProdutosCache.get(lote.produtoId) : null;
+  const comparacao = calcularComparacaoCustoProduto(custoAtual, custoLote);
+
+  document.getElementById('custoproduto-nome-produto').textContent = produto ? produto.nome : '(produto removido)';
+  document.getElementById('custoproduto-origem-lote').textContent = `Lote de ${formatarDataProducao(lote.produzidoEm)}`;
+  document.getElementById('custoproduto-custo-atual').textContent =
+    comparacao.custoAtual === null ? 'Sem custo cadastrado' : formatarMoeda(comparacao.custoAtual);
+  document.getElementById('custoproduto-custo-lote').textContent = Number.isFinite(custoLote) ? formatarMoeda(custoLote) : '—';
+  document.getElementById('custoproduto-diferenca').textContent = formatarDiferencaCusto(comparacao.diferenca);
+  document.getElementById('custoproduto-variacao').textContent = formatarVariacaoPercentual(comparacao.variacaoPercentual);
+
+  document.getElementById('dica-produto-inativo-custo').style.display = produto && produto.status !== 'ativo' ? '' : 'none';
+  document.getElementById('dica-custo-ja-aplicado').style.display = comparacao.mesmoCustoPersistido ? '' : 'none';
+  document.getElementById('dica-custo-produto-erro').style.display = 'none';
+
+  document.getElementById('botao-aplicar-custo-produto').disabled =
+    !souAdminProducao || comparacao.mesmoCustoPersistido || !Number.isFinite(custoLote);
+
+  comparacaoCustoProdutoAtual = Number.isFinite(custoLote)
+    ? {
+        produtoId: lote.produtoId,
+        produtoNome: produto ? produto.nome : '(produto removido)',
+        custoLote,
+        custoAtual: comparacao.custoAtual,
+      }
+    : null;
+
+  bloco.style.display = '';
+}
+
+function ocultarBlocoCustoProduto() {
+  document.getElementById('bloco-custo-produto').style.display = 'none';
+  comparacaoCustoProdutoAtual = null;
+}
+
+/** Confirmação explícita (item 10 do pedido) mostrando 4 casas — a precisão real de product_costs.unit_cost — mesmo a UI normal do bloco usando 2 casas. */
+async function aplicarCustoAoProdutoModal() {
+  if (!souAdminProducao || !comparacaoCustoProdutoAtual) return;
+  const { produtoId, produtoNome, custoLote, custoAtual } = comparacaoCustoProdutoAtual;
+
+  const diferenca = custoAtual === null ? null : custoLote - custoAtual;
+  const confirmado = confirm(
+    `Aplicar ${formatarMoeda4Casas(custoLote)} como novo custo do produto ${produtoNome}?\n\n` +
+      `Custo atual: ${custoAtual === null ? 'Sem custo cadastrado' : formatarMoeda4Casas(custoAtual)}\n` +
+      `Novo custo: ${formatarMoeda4Casas(custoLote)}\n` +
+      `Diferença: ${formatarDiferenca4Casas(diferenca)}`
+  );
+  if (!confirmado) return;
+
+  const dicaErro = document.getElementById('dica-custo-produto-erro');
+  const botao = document.getElementById('botao-aplicar-custo-produto');
+  dicaErro.style.display = 'none';
+  botao.disabled = true;
+
+  try {
+    await salvarCustoProdutoNoSupabase(produtoId, custoLote);
+  } catch (erro) {
+    dicaErro.textContent = 'Não foi possível aplicar o custo. ' + erro.message;
+    dicaErro.style.display = '';
+    botao.disabled = false;
+    return;
+  }
+
+  custosProdutosCache.set(produtoId, custoLote);
+  mostrarToast('Custo aplicado ao produto.', 'sucesso');
+
+  const lote = lotesEspetosCache.find((l) => l.id === document.getElementById('campo-id-lote-espeto').value);
+  if (lote) renderizarBlocoCustoProduto(lote);
+}
+
+// ---------------------------------------------------------------------------
 // Modal: novo/editar lote
 // ---------------------------------------------------------------------------
 
@@ -1898,6 +2039,7 @@ function ligarEventosModalLoteEspeto() {
 
   document.getElementById('botao-excluir-lote-espeto').addEventListener('click', excluirLoteEspetoModal);
   document.getElementById('form-lote-espeto').addEventListener('submit', salvarFormularioLoteEspeto);
+  document.getElementById('botao-aplicar-custo-produto').addEventListener('click', aplicarCustoAoProdutoModal);
 
   document.getElementById('campo-supply-lote').addEventListener('change', () => {
     sugerirQuantidadePalito();
@@ -1988,6 +2130,7 @@ function abrirModalNovoLoteEspeto() {
 
   componentesLoteEmEdicao = [];
   reiniciarFormularioCustosAdicionaisLote();
+  ocultarBlocoCustoProduto();
 
   atualizarPreviewLoteEspeto();
   abrirModal('modal-overlay-lote-espeto');
@@ -2034,6 +2177,7 @@ function abrirModalLoteEspeto(id) {
     custoPorUnidadePreview: c.custoPorUnidadeSnapshot,
   }));
   reiniciarFormularioCustosAdicionaisLote();
+  renderizarBlocoCustoProduto(lote);
 
   atualizarPreviewLoteEspeto();
   abrirModal('modal-overlay-lote-espeto');
