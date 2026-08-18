@@ -286,3 +286,64 @@
 .producao-item-receita-edicao input {
   width: 90px;
 }
+
+/*
+ * Produção de Espetos — tabela de listagem (mesma estrutura de
+ * #corpo-tabela-ingredientes/#corpo-tabela-receitas) e prévia ao vivo do
+ * modal de novo/editar lote.
+ */
+#corpo-tabela-lotes-espetos td:nth-child(2) { font-weight: 600; }
+
+#corpo-tabela-lotes-espetos td:nth-child(3),
+#corpo-tabela-lotes-espetos td:nth-child(4),
+#corpo-tabela-lotes-espetos td:nth-child(8) {
+  text-align: right;
+}
+
+#corpo-tabela-lotes-espetos td:nth-child(6),
+#corpo-tabela-lotes-espetos td:nth-child(7) {
+  text-align: center;
+}
+
+#corpo-tabela-lotes-espetos td:last-child {
+  text-align: right;
+}
+
+.producao-preview-lote {
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  margin-bottom: var(--espaco-md);
+}
+
+.producao-preview-lote-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--espaco-xs) var(--espaco-md);
+  font-size: 0.85rem;
+}
+
+.producao-preview-lote-grade div {
+  display: flex;
+  flex-direction: column;
+}
+
+.producao-preview-lote-grade span {
+  color: var(--cor-texto-secundario);
+  font-size: 0.78rem;
+}
+
+.producao-preview-lote-destaque {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--espaco-sm);
+  padding-top: var(--espaco-sm);
+  border-top: 1px solid var(--cor-borda);
+  font-size: 1rem;
+}
+
+.producao-preview-lote-destaque strong {
+  color: var(--cor-terracota);
+  font-size: 1.15rem;
+}

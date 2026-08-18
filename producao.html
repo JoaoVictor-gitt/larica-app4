@@ -40,6 +40,14 @@
         </span>
         <span class="producao-card-seta">→</span>
       </button>
+      <button type="button" class="producao-card" data-producao-abrir="espetos">
+        <span class="producao-card-icone">🍢</span>
+        <span class="producao-card-texto">
+          <strong>Produção de Espetos</strong>
+          <span>Registre lotes reais e calcule perda, rendimento e custo por espeto</span>
+        </span>
+        <span class="producao-card-seta">→</span>
+      </button>
     </div>
 
     <!-- Ingredientes -->
@@ -104,6 +112,41 @@
         <div class="estado-vazio" id="estado-erro-receitas" style="display:none;"></div>
         <div class="estado-vazio" id="estado-vazio-receitas" style="display:none;">
           Nenhuma ficha técnica cadastrada ainda.
+        </div>
+      </div>
+    </section>
+
+    <!-- Produção de Espetos -->
+    <section class="producao-secao" data-producao-secao="espetos">
+      <button type="button" class="producao-botao-voltar" data-producao-voltar>← Voltar para Produção</button>
+
+      <div class="producao-secao-cabecalho">
+        <h2>Produção de Espetos</h2>
+        <button type="button" class="btn btn-primario" id="botao-novo-lote-espeto">+ Novo Lote</button>
+      </div>
+      <p class="dica-campo" id="dica-espetos-somente-admin" style="display:none;">Somente administradores podem registrar ou editar lotes de produção.</p>
+
+      <div class="card tabela-producao-wrap">
+        <table class="tabela">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Produto</th>
+              <th>Peso bruto</th>
+              <th>Peso útil</th>
+              <th>Perda</th>
+              <th>Rendimento</th>
+              <th>Qtd real</th>
+              <th>Custo real/espeto</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="corpo-tabela-lotes-espetos"></tbody>
+        </table>
+        <div class="estado-vazio" id="estado-carregando-lotes-espetos">Carregando lotes de produção...</div>
+        <div class="estado-vazio" id="estado-erro-lotes-espetos" style="display:none;"></div>
+        <div class="estado-vazio" id="estado-vazio-lotes-espetos" style="display:none;">
+          Nenhum lote de produção registrado ainda.
         </div>
       </div>
     </section>
@@ -306,6 +349,105 @@
     </div>
   </div>
 
+  <!-- Modal: novo/editar lote de Produção de Espetos -->
+  <div class="modal-overlay" id="modal-overlay-lote-espeto">
+    <div class="modal producao-modal-rolavel" style="max-width:640px;">
+      <div class="modal-cabecalho">
+        <h2 id="titulo-modal-lote-espeto">Novo Lote de Produção</h2>
+        <button class="btn-icone" id="botao-fechar-modal-lote-espeto" aria-label="Fechar">✕</button>
+      </div>
+      <form id="form-lote-espeto">
+        <input type="hidden" id="campo-id-lote-espeto" />
+        <div class="modal-corpo">
+          <div class="form-grupo">
+            <label for="campo-produto-lote">Produto</label>
+            <select id="campo-produto-lote" class="input" required></select>
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-ingrediente-lote">Ingrediente (opcional)</label>
+            <select id="campo-ingrediente-lote" class="input"></select>
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-data-lote">Data da produção</label>
+            <input type="date" id="campo-data-lote" class="input" required />
+          </div>
+
+          <div style="display:flex; gap:12px;">
+            <div class="form-grupo" style="flex:2;">
+              <label for="campo-peso-bruto-lote">Peso bruto</label>
+              <input type="number" id="campo-peso-bruto-lote" class="input" min="0" step="0.001" required />
+            </div>
+            <div class="form-grupo" style="flex:1;">
+              <label for="campo-unidade-peso-bruto-lote">Unidade</label>
+              <select id="campo-unidade-peso-bruto-lote" class="input">
+                <option value="kg">kg</option>
+                <option value="g">g</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:12px;">
+            <div class="form-grupo" style="flex:2;">
+              <label for="campo-peso-util-lote">Peso após limpeza</label>
+              <input type="number" id="campo-peso-util-lote" class="input" min="0" step="0.001" required />
+            </div>
+            <div class="form-grupo" style="flex:1;">
+              <label for="campo-unidade-peso-util-lote">Unidade</label>
+              <select id="campo-unidade-peso-util-lote" class="input">
+                <option value="kg">kg</option>
+                <option value="g">g</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-custo-total-lote">Valor total da carne (€)</label>
+            <input type="number" id="campo-custo-total-lote" class="input" min="0" step="0.0001" required />
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-peso-espeto-lote">Peso padrão por espeto (g)</label>
+            <input type="number" id="campo-peso-espeto-lote" class="input" min="0" step="0.1" required />
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-quantidade-real-lote">Quantidade realmente produzida</label>
+            <input type="number" id="campo-quantidade-real-lote" class="input" min="1" step="1" required />
+          </div>
+
+          <div class="producao-preview-lote" id="preview-indicadores-lote">
+            <div class="producao-preview-lote-grade">
+              <div><span>Peso bruto</span><strong id="preview-peso-bruto">—</strong></div>
+              <div><span>Peso útil</span><strong id="preview-peso-util">—</strong></div>
+              <div><span>Perda</span><strong id="preview-perda">—</strong></div>
+              <div><span>Rendimento</span><strong id="preview-rendimento">—</strong></div>
+              <div><span>Custo bruto</span><strong id="preview-custo-bruto">—</strong></div>
+              <div><span>Custo útil</span><strong id="preview-custo-util">—</strong></div>
+              <div><span>Qtd. teórica</span><strong id="preview-qtd-teorica">—</strong></div>
+              <div><span>Sobra teórica</span><strong id="preview-sobra-teorica">—</strong></div>
+              <div><span>Qtd. real</span><strong id="preview-qtd-real">—</strong></div>
+              <div><span>Diferença</span><strong id="preview-diferenca">—</strong></div>
+              <div><span>Custo teórico</span><strong id="preview-custo-teorico">—</strong></div>
+            </div>
+            <div class="producao-preview-lote-destaque">
+              <span>Custo real por espeto</span>
+              <strong id="preview-custo-real">—</strong>
+            </div>
+          </div>
+
+          <p class="dica-campo" id="dica-lote-espeto-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
+        </div>
+        <div class="modal-rodape">
+          <button type="button" class="btn btn-secundario" id="botao-excluir-lote-espeto" style="margin-right:auto; display:none;">🗑️ Excluir Lote</button>
+          <button type="button" class="btn btn-secundario" id="botao-cancelar-lote-espeto">Cancelar</button>
+          <button type="submit" class="btn btn-primario">Salvar Lote</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="js/utils.js"></script>
   <script src="js/storage.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -313,6 +455,8 @@
   <script src="js/services/permissions-service.js"></script>
   <script src="js/services/ingredients-service.js"></script>
   <script src="js/services/recipes-service.js"></script>
+  <script src="js/services/products-service.js"></script>
+  <script src="js/services/skewer-production-service.js"></script>
   <script src="js/app.js"></script>
   <script src="js/producao.js"></script>
 </body>

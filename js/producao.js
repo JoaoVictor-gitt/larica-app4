@@ -3,8 +3,13 @@
  * Lógica da área Produção. Etapa 1: aba Ingredientes. Etapa 2: aba Fichas
  * Técnicas com ingredientes simples. Etapa 3: sub-receitas (item_type=
  * 'recipe' — um item de receita pode ser outro preparo) + exclusão de
- * ficha técnica. Depende de utils.js, js/services/ingredients-service.js e
- * js/services/recipes-service.js.
+ * ficha técnica. Produção de Espetos: terceira aba, lotes reais de produção
+ * a partir de peças de carne com perda de limpeza (skewer_production_batches)
+ * — perda, rendimento e custos sempre calculados on-read
+ * (calcularIndicadoresLoteEspetos), nunca persistidos, nunca lidos de
+ * product_costs (isso só entra numa etapa futura). Depende de utils.js,
+ * js/services/ingredients-service.js, js/services/recipes-service.js,
+ * js/services/products-service.js e js/services/skewer-production-service.js.
  *
  * souAdminProducao decide só a edição (criar/editar/ativar/desativar/
  * excluir) — visualização já é liberada pra qualquer staff que acesse esta
@@ -32,6 +37,7 @@ const UNIDADES_COMPRA_POR_TIPO_INGREDIENTE = { peso: ['kg', 'g'], volume: ['L', 
 const UNIDADE_BASE_POR_TIPO_INGREDIENTE = { peso: 'g', volume: 'ml', contagem: 'un' };
 
 let ingredientesCache = [];
+let produtosCache = [];
 let souAdminProducao = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -41,9 +47,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const erro = document.getElementById('estado-erro-ingredientes');
 
   try {
-    const [ingredientes, ehAdmin] = await Promise.all([buscarIngredientesDoSupabase(), usuarioEhAdminNoSupabase()]);
+    const [ingredientes, ehAdmin, produtos] = await Promise.all([
+      buscarIngredientesDoSupabase(),
+      usuarioEhAdminNoSupabase(),
+      buscarProdutosDoSupabase(),
+    ]);
     ingredientesCache = ingredientes;
     souAdminProducao = ehAdmin;
+    produtosCache = produtos;
   } catch (erroCarregamento) {
     console.error('Erro ao carregar ingredientes:', erroCarregamento);
     carregando.style.display = 'none';
@@ -60,6 +71,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   ligarEventosModalNovaFicha();
   ligarEventosModalDetalheFicha();
   await carregarFichasTecnicas();
+
+  ligarEventosModalLoteEspeto();
+  await carregarLotesEspetos();
 });
 
 // ---------------------------------------------------------------------------
@@ -1164,4 +1178,488 @@ async function adicionarItemReceita(evento) {
   renderizarDetalheFicha();
   renderizarTabelaReceitas();
   mostrarToast('Item adicionado.', 'sucesso');
+}
+
+// =============================================================================
+// PRODUÇÃO DE ESPETOS — skewer_production_batches. Registra lotes reais de
+// produção a partir de peças de carne com perda de limpeza. Só os campos
+// brutos (peso bruto/útil, custo total, peso por espeto, quantidade real)
+// são persistidos — perda, rendimento, custo bruto/útil, quantidade
+// teórica, sobra teórica, custo teórico e custo real por espeto são SEMPRE
+// calculados on-read por calcularIndicadoresLoteEspetos(), nunca gravados no
+// banco. Nada aqui consulta product_costs nem altera estoque — isso é uma
+// etapa futura, fora de escopo. Mesmo modal serve para criar e editar (item
+// 22 do pedido) — não existe uma tela de "detalhe" separada.
+// =============================================================================
+
+let lotesEspetosCache = [];
+
+async function carregarLotesEspetos() {
+  const carregando = document.getElementById('estado-carregando-lotes-espetos');
+  const erro = document.getElementById('estado-erro-lotes-espetos');
+
+  try {
+    lotesEspetosCache = await buscarLotesEspetosDoSupabase();
+  } catch (erroCarregamento) {
+    console.error('Erro ao carregar lotes de produção de espetos:', erroCarregamento);
+    carregando.style.display = 'none';
+    erro.textContent = 'Não foi possível carregar os lotes de produção. ' + erroCarregamento.message;
+    erro.style.display = 'block';
+    return;
+  }
+  carregando.style.display = 'none';
+
+  atualizarEstadoEdicaoLotesEspetos();
+  renderizarTabelaLotesEspetos();
+}
+
+function atualizarEstadoEdicaoLotesEspetos() {
+  const botaoNovo = document.getElementById('botao-novo-lote-espeto');
+  const dica = document.getElementById('dica-espetos-somente-admin');
+  botaoNovo.disabled = !souAdminProducao;
+  dica.style.display = souAdminProducao ? 'none' : '';
+}
+
+function produtoPorId(id) {
+  return produtosCache.find((p) => p.id === id);
+}
+
+// ---------------------------------------------------------------------------
+// Cálculo — função pura única, usada na prévia do modal, na listagem e ao
+// reabrir o modal pra editar. Retorna null quando as entradas não permitem
+// calcular com segurança (mesmo padrão de custoLinhaItem em Fichas
+// Técnicas: nunca deixar NaN/Infinity vazar pra tela).
+// ---------------------------------------------------------------------------
+
+/**
+ * dados = { pesoBrutoG, pesoUtilG, custoTotal, pesoEspetoG, quantidadeReal }
+ * (todos os pesos já em gramas — conversão kg->g acontece antes, na leitura
+ * do formulário). Fórmulas exatamente como especificado: perda, rendimento,
+ * custo bruto/útil por g e por kg, quantidade teórica (com sobra), custo
+ * teórico e custo real por espeto (indicador principal), diferença
+ * prevista x real.
+ */
+function calcularIndicadoresLoteEspetos(dados) {
+  const { pesoBrutoG, pesoUtilG, custoTotal, pesoEspetoG, quantidadeReal } = dados;
+
+  if (![pesoBrutoG, pesoUtilG, custoTotal, pesoEspetoG, quantidadeReal].every(Number.isFinite)) return null;
+  if (pesoBrutoG <= 0 || pesoUtilG <= 0 || pesoEspetoG <= 0 || quantidadeReal <= 0) return null;
+  if (custoTotal < 0) return null;
+  if (pesoUtilG > pesoBrutoG) return null;
+
+  const perdaG = pesoBrutoG - pesoUtilG;
+  const perdaPercentual = (perdaG / pesoBrutoG) * 100;
+  const rendimentoPercentual = (pesoUtilG / pesoBrutoG) * 100;
+
+  const custoBrutoPorG = custoTotal / pesoBrutoG;
+  const custoBrutoPorKg = custoBrutoPorG * 1000;
+  const custoUtilPorG = custoTotal / pesoUtilG;
+  const custoUtilPorKg = custoUtilPorG * 1000;
+
+  // Arredonda a razão a 6 casas antes do floor — evita que imprecisão de
+  // ponto flutuante (ex. 4200/140 chegando como 29.999999999) derrube a
+  // quantidade teórica em 1 unidade por engano.
+  const razaoEspetos = Math.round((pesoUtilG / pesoEspetoG) * 1e6) / 1e6;
+  const quantidadeTeorica = Math.floor(razaoEspetos);
+  const sobraTeoricaG = pesoUtilG - quantidadeTeorica * pesoEspetoG;
+
+  const custoTeoricoPorEspeto = pesoEspetoG * custoUtilPorG;
+  const custoRealPorEspeto = custoTotal / quantidadeReal;
+  const diferencaQuantidade = quantidadeReal - quantidadeTeorica;
+
+  return {
+    perdaG,
+    perdaPercentual,
+    rendimentoPercentual,
+    custoBrutoPorG,
+    custoBrutoPorKg,
+    custoUtilPorG,
+    custoUtilPorKg,
+    quantidadeTeorica,
+    sobraTeoricaG,
+    custoTeoricoPorEspeto,
+    custoRealPorEspeto,
+    diferencaQuantidade,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Formatação
+// ---------------------------------------------------------------------------
+
+/** >=1000g mostra em kg (2 casas, ex. "4,20 kg"); <1000g mostra em g (inteiro ou 1 casa). Nunca converte tudo pra kg (item 28 do pedido). */
+function formatarPesoGramas(valorG) {
+  if (!Number.isFinite(valorG)) return '—';
+  if (Math.abs(valorG) >= 1000) {
+    return (valorG / 1000).toFixed(2).replace('.', ',') + ' kg';
+  }
+  const texto = Number.isInteger(valorG) ? String(valorG) : valorG.toFixed(1).replace('.', ',');
+  return texto + ' g';
+}
+
+/** 1 casa decimal, sem zero à direita desnecessário — "16%" / "16,7%". */
+function formatarPercentual(valor) {
+  if (!Number.isFinite(valor)) return '—';
+  const arredondado = Math.round(valor * 10) / 10;
+  const texto = Number.isInteger(arredondado) ? String(arredondado) : arredondado.toFixed(1).replace('.', ',');
+  return texto + '%';
+}
+
+/** formatarMoeda já dá 2 casas (padrão do projeto) — só adiciona o "/kg". */
+function formatarMoedaPorKg(valor) {
+  if (!Number.isFinite(valor)) return '—';
+  return formatarMoeda(valor) + '/kg';
+}
+
+/** 'YYYY-MM-DD' -> 'DD/MM/AAAA', sem passar por Date/fuso horário nenhum — produced_at é um date puro, nunca timestamptz (ver diagnóstico). */
+function formatarDataProducao(dataIso) {
+  if (!dataIso) return '';
+  const partes = dataIso.split('-');
+  if (partes.length !== 3) return dataIso;
+  const [ano, mes, dia] = partes;
+  return `${dia}/${mes}/${ano}`;
+}
+
+/** Data de hoje no fuso do navegador local, como 'YYYY-MM-DD' — nunca toISOString() (UTC), que poderia mostrar o dia errado. */
+function dataHojeLocal() {
+  const agora = new Date();
+  const ano = agora.getFullYear();
+  const mes = String(agora.getMonth() + 1).padStart(2, '0');
+  const dia = String(agora.getDate()).padStart(2, '0');
+  return `${ano}-${mes}-${dia}`;
+}
+
+// ---------------------------------------------------------------------------
+// Listagem
+// ---------------------------------------------------------------------------
+
+function renderizarTabelaLotesEspetos() {
+  const corpo = document.getElementById('corpo-tabela-lotes-espetos');
+  const vazio = document.getElementById('estado-vazio-lotes-espetos');
+
+  if (lotesEspetosCache.length === 0) {
+    corpo.innerHTML = '';
+    vazio.style.display = 'block';
+    return;
+  }
+  vazio.style.display = 'none';
+
+  corpo.innerHTML = lotesEspetosCache.map(linhaLoteEspetoHtml).join('');
+
+  corpo.querySelectorAll('[data-acao-editar-lote]').forEach((botao) => {
+    botao.addEventListener('click', () => abrirModalLoteEspeto(botao.dataset.acaoEditarLote));
+  });
+}
+
+/** Nome do produto sempre vem de produtosCache completo (nunca filtrado) — um produto inativo ou fora de Espetinhos continua aparecendo em lotes antigos (item 26 do pedido). */
+function linhaLoteEspetoHtml(lote) {
+  const indicadores = calcularIndicadoresLoteEspetos(lote);
+  const produto = produtoPorId(lote.produtoId);
+  const nomeProduto = produto ? produto.nome : '(produto removido)';
+
+  const perdaTexto = indicadores ? `${formatarPesoGramas(indicadores.perdaG)} (${formatarPercentual(indicadores.perdaPercentual)})` : '—';
+  const rendimentoTexto = indicadores ? formatarPercentual(indicadores.rendimentoPercentual) : '—';
+  const custoRealTexto = indicadores ? formatarMoeda(indicadores.custoRealPorEspeto) : '—';
+
+  return `
+    <tr>
+      <td>${formatarDataProducao(lote.produzidoEm)}</td>
+      <td>${escaparHtml(nomeProduto)}</td>
+      <td>${formatarPesoGramas(lote.pesoBrutoG)}</td>
+      <td>${formatarPesoGramas(lote.pesoUtilG)}</td>
+      <td>${perdaTexto}</td>
+      <td>${rendimentoTexto}</td>
+      <td>${lote.quantidadeReal}</td>
+      <td>${custoRealTexto}</td>
+      <td>
+        <button class="btn-icone" data-acao-editar-lote="${lote.id}" title="Editar" ${souAdminProducao ? '' : 'disabled'}>✏️</button>
+      </td>
+    </tr>`;
+}
+
+// ---------------------------------------------------------------------------
+// Opções de produto/ingrediente no modal — só ativos (e, pra produto, só
+// categoria Espetinhos) pra um lote NOVO. product_id/ingredient_id
+// continuam editáveis num lote existente (diferente de recipe_items, cujo
+// tipo/referência é imutável), então ao editar um lote cujo produto/
+// ingrediente não está mais na lista de ativos, ele é incluído como uma
+// opção extra rotulada — preserva o valor correto no campo em vez de
+// deixá-lo em branco ou trocar sozinho.
+// ---------------------------------------------------------------------------
+
+function popularOpcoesProdutoLote(produtoAtualId) {
+  const select = document.getElementById('campo-produto-lote');
+  const disponiveis = produtosCache
+    .filter((p) => p.categoria === 'Espetinhos' && p.status === 'ativo')
+    .sort((a, b) => a.nome.localeCompare(b.nome));
+
+  let opcoesHtml = disponiveis.map((p) => `<option value="${p.id}">${escaparHtml(p.nome)}</option>`).join('');
+
+  const atual = produtoAtualId ? produtoPorId(produtoAtualId) : null;
+  if (atual && !disponiveis.some((p) => p.id === atual.id)) {
+    opcoesHtml += `<option value="${atual.id}">${escaparHtml(atual.nome)} (inativo ou fora de Espetinhos)</option>`;
+  }
+
+  select.innerHTML = opcoesHtml;
+}
+
+function popularOpcoesIngredienteLote(ingredienteAtualId) {
+  const select = document.getElementById('campo-ingrediente-lote');
+  const ativos = ingredientesCache.filter((i) => i.ativo).sort((a, b) => a.nome.localeCompare(b.nome));
+
+  let opcoesHtml = '<option value="">— Nenhum —</option>' + ativos.map((i) => `<option value="${i.id}">${escaparHtml(i.nome)}</option>`).join('');
+
+  const atual = ingredienteAtualId ? ingredientePorId(ingredienteAtualId) : null;
+  if (atual && !ativos.some((i) => i.id === atual.id)) {
+    opcoesHtml += `<option value="${atual.id}">${escaparHtml(atual.nome)} (inativo)</option>`;
+  }
+
+  select.innerHTML = opcoesHtml;
+}
+
+// ---------------------------------------------------------------------------
+// Modal: novo/editar lote
+// ---------------------------------------------------------------------------
+
+function ligarEventosModalLoteEspeto() {
+  document.getElementById('botao-novo-lote-espeto').addEventListener('click', abrirModalNovoLoteEspeto);
+  document.getElementById('botao-fechar-modal-lote-espeto').addEventListener('click', fecharModalLoteEspeto);
+  document.getElementById('botao-cancelar-lote-espeto').addEventListener('click', fecharModalLoteEspeto);
+  document.getElementById('modal-overlay-lote-espeto').addEventListener('click', (evento) => {
+    if (evento.target.id === 'modal-overlay-lote-espeto') fecharModalLoteEspeto();
+  });
+
+  [
+    'campo-peso-bruto-lote',
+    'campo-unidade-peso-bruto-lote',
+    'campo-peso-util-lote',
+    'campo-unidade-peso-util-lote',
+    'campo-custo-total-lote',
+    'campo-peso-espeto-lote',
+    'campo-quantidade-real-lote',
+  ].forEach((idCampo) => {
+    const campo = document.getElementById(idCampo);
+    campo.addEventListener('input', atualizarPreviewLoteEspeto);
+    campo.addEventListener('change', atualizarPreviewLoteEspeto);
+  });
+
+  document.getElementById('botao-excluir-lote-espeto').addEventListener('click', excluirLoteEspetoModal);
+  document.getElementById('form-lote-espeto').addEventListener('submit', salvarFormularioLoteEspeto);
+}
+
+/** Lê um peso do formulário (par valor+unidade) já convertido pra gramas — reaproveita FATORES_CONVERSAO_UNIDADE_INGREDIENTE (kg:1000, g:1), a mesma tabela já usada em Ingredientes. */
+function lerPesoEmGramas(idCampoValor, idCampoUnidade) {
+  const valor = Number(document.getElementById(idCampoValor).value);
+  const unidade = document.getElementById(idCampoUnidade).value;
+  const fator = FATORES_CONVERSAO_UNIDADE_INGREDIENTE[unidade];
+  if (!Number.isFinite(valor) || !fator) return NaN;
+  return valor * fator;
+}
+
+function lerDadosFormularioLoteEspeto() {
+  return {
+    pesoBrutoG: lerPesoEmGramas('campo-peso-bruto-lote', 'campo-unidade-peso-bruto-lote'),
+    pesoUtilG: lerPesoEmGramas('campo-peso-util-lote', 'campo-unidade-peso-util-lote'),
+    custoTotal: Number(document.getElementById('campo-custo-total-lote').value),
+    pesoEspetoG: Number(document.getElementById('campo-peso-espeto-lote').value),
+    quantidadeReal: Number(document.getElementById('campo-quantidade-real-lote').value),
+  };
+}
+
+/** >=1000g mostra em kg no campo (valor exato, divisão por 1000 sem perda de precisão); <1000g mostra em g. Usado só ao abrir o modal em modo edição (item 22 do pedido). */
+function preencherCampoPeso(idValor, idUnidade, valorG) {
+  if (valorG >= 1000) {
+    document.getElementById(idValor).value = valorG / 1000;
+    document.getElementById(idUnidade).value = 'kg';
+  } else {
+    document.getElementById(idValor).value = valorG;
+    document.getElementById(idUnidade).value = 'g';
+  }
+}
+
+function abrirModalNovoLoteEspeto() {
+  if (!souAdminProducao) return;
+
+  document.getElementById('titulo-modal-lote-espeto').textContent = 'Novo Lote de Produção';
+  document.getElementById('campo-id-lote-espeto').value = '';
+  popularOpcoesProdutoLote(null);
+  popularOpcoesIngredienteLote(null);
+  document.getElementById('campo-produto-lote').value = '';
+  document.getElementById('campo-ingrediente-lote').value = '';
+  document.getElementById('campo-data-lote').value = dataHojeLocal();
+  document.getElementById('campo-peso-bruto-lote').value = '';
+  document.getElementById('campo-unidade-peso-bruto-lote').value = 'kg';
+  document.getElementById('campo-peso-util-lote').value = '';
+  document.getElementById('campo-unidade-peso-util-lote').value = 'kg';
+  document.getElementById('campo-custo-total-lote').value = '';
+  document.getElementById('campo-peso-espeto-lote').value = '';
+  document.getElementById('campo-quantidade-real-lote').value = '';
+  document.getElementById('dica-lote-espeto-erro').style.display = 'none';
+  document.getElementById('botao-excluir-lote-espeto').style.display = 'none';
+
+  atualizarPreviewLoteEspeto();
+  abrirModal('modal-overlay-lote-espeto');
+}
+
+function abrirModalLoteEspeto(id) {
+  if (!souAdminProducao) return;
+  const lote = lotesEspetosCache.find((l) => l.id === id);
+  if (!lote) return;
+
+  document.getElementById('titulo-modal-lote-espeto').textContent = 'Editar Lote de Produção';
+  document.getElementById('campo-id-lote-espeto').value = lote.id;
+  popularOpcoesProdutoLote(lote.produtoId);
+  popularOpcoesIngredienteLote(lote.ingredienteId);
+  document.getElementById('campo-produto-lote').value = lote.produtoId;
+  document.getElementById('campo-ingrediente-lote').value = lote.ingredienteId || '';
+  document.getElementById('campo-data-lote').value = lote.produzidoEm;
+
+  preencherCampoPeso('campo-peso-bruto-lote', 'campo-unidade-peso-bruto-lote', lote.pesoBrutoG);
+  preencherCampoPeso('campo-peso-util-lote', 'campo-unidade-peso-util-lote', lote.pesoUtilG);
+
+  document.getElementById('campo-custo-total-lote').value = lote.custoTotal;
+  document.getElementById('campo-peso-espeto-lote').value = lote.pesoEspetoG;
+  document.getElementById('campo-quantidade-real-lote').value = lote.quantidadeReal;
+  document.getElementById('dica-lote-espeto-erro').style.display = 'none';
+  document.getElementById('botao-excluir-lote-espeto').style.display = souAdminProducao ? '' : 'none';
+
+  atualizarPreviewLoteEspeto();
+  abrirModal('modal-overlay-lote-espeto');
+}
+
+function fecharModalLoteEspeto() {
+  fecharModal('modal-overlay-lote-espeto');
+}
+
+/** Recalculada a cada tecla/troca de unidade, sempre client-side — nunca consulta o Supabase (item 19 do pedido). */
+function atualizarPreviewLoteEspeto() {
+  const dados = lerDadosFormularioLoteEspeto();
+  const indicadores = calcularIndicadoresLoteEspetos(dados);
+  preencherPreviewLoteEspeto(dados, indicadores);
+}
+
+function preencherPreviewLoteEspeto(dados, indicadores) {
+  const definir = (id, texto) => {
+    document.getElementById(id).textContent = texto;
+  };
+
+  definir('preview-peso-bruto', Number.isFinite(dados.pesoBrutoG) ? formatarPesoGramas(dados.pesoBrutoG) : '—');
+  definir('preview-peso-util', Number.isFinite(dados.pesoUtilG) ? formatarPesoGramas(dados.pesoUtilG) : '—');
+
+  if (!indicadores) {
+    [
+      'preview-perda',
+      'preview-rendimento',
+      'preview-custo-bruto',
+      'preview-custo-util',
+      'preview-qtd-teorica',
+      'preview-sobra-teorica',
+      'preview-qtd-real',
+      'preview-diferenca',
+      'preview-custo-teorico',
+      'preview-custo-real',
+    ].forEach((id) => definir(id, '—'));
+    return;
+  }
+
+  definir('preview-perda', `${formatarPesoGramas(indicadores.perdaG)} (${formatarPercentual(indicadores.perdaPercentual)})`);
+  definir('preview-rendimento', formatarPercentual(indicadores.rendimentoPercentual));
+  definir('preview-custo-bruto', formatarMoedaPorKg(indicadores.custoBrutoPorKg));
+  definir('preview-custo-util', formatarMoedaPorKg(indicadores.custoUtilPorKg));
+  definir('preview-qtd-teorica', String(indicadores.quantidadeTeorica));
+  definir('preview-sobra-teorica', formatarPesoGramas(indicadores.sobraTeoricaG));
+  definir('preview-qtd-real', String(dados.quantidadeReal));
+  definir('preview-diferenca', (indicadores.diferencaQuantidade > 0 ? '+' : '') + indicadores.diferencaQuantidade);
+  definir('preview-custo-teorico', formatarMoeda(indicadores.custoTeoricoPorEspeto) + '/espeto');
+  definir('preview-custo-real', formatarMoeda(indicadores.custoRealPorEspeto) + '/espeto');
+}
+
+/** Espelha no cliente os CHECKs do banco, só pra feedback mais rápido — o banco continua a fonte real. */
+function validarFormularioLoteEspeto({ produtoId, dataProducao, pesoBrutoG, pesoUtilG, custoTotal, pesoEspetoG, quantidadeReal }) {
+  if (!produtoId) return 'Selecione o produto.';
+  if (!dataProducao) return 'Informe a data da produção.';
+  if (!Number.isFinite(pesoBrutoG) || pesoBrutoG <= 0) return 'Informe um peso bruto válido, maior que zero.';
+  if (!Number.isFinite(pesoUtilG) || pesoUtilG <= 0) return 'Informe um peso após limpeza válido, maior que zero.';
+  if (pesoUtilG > pesoBrutoG) return 'O peso após limpeza não pode ser maior que o peso bruto.';
+  if (!Number.isFinite(custoTotal) || custoTotal < 0) return 'Informe um valor total válido (não pode ser negativo).';
+  if (!Number.isFinite(pesoEspetoG) || pesoEspetoG <= 0) return 'Informe o peso padrão por espeto, maior que zero.';
+  if (!Number.isFinite(quantidadeReal) || quantidadeReal <= 0 || !Number.isInteger(quantidadeReal)) {
+    return 'Informe a quantidade realmente produzida, um número inteiro maior que zero.';
+  }
+  return null;
+}
+
+async function salvarFormularioLoteEspeto(evento) {
+  evento.preventDefault();
+  if (!souAdminProducao) return;
+
+  const id = document.getElementById('campo-id-lote-espeto').value;
+  const produtoId = document.getElementById('campo-produto-lote').value;
+  const ingredienteId = document.getElementById('campo-ingrediente-lote').value || null;
+  const dataProducao = document.getElementById('campo-data-lote').value;
+  const dados = lerDadosFormularioLoteEspeto();
+
+  const erroValidacao = validarFormularioLoteEspeto({ produtoId, dataProducao, ...dados });
+  const dicaErro = document.getElementById('dica-lote-espeto-erro');
+  if (erroValidacao) {
+    dicaErro.textContent = erroValidacao;
+    dicaErro.style.display = '';
+    return;
+  }
+  dicaErro.style.display = 'none';
+
+  const payload = {
+    produtoId,
+    ingredienteId,
+    produzidoEm: dataProducao,
+    pesoBrutoG: dados.pesoBrutoG,
+    pesoUtilG: dados.pesoUtilG,
+    custoTotal: dados.custoTotal,
+    pesoEspetoG: dados.pesoEspetoG,
+    quantidadeReal: dados.quantidadeReal,
+  };
+
+  try {
+    if (id) {
+      await atualizarLoteEspetosNoSupabase(id, payload);
+    } else {
+      await criarLoteEspetosNoSupabase(payload);
+    }
+  } catch (erro) {
+    dicaErro.textContent = 'Não foi possível salvar o lote. ' + erro.message;
+    dicaErro.style.display = '';
+    return;
+  }
+
+  mostrarToast('Lote de produção salvo.', 'sucesso');
+  fecharModalLoteEspeto();
+
+  try {
+    lotesEspetosCache = await buscarLotesEspetosDoSupabase();
+  } catch (erroRecarregar) {
+    console.error('Erro ao recarregar lotes de produção:', erroRecarregar);
+  }
+  renderizarTabelaLotesEspetos();
+}
+
+/** Exclusão física — admin only, confirmação explícita. Nenhuma tabela referencia skewer_production_batches ainda, então nenhum erro de FK é esperado. */
+async function excluirLoteEspetoModal() {
+  const id = document.getElementById('campo-id-lote-espeto').value;
+  if (!id || !souAdminProducao) return;
+  const lote = lotesEspetosCache.find((l) => l.id === id);
+  if (!lote) return;
+
+  if (!confirm('Excluir este lote de produção?\n\nEsta ação remove o registro de produção.')) return;
+
+  try {
+    await excluirLoteEspetosNoSupabase(id);
+  } catch (erro) {
+    mostrarToast('Não foi possível excluir o lote. ' + erro.message, 'erro');
+    return;
+  }
+
+  lotesEspetosCache = lotesEspetosCache.filter((l) => l.id !== id);
+  fecharModalLoteEspeto();
+  renderizarTabelaLotesEspetos();
+  mostrarToast('Lote de produção excluído.', 'sucesso');
 }
