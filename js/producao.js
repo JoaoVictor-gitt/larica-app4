@@ -268,7 +268,6 @@ function ligarEventosModalIngrediente() {
   document.getElementById('botao-novo-ingrediente').addEventListener('click', abrirModalNovoIngrediente);
   document.getElementById('botao-fechar-modal-ingrediente').addEventListener('click', fecharModalIngrediente);
   document.getElementById('botao-cancelar-ingrediente').addEventListener('click', fecharModalIngrediente);
-  ligarFechamentoPorBackdrop('modal-overlay-ingrediente', fecharModalIngrediente);
 
   document.getElementById('campo-tipo-ingrediente').addEventListener('change', () => {
     atualizarOpcoesUnidadeIngrediente();
@@ -371,35 +370,6 @@ function abrirModal(idOverlay) {
 
 function fecharModal(idOverlay) {
   document.getElementById(idOverlay).classList.remove('modal-visivel');
-}
-
-/**
- * Fecha o modal só quando o clique realmente COMEÇOU (mousedown) E TERMINOU
- * (click) no próprio backdrop — nunca quando mousedown/mouseup acontecem em
- * elementos diferentes (ex.: arrastar pra selecionar texto num campo e
- * soltar o mouse fora dele). `evento.target === overlay` sozinho no evento
- * "click" não é suficiente: o navegador resolve esse target pelo ancestral
- * comum de mousedown/mouseup quando os dois diferem, podendo apontar pro
- * overlay mesmo sem o usuário ter clicado nele de propósito — essa era a
- * causa real dos modais de Produção fechando sozinhos durante o
- * preenchimento (seleção de texto, interação com selects, scroll perto da
- * borda). Helper único reaproveitado pelos 6 modais desta página, em vez de
- * 6 patches divergentes.
- */
-function ligarFechamentoPorBackdrop(idOverlay, fecharFn) {
-  const overlay = document.getElementById(idOverlay);
-  let mousedownNoBackdrop = false;
-
-  overlay.addEventListener('mousedown', (evento) => {
-    mousedownNoBackdrop = evento.target === overlay;
-  });
-
-  overlay.addEventListener('click', (evento) => {
-    if (evento.target === overlay && mousedownNoBackdrop) {
-      fecharFn();
-    }
-    mousedownNoBackdrop = false;
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -719,7 +689,6 @@ function ligarEventosModalNovaFicha() {
   document.getElementById('botao-nova-ficha-tecnica').addEventListener('click', abrirModalNovaFicha);
   document.getElementById('botao-fechar-modal-nova-ficha').addEventListener('click', fecharModalNovaFicha);
   document.getElementById('botao-cancelar-nova-ficha').addEventListener('click', fecharModalNovaFicha);
-  ligarFechamentoPorBackdrop('modal-overlay-nova-ficha', fecharModalNovaFicha);
   document.getElementById('form-nova-ficha').addEventListener('submit', salvarNovaFicha);
 }
 
@@ -773,7 +742,6 @@ async function salvarNovaFicha(evento) {
 function ligarEventosModalDetalheFicha() {
   document.getElementById('botao-fechar-modal-detalhe-ficha').addEventListener('click', fecharModalDetalheFicha);
   document.getElementById('botao-fechar-detalhe-ficha').addEventListener('click', fecharModalDetalheFicha);
-  ligarFechamentoPorBackdrop('modal-overlay-detalhe-ficha', fecharModalDetalheFicha);
 
   document.getElementById('botao-editar-metadados-receita').addEventListener('click', mostrarEdicaoMetadadosReceita);
   document.getElementById('botao-cancelar-edicao-metadados-receita').addEventListener('click', ocultarEdicaoMetadadosReceita);
@@ -2066,7 +2034,6 @@ function ligarEventosModalLoteEspeto() {
   document.getElementById('botao-novo-lote-espeto').addEventListener('click', abrirModalNovoLoteEspeto);
   document.getElementById('botao-fechar-modal-lote-espeto').addEventListener('click', fecharModalLoteEspeto);
   document.getElementById('botao-cancelar-lote-espeto').addEventListener('click', fecharModalLoteEspeto);
-  ligarFechamentoPorBackdrop('modal-overlay-lote-espeto', fecharModalLoteEspeto);
 
   [
     'campo-peso-bruto-lote',
@@ -3079,7 +3046,6 @@ function ligarEventosModalLoteAcompanhamento() {
   document.getElementById('botao-novo-lote-acompanhamento').addEventListener('click', abrirModalNovoLoteAcompanhamento);
   document.getElementById('botao-fechar-modal-lote-acompanhamento').addEventListener('click', fecharModalLoteAcompanhamento);
   document.getElementById('botao-cancelar-lote-acompanhamento').addEventListener('click', fecharModalLoteAcompanhamento);
-  ligarFechamentoPorBackdrop('modal-overlay-lote-acompanhamento', fecharModalLoteAcompanhamento);
 
   ['campo-rendimento-quantidade-acompanhamento', 'campo-rendimento-unidade-acompanhamento', 'campo-porcao-quantidade-acompanhamento', 'campo-porcoes-reais-acompanhamento'].forEach(
     (idCampo) => {
@@ -3382,7 +3348,6 @@ function ligarEventosModalInsumo() {
   document.getElementById('botao-novo-insumo').addEventListener('click', abrirModalNovoInsumo);
   document.getElementById('botao-fechar-modal-insumo').addEventListener('click', fecharModalInsumo);
   document.getElementById('botao-cancelar-insumo').addEventListener('click', fecharModalInsumo);
-  ligarFechamentoPorBackdrop('modal-overlay-insumo', fecharModalInsumo);
 
   document.getElementById('campo-quantidade-insumo').addEventListener('input', atualizarPreviewCustoInsumo);
   document.getElementById('campo-preco-insumo').addEventListener('input', atualizarPreviewCustoInsumo);
