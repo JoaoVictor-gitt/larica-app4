@@ -788,6 +788,9 @@ function renderizarTabelaHistoricoCompras() {
   corpo.querySelectorAll('[data-acao-editar-compra]').forEach((botao) => {
     botao.addEventListener('click', () => abrirCompraParaEdicao(botao.dataset.acaoEditarCompra));
   });
+  corpo.querySelectorAll('[data-acao-excluir-compra]').forEach((botao) => {
+    botao.addEventListener('click', () => excluirCompraModal(botao.dataset.acaoExcluirCompra));
+  });
 }
 
 /** Qualquer linha desta compra referenciando um item ainda needsReview=true — badge some sozinho na próxima renderização assim que o item for finalizado. */
@@ -815,8 +818,54 @@ function linhaHistoricoCompraHtml(compra) {
       <td>${escaparHtml(compra.referencia || '—')}</td>
       <td>
         <button class="btn-icone" data-acao-editar-compra="${compra.id}" title="Editar" ${souAdminCompras ? '' : 'disabled'}>✏️</button>
+        <button class="btn-icone" data-acao-excluir-compra="${compra.id}" title="Excluir" ${souAdminCompras ? '' : 'disabled'}>🗑️</button>
       </td>
     </tr>`;
+}
+
+/**
+ * Exclusão passa pela RPC delete_purchase (via excluirCompraNoSupabase) —
+ * só permitida se nenhum lote gerado por esta compra já teve movimentação
+ * real. Confirmação explícita antes; se a RPC rejeitar (compra já
+ * movimentada), a mensagem exata dela é mostrada, nada é fechado nem
+ * recarregado — mesmo padrão de erro já usado em salvarFormularioCompra.
+ */
+async function excluirCompraModal(id) {
+  if (!souAdminCompras) return;
+  if (!confirm('Excluir esta compra? Esta ação apagará também os lotes ainda não utilizados gerados por ela.')) {
+    return;
+  }
+
+  try {
+    await excluirCompraNoSupabase(id);
+  } catch (erro) {
+    mostrarToast('Não foi possível excluir a compra. ' + erro.message, 'erro');
+    return;
+  }
+
+  mostrarToast('Compra excluída com sucesso.', 'sucesso');
+
+  try {
+    const [itens, compras, linhas, lotes, movimentos] = await Promise.all([
+      buscarItensCompraDoSupabase(),
+      buscarComprasDoSupabase(),
+      buscarLinhasComprasDoSupabase(),
+      buscarLotesDoSupabase(),
+      buscarMovimentosLotesDoSupabase(),
+    ]);
+    itensCompraCache = itens;
+    comprasCache = compras;
+    linhasComprasCache = linhas;
+    lotesCache = lotes;
+    movimentosLotesCache = movimentos;
+  } catch (erroRecarregar) {
+    console.error('Erro ao recarregar compras após exclusão:', erroRecarregar);
+  }
+
+  renderizarTabelaHistoricoCompras();
+  renderizarTabelaItensCompra();
+  popularFiltrosLotes();
+  renderizarTabelaLotes();
 }
 
 // ---------------------------------------------------------------------------

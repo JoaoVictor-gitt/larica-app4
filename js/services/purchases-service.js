@@ -20,8 +20,13 @@
  * única exceção é completar um item pendente, que passa pela RPC
  * finalize_purchase_item (migration 20260818200000), nunca por UPDATE
  * direto. lots/lot_movements são só-leitura pra authenticated (nenhuma
- * escrita direta em hipótese nenhuma). Depende de js/supabase.js
- * (supabaseClient), carregado antes deste arquivo.
+ * escrita direta em hipótese nenhuma). Exclusão de compra passa pela RPC
+ * delete_purchase (migration 20260818240000) — só permitida se nenhum
+ * lote da compra já teve movimentação real (production_use/sale/waste/
+ * adjustment_in/adjustment_out/reversal); quando permitida, remove
+ * movimentos 'purchase' iniciais + lotes + a compra numa transação só.
+ * Depende de js/supabase.js (supabaseClient), carregado antes deste
+ * arquivo.
  */
 
 function _linhaSupabaseParaFornecedor(linha) {
@@ -313,5 +318,25 @@ async function salvarCompraNoSupabase(purchaseId, dados) {
     linhas: (data.lines || []).map(_linhaSupabaseParaLinhaCompra),
     lotes: (data.lots || []).map(_linhaSupabaseParaLote),
     movimentos: data.movements || [],
+  };
+}
+
+/**
+ * Exclusão passa pela RPC delete_purchase — nunca um DELETE direto (GRANT
+ * já revogado desde save_purchase, migration 20260818180000). A RPC só
+ * permite excluir se nenhum lote gerado pelas linhas desta compra já teve
+ * movimentação além do 'purchase' inicial (verificação sempre feita
+ * server-side, a partir do ledger real, nunca confiada ao client); se
+ * houver qualquer movimento real (production_use/sale/waste/
+ * adjustment_in/adjustment_out/reversal), rejeita com mensagem clara e não
+ * apaga nada. Quando permitido: remove os movimentos 'purchase' iniciais,
+ * os lotes, e a compra — purchase_lines cai sozinha via ON DELETE CASCADE
+ * já existente.
+ */
+async function excluirCompraNoSupabase(id) {
+  const { data, error } = await supabaseClient.rpc('delete_purchase', { p_purchase_id: id });
+  if (error) throw new Error(error.message);
+  return {
+    loteIdsRemovidos: (data.deleted_lots || []).map((l) => l.id),
   };
 }
