@@ -67,15 +67,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   ligarEventosNavegacaoProducao();
 
   try {
-    const [ingredientes, ehAdmin, produtos, insumos, custosProdutos, lotes, itensCompra, movimentosLotes] = await Promise.all([
+    const [ingredientes, ehAdmin, produtos, insumos, custosProdutos] = await Promise.all([
       buscarIngredientesDoSupabase(),
       usuarioEhAdminNoSupabase(),
       buscarProdutosDoSupabase(),
       buscarInsumosProducaoDoSupabase(),
       buscarCustosProdutosDoSupabase(),
-      buscarLotesDoSupabase(),
-      buscarItensCompraDoSupabase(),
-      buscarMovimentosLotesDoSupabase(),
     ]);
     ingredientesCache = ingredientes;
     souAdminProducao = ehAdmin;
@@ -84,9 +81,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     custosProdutosCache = new Map(
       custosProdutos.map((l) => [l.product_id, l.unit_cost === null || l.unit_cost === undefined ? null : Number(l.unit_cost)])
     );
-    lotesCache = lotes;
-    itensCompraCache = itensCompra;
-    movimentosLotesCache = movimentosLotes;
 
     atualizarEstadoEdicaoIngredientes();
     renderizarTabelaIngredientes();
@@ -103,6 +97,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     finalizarSecaoComErro('estado-carregando-acompanhamentos', 'estado-erro-acompanhamentos', erroCarregamento);
     finalizarSecaoComErro('estado-carregando-insumos', 'estado-erro-insumos', erroCarregamento);
     return;
+  }
+
+  // Etapa G4 — Compras/Lotes: isolado do bloco essencial acima de propósito.
+  // Uma falha aqui (ex. RLS ainda não ajustada pra purchase_items/lots/
+  // lot_movements) nunca pode derrubar Ingredientes/Fichas Técnicas/Espetos/
+  // Acompanhamentos/Insumos — lotesCache/itensCompraCache/movimentosLotesCache
+  // continuam [] (valor inicial), e todo helper da G4 já é seguro com arrays
+  // vazios: o seletor de lote só mostra "nenhum lote disponível" em vez de
+  // quebrar qualquer coisa. Erro nunca escondido — sempre logado no console.
+  try {
+    const [lotes, itensCompra, movimentosLotes] = await Promise.all([
+      buscarLotesDoSupabase(),
+      buscarItensCompraDoSupabase(),
+      buscarMovimentosLotesDoSupabase(),
+    ]);
+    lotesCache = lotes;
+    itensCompraCache = itensCompra;
+    movimentosLotesCache = movimentosLotes;
+  } catch (erroLotesCompra) {
+    console.error('Erro ao carregar dados de Compras/Lotes (seletor de lote ficará indisponível):', erroLotesCompra);
   }
 
   try {
@@ -530,7 +544,7 @@ function lotesDisponiveisDoItemCompra(itemCompraId) {
 /**
  * Consumo líquido ATUAL de um lote dentro de UM batch específico, a partir
  * do ledger (nunca dos componentes atuais em memória) — mesma fórmula já
- * usada nas RPCs save_*/delete_* (Etapas G2/G3): SUM(production_use) -
+ * usada nas RPCs save_ e delete_ (Etapas G2/G3): SUM(production_use) -
  * SUM(reversal). origemTipo é 'skewer_production'/'side_production'.
  */
 function consumoLiquidoLoteNoBatch(loteId, origemTipo, batchId) {
