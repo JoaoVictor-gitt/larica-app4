@@ -22,6 +22,18 @@
  * Modais (Item de Compra / Fornecedor) NÃO fecham ao clicar fora — mesmo
  * estado final já corrigido em Produção (nenhum listener de click/
  * mousedown no backdrop).
+ *
+ * Item na linha de compra (Etapa F3): combobox digitável, não mais um
+ * <select> fechado. Selecionar uma sugestão preenche itemLinhaCompraSelecionadoId
+ * (comportamento idêntico ao <select> antigo); digitar um nome sem
+ * selecionar nada mantém itemLinhaCompraSelecionadoId=null — a linha vira
+ * "item novo" (badge "Novo item"), enviada a save_purchase como
+ * item_name, nunca com um purchase_item_id inventado no client. Quem
+ * decide de verdade se reaproveita um item já existente por nome ou cria
+ * um provisório (needs_review=true) é sempre a RPC save_purchase — o
+ * client só sugere. Salvar um item com needsReview=true chama
+ * finalizarItemCompraNoSupabase (RPC finalize_purchase_item), nunca
+ * UPDATE direto — needsReview=false segue o CRUD direto de sempre.
  */
 
 const FATORES_CONVERSAO_UNIDADE_COMPRA = { g: 1, kg: 1000, ml: 1, l: 1000, un: 1 };
@@ -52,6 +64,10 @@ let compraEmEdicaoId = null;
 let linhasCompraEmEdicao = [];
 let compraTemConsumo = false;
 let lotesMostrandoHistoricoCompleto = false;
+
+let itemLinhaCompraSelecionadoId = null;
+let indiceSugestaoItemLinhaCompraAtiva = -1;
+let filtroItensCompraSomentePendentes = false;
 
 /**
  * Cada seção roda no seu próprio try/catch — uma exceção em qualquer uma
@@ -256,23 +272,45 @@ function renderizarTabelaItensCompra() {
   const corpo = document.getElementById('corpo-tabela-itens-compra');
   const vazio = document.getElementById('estado-vazio-itens-compra');
 
-  if (itensCompraCache.length === 0) {
+  atualizarContadorPendentesItensCompra();
+
+  const itensFiltrados = filtroItensCompraSomentePendentes
+    ? itensCompraCache.filter((i) => i.needsReview)
+    : itensCompraCache;
+
+  if (itensFiltrados.length === 0) {
     corpo.innerHTML = '';
+    vazio.textContent = filtroItensCompraSomentePendentes
+      ? 'Nenhum item pendente de revisão.'
+      : 'Nenhum item de compra cadastrado ainda.';
     vazio.style.display = 'block';
     return;
   }
   vazio.style.display = 'none';
 
-  corpo.innerHTML = itensCompraCache.map(linhaItemCompraHtml).join('');
+  corpo.innerHTML = itensFiltrados.map(linhaItemCompraHtml).join('');
   corpo.querySelectorAll('[data-acao-editar-item-compra]').forEach((botao) => {
     botao.addEventListener('click', () => abrirModalItemCompra(botao.dataset.acaoEditarItemCompra));
   });
 }
 
+/** Contador visível no cabeçalho da seção — nunca bloqueia nada, só sinaliza. */
+function atualizarContadorPendentesItensCompra() {
+  const contador = document.getElementById('texto-itens-compra-pendentes-contador');
+  const quantidade = itensCompraCache.filter((i) => i.needsReview).length;
+  if (quantidade > 0) {
+    contador.textContent = `${quantidade} pendente${quantidade === 1 ? '' : 's'}`;
+    contador.style.display = '';
+  } else {
+    contador.style.display = 'none';
+  }
+}
+
 function linhaItemCompraHtml(item) {
+  const badgePendente = item.needsReview ? ' <span class="compras-badge-pendente">⚠ Cadastro pendente</span>' : '';
   return `
     <tr>
-      <td>${escaparHtml(item.nome)}</td>
+      <td>${escaparHtml(item.nome)}${badgePendente}</td>
       <td>${CATEGORIAS_ITEM_COMPRA[item.categoria] || item.categoria}</td>
       <td>${item.controlaEstoque ? 'Sim' : 'Não'}</td>
       <td>${item.unidadeBase || '—'}</td>
@@ -291,6 +329,10 @@ function ligarEventosModalItemCompra() {
   document.getElementById('campo-controla-estoque-item-compra').addEventListener('change', atualizarVisibilidadeUnidadeBaseItemCompra);
   document.getElementById('campo-tipo-vinculo-item-compra').addEventListener('change', () => popularOpcoesVinculoItemCompra(null));
   document.getElementById('form-item-compra').addEventListener('submit', salvarFormularioItemCompra);
+  document.getElementById('filtro-itens-compra-pendentes').addEventListener('change', (evento) => {
+    filtroItensCompraSomentePendentes = evento.target.value === 'pendentes';
+    renderizarTabelaItensCompra();
+  });
 }
 
 function atualizarVisibilidadeUnidadeBaseItemCompra() {
@@ -342,6 +384,7 @@ function abrirModalNovoItemCompra() {
   document.getElementById('campo-tipo-vinculo-item-compra').value = '';
   document.getElementById('campo-status-item-compra').value = 'ativo';
   document.getElementById('dica-item-compra-erro').style.display = 'none';
+  document.getElementById('dica-item-compra-pendente').style.display = 'none';
 
   atualizarVisibilidadeUnidadeBaseItemCompra();
   popularOpcoesVinculoItemCompra(null);
@@ -353,7 +396,7 @@ function abrirModalItemCompra(id) {
   const item = itemCompraPorId(id);
   if (!item) return;
 
-  document.getElementById('titulo-modal-item-compra').textContent = 'Editar Item de Compra';
+  document.getElementById('titulo-modal-item-compra').textContent = item.needsReview ? 'Concluir Cadastro do Item' : 'Editar Item de Compra';
   document.getElementById('campo-id-item-compra').value = item.id;
   document.getElementById('campo-nome-item-compra').value = item.nome;
   document.getElementById('campo-categoria-item-compra').value = item.categoria;
@@ -361,6 +404,7 @@ function abrirModalItemCompra(id) {
   document.getElementById('campo-unidade-base-item-compra').value = item.unidadeBase || '';
   document.getElementById('campo-status-item-compra').value = item.ativo ? 'ativo' : 'inativo';
   document.getElementById('dica-item-compra-erro').style.display = 'none';
+  document.getElementById('dica-item-compra-pendente').style.display = item.needsReview ? '' : 'none';
 
   atualizarVisibilidadeUnidadeBaseItemCompra();
 
@@ -414,8 +458,27 @@ async function salvarFormularioItemCompra(evento) {
     insumoId: tipoVinculo === 'supply' ? referenciaVinculo : null,
   };
 
+  const itemAtual = id ? itemCompraPorId(id) : null;
+  const eraPendente = !!(itemAtual && itemAtual.needsReview);
+
+  const botaoSalvar = document.getElementById('botao-salvar-item-compra');
+  botaoSalvar.disabled = true;
+
+  let resultadoFinalizacao = null;
   try {
-    if (id) {
+    if (eraPendente) {
+      resultadoFinalizacao = await finalizarItemCompraNoSupabase(id, dados);
+      itensCompraCache = itensCompraCache.map((i) => (i.id === id ? resultadoFinalizacao.item : i));
+      if (resultadoFinalizacao.linhas.length > 0) {
+        linhasComprasCache = linhasComprasCache.map(
+          (l) => resultadoFinalizacao.linhas.find((nova) => nova.id === l.id) || l
+        );
+      }
+      if (resultadoFinalizacao.lotes.length > 0) {
+        lotesCache = [...lotesCache, ...resultadoFinalizacao.lotes];
+        movimentosLotesCache = [...movimentosLotesCache, ...resultadoFinalizacao.movimentos];
+      }
+    } else if (id) {
       const atualizado = await atualizarItemCompraNoSupabase(id, dados);
       itensCompraCache = itensCompraCache.map((i) => (i.id === id ? atualizado : i));
     } else {
@@ -425,14 +488,28 @@ async function salvarFormularioItemCompra(evento) {
   } catch (erro) {
     dicaErro.textContent = 'Não foi possível salvar o item. ' + erro.message;
     dicaErro.style.display = '';
+    botaoSalvar.disabled = false;
     return;
   }
+  botaoSalvar.disabled = false;
 
-  mostrarToast('Item de compra salvo.', 'sucesso');
+  if (eraPendente) {
+    const qtdLotes = resultadoFinalizacao.lotes.length;
+    mostrarToast(
+      qtdLotes > 0
+        ? `Item concluído e ${qtdLotes} lote${qtdLotes === 1 ? '' : 's'} gerado${qtdLotes === 1 ? '' : 's'}.`
+        : 'Item concluído com sucesso.',
+      'sucesso'
+    );
+  } else {
+    mostrarToast('Item de compra salvo.', 'sucesso');
+  }
+
   fecharModalItemCompra();
   renderizarTabelaItensCompra();
+  renderizarTabelaHistoricoCompras();
+  renderizarTabelaLotes();
   popularFiltrosLotes();
-  if (document.getElementById('campo-item-linha-compra')) popularOpcoesItemLinhaCompra();
 }
 
 // ---------------------------------------------------------------------------
@@ -713,17 +790,26 @@ function renderizarTabelaHistoricoCompras() {
   });
 }
 
+/** Qualquer linha desta compra referenciando um item ainda needsReview=true — badge some sozinho na próxima renderização assim que o item for finalizado. */
+function compraTemItemPendente(compraId) {
+  return linhasDaCompra(compraId).some((linha) => {
+    const item = itemCompraPorId(linha.itemCompraId);
+    return item && item.needsReview;
+  });
+}
+
 function linhaHistoricoCompraHtml(compra) {
   const linhas = linhasDaCompra(compra.id);
   const total = linhas.reduce((soma, l) => soma + l.precoTotal, 0);
   const qtdLotes = lotesDaCompra(compra.id).length;
   const fornecedor = compra.fornecedorId ? fornecedorPorId(compra.fornecedorId) : null;
+  const badgePendente = compraTemItemPendente(compra.id) ? ' <span class="compras-badge-pendente">⚠ Item pendente</span>' : '';
 
   return `
     <tr>
       <td>${formatarDataCompra(compra.compradoEm)}</td>
       <td>${fornecedor ? escaparHtml(fornecedor.nome) : '—'}</td>
-      <td>${linhas.length}</td>
+      <td>${linhas.length}${badgePendente}</td>
       <td>${formatarMoeda(total)}</td>
       <td>${qtdLotes}</td>
       <td>${escaparHtml(compra.referencia || '—')}</td>
@@ -751,39 +837,172 @@ function popularOpcoesFornecedorCompra() {
   if (atual && ativos.some((f) => f.id === atual)) select.value = atual;
 }
 
-function popularOpcoesItemLinhaCompra() {
-  const select = document.getElementById('campo-item-linha-compra');
-  const ativos = itensCompraCache.filter((i) => i.ativo).sort((a, b) => a.nome.localeCompare(b.nome));
-  select.innerHTML = ativos
-    .map((i) => `<option value="${i.id}">${escaparHtml(i.nome)} — ${CATEGORIAS_ITEM_COMPRA[i.categoria] || i.categoria}</option>`)
-    .join('');
-  atualizarUnidadeLinhaCompra();
+/**
+ * Espelha a normalização usada no banco (purchase_items.normalized_name /
+ * RPCs save_purchase e finalize_purchase_item) — trim, colapsa espaços,
+ * lowercase, remove acentos comuns. Só usada aqui para SUGERIR/filtrar no
+ * client; quem decide de verdade se reaproveita ou cria um item é sempre
+ * a RPC save_purchase — nunca reproduzimos essa decisão no client.
+ */
+function normalizarNomeItemCompra(texto) {
+  return (texto || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/[áàãâä]/g, 'a')
+    .replace(/[éèêë]/g, 'e')
+    .replace(/[íìîï]/g, 'i')
+    .replace(/[óòõôö]/g, 'o')
+    .replace(/[úùûü]/g, 'u')
+    .replace(/ç/g, 'c')
+    .replace(/ñ/g, 'n');
 }
 
-/**
- * Unidade travada nas opções coerentes com o base_unit do item escolhido
- * (mesma tabela que a RPC save_purchase usa server-side) — quando o item
- * não tem base_unit definido (só possível com tracks_stock=false), trava
- * em 'un' só, exatamente o que a RPC já aceita hoje nesse caso.
- */
-function atualizarUnidadeLinhaCompra() {
-  const itemId = document.getElementById('campo-item-linha-compra').value;
-  const item = itemCompraPorId(itemId);
-  const selectUnidade = document.getElementById('campo-unidade-linha-compra');
-  const dicaSemBase = document.getElementById('dica-validade-linha-compra');
-  const campoValidade = document.getElementById('campo-validade-linha-compra');
+/** Prefixo primeiro, contains depois — só sobre itens ativos, até 8 sugestões. */
+function obterSugestoesItemLinhaCompra(texto) {
+  const normalizado = normalizarNomeItemCompra(texto);
+  if (!normalizado) return [];
+  const ativos = itensCompraCache.filter((i) => i.ativo);
+  const porPrefixo = [];
+  const porConteudo = [];
+  ativos.forEach((item) => {
+    const nomeNormalizado = normalizarNomeItemCompra(item.nome);
+    if (nomeNormalizado.startsWith(normalizado)) porPrefixo.push(item);
+    else if (nomeNormalizado.includes(normalizado)) porConteudo.push(item);
+  });
+  const ordenar = (lista) => [...lista].sort((a, b) => a.nome.localeCompare(b.nome));
+  return [...ordenar(porPrefixo), ...ordenar(porConteudo)].slice(0, 8);
+}
 
-  if (!item) {
-    selectUnidade.innerHTML = '';
+function renderizarSugestoesItemLinhaCompra(sugestoes) {
+  const lista = document.getElementById('lista-sugestoes-item-linha-compra');
+  const campoTexto = document.getElementById('campo-item-linha-compra-texto');
+  indiceSugestaoItemLinhaCompraAtiva = -1;
+
+  if (sugestoes.length === 0) {
+    lista.innerHTML = '';
+    lista.style.display = 'none';
+    campoTexto.setAttribute('aria-expanded', 'false');
     return;
   }
 
-  const opcoesUnidade = item.unidadeBase ? UNIDADES_COMPRA_POR_BASE[item.unidadeBase] : ['un'];
-  selectUnidade.innerHTML = opcoesUnidade.map((u) => `<option value="${u}">${u}</option>`).join('');
+  lista.innerHTML = sugestoes
+    .map(
+      (item, indice) => `
+      <li role="option" id="sugestao-item-linha-compra-${indice}" data-id="${item.id}">
+        <span>${escaparHtml(item.nome)}</span>
+        <span class="compras-autocomplete-opcao-categoria">${CATEGORIAS_ITEM_COMPRA[item.categoria] || item.categoria}</span>
+      </li>`
+    )
+    .join('');
+  lista.style.display = '';
+  campoTexto.setAttribute('aria-expanded', 'true');
 
-  dicaSemBase.style.display = item.unidadeBase ? 'none' : '';
-  campoValidade.disabled = compraTemConsumo || !item.controlaEstoque;
-  if (!item.controlaEstoque) campoValidade.value = '';
+  lista.querySelectorAll('li').forEach((li) => {
+    // mousedown (não click) + preventDefault — impede o input de perder
+    // foco (blur) antes do clique ser processado, sem precisar de timeout.
+    li.addEventListener('mousedown', (evento) => {
+      evento.preventDefault();
+      selecionarItemLinhaCompra(li.dataset.id);
+    });
+  });
+}
+
+function fecharSugestoesItemLinhaCompra() {
+  const lista = document.getElementById('lista-sugestoes-item-linha-compra');
+  lista.innerHTML = '';
+  lista.style.display = 'none';
+  document.getElementById('campo-item-linha-compra-texto').setAttribute('aria-expanded', 'false');
+  indiceSugestaoItemLinhaCompraAtiva = -1;
+}
+
+function selecionarItemLinhaCompra(id) {
+  const item = itemCompraPorId(id);
+  if (!item) return;
+  itemLinhaCompraSelecionadoId = id;
+  document.getElementById('campo-item-linha-compra-texto').value = item.nome;
+  fecharSugestoesItemLinhaCompra();
+  atualizarUnidadeLinhaCompra();
+  atualizarPreviewLinhaCompra();
+}
+
+/** Editar o texto depois de selecionar limpa o id — nunca envia itemCompraId de um item com nome divergente do digitado. */
+function aoDigitarItemLinhaCompra() {
+  const texto = document.getElementById('campo-item-linha-compra-texto').value;
+  if (itemLinhaCompraSelecionadoId) {
+    const itemSelecionado = itemCompraPorId(itemLinhaCompraSelecionadoId);
+    if (!itemSelecionado || itemSelecionado.nome !== texto) {
+      itemLinhaCompraSelecionadoId = null;
+    }
+  }
+  renderizarSugestoesItemLinhaCompra(obterSugestoesItemLinhaCompra(texto));
+  atualizarUnidadeLinhaCompra();
+  atualizarPreviewLinhaCompra();
+}
+
+/** ArrowDown/ArrowUp/Enter/Escape — teclado básico, nunca fecha a seção/modal. */
+function aoTeclarItemLinhaCompra(evento) {
+  const opcoes = document.getElementById('lista-sugestoes-item-linha-compra').querySelectorAll('li');
+  if (opcoes.length === 0) return;
+
+  if (evento.key === 'ArrowDown') {
+    evento.preventDefault();
+    indiceSugestaoItemLinhaCompraAtiva = Math.min(indiceSugestaoItemLinhaCompraAtiva + 1, opcoes.length - 1);
+    destacarSugestaoAtivaItemLinhaCompra(opcoes);
+  } else if (evento.key === 'ArrowUp') {
+    evento.preventDefault();
+    indiceSugestaoItemLinhaCompraAtiva = Math.max(indiceSugestaoItemLinhaCompraAtiva - 1, 0);
+    destacarSugestaoAtivaItemLinhaCompra(opcoes);
+  } else if (evento.key === 'Enter') {
+    if (indiceSugestaoItemLinhaCompraAtiva >= 0 && opcoes[indiceSugestaoItemLinhaCompraAtiva]) {
+      evento.preventDefault();
+      selecionarItemLinhaCompra(opcoes[indiceSugestaoItemLinhaCompraAtiva].dataset.id);
+    }
+  } else if (evento.key === 'Escape') {
+    fecharSugestoesItemLinhaCompra();
+  }
+}
+
+function destacarSugestaoAtivaItemLinhaCompra(opcoes) {
+  opcoes.forEach((li, indice) => li.classList.toggle('compras-autocomplete-opcao-ativa', indice === indiceSugestaoItemLinhaCompraAtiva));
+  const ativa = opcoes[indiceSugestaoItemLinhaCompraAtiva];
+  if (ativa) ativa.scrollIntoView({ block: 'nearest' });
+}
+
+/**
+ * Item existente selecionado: unidade travada nas opções coerentes com o
+ * base_unit dele (mesma tabela que a RPC save_purchase usa server-side;
+ * quando o item não tem base_unit definido, trava em 'un' só). Item novo
+ * digitado (sem itemLinhaCompraSelecionadoId): unidade livre (g/kg/ml/l/
+ * un) — ainda não existe base_unit pra travar nada — e validade sempre
+ * desabilitada.
+ */
+function atualizarUnidadeLinhaCompra() {
+  const selectUnidade = document.getElementById('campo-unidade-linha-compra');
+  const dicaSemBase = document.getElementById('dica-validade-linha-compra');
+  const dicaNovo = document.getElementById('dica-item-linha-compra-novo');
+  const campoValidade = document.getElementById('campo-validade-linha-compra');
+  const texto = document.getElementById('campo-item-linha-compra-texto').value.trim();
+
+  if (itemLinhaCompraSelecionadoId && !itemCompraPorId(itemLinhaCompraSelecionadoId)) {
+    itemLinhaCompraSelecionadoId = null;
+  }
+
+  if (itemLinhaCompraSelecionadoId) {
+    const item = itemCompraPorId(itemLinhaCompraSelecionadoId);
+    const opcoesUnidade = item.unidadeBase ? UNIDADES_COMPRA_POR_BASE[item.unidadeBase] : ['un'];
+    selectUnidade.innerHTML = opcoesUnidade.map((u) => `<option value="${u}">${u}</option>`).join('');
+    dicaSemBase.style.display = item.unidadeBase ? 'none' : '';
+    dicaNovo.style.display = 'none';
+    campoValidade.disabled = compraTemConsumo || !item.controlaEstoque;
+    if (!item.controlaEstoque) campoValidade.value = '';
+  } else {
+    selectUnidade.innerHTML = ['g', 'kg', 'ml', 'l', 'un'].map((u) => `<option value="${u}">${u}</option>`).join('');
+    dicaSemBase.style.display = 'none';
+    dicaNovo.style.display = texto ? '' : 'none';
+    campoValidade.disabled = true;
+    campoValidade.value = '';
+  }
 }
 
 /** Mesma tabela de conversão usada server-side em save_purchase — só pra exibição, o banco recalcula de verdade. */
@@ -805,16 +1024,27 @@ function calcularBaseQuantityPreview(item, quantidade, unidade) {
 
 function atualizarPreviewLinhaCompra() {
   const preview = document.getElementById('preview-linha-compra');
-  const itemId = document.getElementById('campo-item-linha-compra').value;
-  const item = itemCompraPorId(itemId);
   const quantidade = Number(document.getElementById('campo-quantidade-linha-compra').value);
   const unidade = document.getElementById('campo-unidade-linha-compra').value;
   const preco = Number(document.getElementById('campo-preco-linha-compra').value);
 
-  if (!item || !Number.isFinite(quantidade) || quantidade <= 0) {
+  if (!Number.isFinite(quantidade) || quantidade <= 0) {
     preview.textContent = '';
     return;
   }
+
+  if (!itemLinhaCompraSelecionadoId) {
+    // Item novo — sem base_unit ainda, nunca mostra conversão/custo por
+    // base: só "preço por unidade de compra" (ex. €1,60/kg).
+    if (!Number.isFinite(preco) || preco < 0 || !unidade) {
+      preview.textContent = '';
+      return;
+    }
+    preview.textContent = `${formatarMoeda(preco / quantidade)}/${unidade}`;
+    return;
+  }
+
+  const item = itemCompraPorId(itemLinhaCompraSelecionadoId);
   const baseQuantity = calcularBaseQuantityPreview(item, quantidade, unidade);
   if (baseQuantity === null) {
     preview.textContent = '';
@@ -837,15 +1067,16 @@ function atualizarPreviewLinhaCompra() {
 function adicionarLinhaCompra() {
   if (!souAdminCompras || compraTemConsumo) return;
   const dicaErro = document.getElementById('dica-linha-compra-erro');
-  const itemId = document.getElementById('campo-item-linha-compra').value;
-  const item = itemCompraPorId(itemId);
+  const textoDigitado = document.getElementById('campo-item-linha-compra-texto').value.trim();
   const quantidade = Number(document.getElementById('campo-quantidade-linha-compra').value);
   const unidade = document.getElementById('campo-unidade-linha-compra').value;
   const preco = Number(document.getElementById('campo-preco-linha-compra').value);
   const validade = document.getElementById('campo-validade-linha-compra').value || null;
 
-  if (!item) {
-    dicaErro.textContent = 'Selecione um item.';
+  const item = itemLinhaCompraSelecionadoId ? itemCompraPorId(itemLinhaCompraSelecionadoId) : null;
+
+  if (!item && !textoDigitado) {
+    dicaErro.textContent = 'Selecione ou digite um item.';
     dicaErro.style.display = '';
     return;
   }
@@ -859,7 +1090,7 @@ function adicionarLinhaCompra() {
     dicaErro.style.display = '';
     return;
   }
-  if (validade && !item.controlaEstoque) {
+  if (validade && (!item || !item.controlaEstoque)) {
     dicaErro.textContent = 'Item sem controle de estoque não pode ter validade.';
     dicaErro.style.display = '';
     return;
@@ -868,18 +1099,22 @@ function adicionarLinhaCompra() {
 
   linhasCompraEmEdicao.push({
     linhaId: null,
-    itemCompraId: item.id,
-    nome: item.nome,
+    itemCompraId: item ? item.id : null,
+    itemNome: item ? null : textoDigitado,
+    nome: item ? item.nome : textoDigitado,
     quantidade,
     unidade,
     precoTotal: preco,
-    validade,
+    validade: item ? validade : null,
   });
 
+  document.getElementById('campo-item-linha-compra-texto').value = '';
+  itemLinhaCompraSelecionadoId = null;
   document.getElementById('campo-quantidade-linha-compra').value = '';
   document.getElementById('campo-preco-linha-compra').value = '';
   document.getElementById('campo-validade-linha-compra').value = '';
   document.getElementById('preview-linha-compra').textContent = '';
+  atualizarUnidadeLinhaCompra();
   renderizarListaLinhasCompra();
 }
 
@@ -904,10 +1139,11 @@ function renderizarListaLinhasCompra() {
 function linhaLinhaCompraHtml(linha) {
   const indice = linhasCompraEmEdicao.indexOf(linha);
   const podeRemover = souAdminCompras && !compraTemConsumo;
+  const badgeNovo = linha.itemCompraId ? '' : ' <span class="compras-badge-novo-item">Novo item</span>';
 
   return `
     <div class="compras-linha-linha-compra">
-      <span class="compras-linha-linha-compra-nome">${escaparHtml(linha.nome)}</span>
+      <span class="compras-linha-linha-compra-nome">${escaparHtml(linha.nome)}${badgeNovo}</span>
       <span class="compras-linha-linha-compra-quantidade">${formatarQuantidadeCompra(linha.quantidade)} ${linha.unidade}</span>
       <span class="compras-linha-linha-compra-preco">${formatarMoeda(linha.precoTotal)}</span>
       <span class="compras-linha-linha-compra-validade">${linha.validade ? formatarDataCompra(linha.validade) : ''}</span>
@@ -931,7 +1167,7 @@ function aplicarTravaConsumoFormularioCompra() {
   document.getElementById('dica-compra-com-consumo').style.display = compraTemConsumo ? '' : 'none';
 
   document.getElementById('campo-data-compra').disabled = compraTemConsumo;
-  document.getElementById('campo-item-linha-compra').disabled = compraTemConsumo;
+  document.getElementById('campo-item-linha-compra-texto').disabled = compraTemConsumo;
   document.getElementById('campo-quantidade-linha-compra').disabled = compraTemConsumo;
   document.getElementById('campo-unidade-linha-compra').disabled = compraTemConsumo;
   document.getElementById('campo-preco-linha-compra').disabled = compraTemConsumo;
@@ -943,6 +1179,7 @@ function prepararNovaCompra() {
   compraEmEdicaoId = null;
   compraTemConsumo = false;
   linhasCompraEmEdicao = [];
+  itemLinhaCompraSelecionadoId = null;
 
   document.getElementById('titulo-secao-registrar-compra').textContent = 'Registrar Compra';
   popularOpcoesFornecedorCompra();
@@ -953,11 +1190,13 @@ function prepararNovaCompra() {
   document.getElementById('dica-registrar-compra-erro').style.display = 'none';
   document.getElementById('dica-linha-compra-erro').style.display = 'none';
 
-  popularOpcoesItemLinhaCompra();
+  document.getElementById('campo-item-linha-compra-texto').value = '';
+  fecharSugestoesItemLinhaCompra();
   document.getElementById('campo-quantidade-linha-compra').value = '';
   document.getElementById('campo-preco-linha-compra').value = '';
   document.getElementById('campo-validade-linha-compra').value = '';
   document.getElementById('preview-linha-compra').textContent = '';
+  atualizarUnidadeLinhaCompra();
 
   aplicarTravaConsumoFormularioCompra();
   renderizarListaLinhasCompra();
@@ -970,11 +1209,13 @@ function abrirCompraParaEdicao(compraId) {
 
   compraEmEdicaoId = compraId;
   compraTemConsumo = compraTemConsumoReal(compraId);
+  itemLinhaCompraSelecionadoId = null;
   linhasCompraEmEdicao = linhasDaCompra(compraId).map((linha) => {
     const lote = lotesCache.find((l) => l.linhaCompraId === linha.id);
     return {
       linhaId: linha.id,
       itemCompraId: linha.itemCompraId,
+      itemNome: null,
       nome: linha.nomeSnapshot,
       quantidade: linha.quantidade,
       unidade: linha.unidade,
@@ -992,11 +1233,13 @@ function abrirCompraParaEdicao(compraId) {
   document.getElementById('dica-registrar-compra-erro').style.display = 'none';
   document.getElementById('dica-linha-compra-erro').style.display = 'none';
 
-  popularOpcoesItemLinhaCompra();
+  document.getElementById('campo-item-linha-compra-texto').value = '';
+  fecharSugestoesItemLinhaCompra();
   document.getElementById('campo-quantidade-linha-compra').value = '';
   document.getElementById('campo-preco-linha-compra').value = '';
   document.getElementById('campo-validade-linha-compra').value = '';
   document.getElementById('preview-linha-compra').textContent = '';
+  atualizarUnidadeLinhaCompra();
 
   aplicarTravaConsumoFormularioCompra();
   renderizarListaLinhasCompra();
@@ -1060,12 +1303,14 @@ async function salvarFormularioCompra() {
   );
 
   try {
-    const [compras, linhas, lotes, movimentos] = await Promise.all([
+    const [itens, compras, linhas, lotes, movimentos] = await Promise.all([
+      buscarItensCompraDoSupabase(),
       buscarComprasDoSupabase(),
       buscarLinhasComprasDoSupabase(),
       buscarLotesDoSupabase(),
       buscarMovimentosLotesDoSupabase(),
     ]);
+    itensCompraCache = itens;
     comprasCache = compras;
     linhasComprasCache = linhas;
     lotesCache = lotes;
@@ -1075,6 +1320,7 @@ async function salvarFormularioCompra() {
   }
 
   renderizarTabelaHistoricoCompras();
+  renderizarTabelaItensCompra();
   popularFiltrosLotes();
   renderizarTabelaLotes();
 
@@ -1086,9 +1332,12 @@ async function salvarFormularioCompra() {
 }
 
 function ligarEventosRegistrarCompra() {
-  document.getElementById('campo-item-linha-compra').addEventListener('change', () => {
-    atualizarUnidadeLinhaCompra();
-    atualizarPreviewLinhaCompra();
+  const campoTexto = document.getElementById('campo-item-linha-compra-texto');
+  campoTexto.addEventListener('input', aoDigitarItemLinhaCompra);
+  campoTexto.addEventListener('keydown', aoTeclarItemLinhaCompra);
+  campoTexto.addEventListener('blur', fecharSugestoesItemLinhaCompra);
+  campoTexto.addEventListener('focus', () => {
+    if (campoTexto.value.trim()) renderizarSugestoesItemLinhaCompra(obterSugestoesItemLinhaCompra(campoTexto.value));
   });
   document.getElementById('campo-quantidade-linha-compra').addEventListener('input', atualizarPreviewLinhaCompra);
   document.getElementById('campo-unidade-linha-compra').addEventListener('change', atualizarPreviewLinhaCompra);

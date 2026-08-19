@@ -72,7 +72,14 @@
 
       <div class="compras-secao-cabecalho">
         <h2>Itens de Compra</h2>
-        <button type="button" class="btn btn-primario" id="botao-novo-item-compra">+ Novo Item</button>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <span class="compras-badge-pendente" id="texto-itens-compra-pendentes-contador" style="display:none;"></span>
+          <select id="filtro-itens-compra-pendentes" class="input" style="width:auto;">
+            <option value="todos">Todos</option>
+            <option value="pendentes">Pendentes</option>
+          </select>
+          <button type="button" class="btn btn-primario" id="botao-novo-item-compra">+ Novo Item</button>
+        </div>
       </div>
       <p class="dica-campo" id="dica-itens-compra-somente-admin" style="display:none;">Somente administradores podem cadastrar ou editar itens de compra.</p>
 
@@ -258,9 +265,20 @@
       <div class="estado-vazio" id="estado-vazio-linhas-compra" style="display:none;">Nenhum item adicionado a esta compra.</div>
 
       <div class="compras-adicionar-linha">
-        <div class="form-grupo" style="flex:2; min-width:200px;">
-          <label for="campo-item-linha-compra">Item</label>
-          <select id="campo-item-linha-compra" class="input"></select>
+        <div class="form-grupo compras-autocomplete" style="flex:2; min-width:200px;">
+          <label for="campo-item-linha-compra-texto">Item</label>
+          <input
+            type="text"
+            id="campo-item-linha-compra-texto"
+            class="input"
+            autocomplete="off"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded="false"
+            aria-controls="lista-sugestoes-item-linha-compra"
+            placeholder="Digite para buscar ou digite um item novo"
+          />
+          <ul class="compras-autocomplete-lista" id="lista-sugestoes-item-linha-compra" role="listbox" style="display:none;"></ul>
         </div>
         <div class="form-grupo" style="flex:1; min-width:100px;">
           <label for="campo-quantidade-linha-compra">Quantidade</label>
@@ -283,6 +301,10 @@
         </div>
       </div>
       <p class="dica-campo" id="dica-validade-linha-compra" style="display:none;">Este item não tem unidade-base definida — quantidade tratada como unidade simples.</p>
+      <p class="dica-campo" id="dica-item-linha-compra-novo" style="display:none;">
+        <span class="compras-badge-novo-item">Novo item</span>
+        — cadastro será concluído depois. Defina a unidade-base e controle de estoque em Itens de Compra para gerar o lote.
+      </p>
       <p class="compras-preview-custo" id="preview-linha-compra"></p>
       <p class="dica-campo" id="dica-linha-compra-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
 
@@ -309,6 +331,7 @@
       <form id="form-item-compra">
         <input type="hidden" id="campo-id-item-compra" />
         <div class="modal-corpo">
+          <p class="dica-campo" id="dica-item-compra-pendente" style="display:none;">⚠ Este item foi criado automaticamente a partir de uma compra. Complete o cadastro abaixo.</p>
           <div class="form-grupo">
             <label for="campo-nome-item-compra">Nome</label>
             <input type="text" id="campo-nome-item-compra" class="input" required />

@@ -11,11 +11,17 @@
  * cada linha nova cujo item controla estoque; edição de linha existente
  * só é aceita enquanto nenhum lote da compra tiver movimento além do
  * inicial (compra "com consumo" só permite editar
- * fornecedor/referência/observações). suppliers/purchase_items continuam
- * cadastro simples (GRANT direto, protegido só por RLS) — sem RPC
- * dedicada nesta etapa. lots/lot_movements são só-leitura pra
- * authenticated (nenhuma escrita direta em hipótese nenhuma). Depende de
- * js/supabase.js (supabaseClient), carregado antes deste arquivo.
+ * fornecedor/referência/observações). Desde a Etapa F2, uma linha nova
+ * pode vir sem purchase_item_id (só item_name digitado) — save_purchase
+ * resolve por nome normalizado (reaproveita item existente ou cria um
+ * provisório needs_review=true) inteiramente server-side; o client nunca
+ * decide isso sozinho. suppliers/purchase_items continuam cadastro
+ * simples (GRANT direto, protegido só por RLS) para edição normal — a
+ * única exceção é completar um item pendente, que passa pela RPC
+ * finalize_purchase_item (migration 20260818200000), nunca por UPDATE
+ * direto. lots/lot_movements são só-leitura pra authenticated (nenhuma
+ * escrita direta em hipótese nenhuma). Depende de js/supabase.js
+ * (supabaseClient), carregado antes deste arquivo.
  */
 
 function _linhaSupabaseParaFornecedor(linha) {
@@ -40,6 +46,7 @@ function _linhaSupabaseParaItemCompra(linha) {
     controlaEstoque: linha.tracks_stock,
     unidadeBase: linha.base_unit,
     ativo: linha.active,
+    needsReview: linha.needs_review,
     produtoId: linha.product_id,
     ingredienteId: linha.ingredient_id,
     insumoId: linha.production_supply_id,
@@ -205,6 +212,37 @@ async function atualizarItemCompraNoSupabase(id, dados) {
   return _linhaSupabaseParaItemCompra(data);
 }
 
+/**
+ * Completa o cadastro de um item de compra pendente (needs_review=true) via
+ * RPC finalize_purchase_item — nunca por UPDATE direto. Se controlaEstoque
+ * vier true, a RPC também converte retroativamente toda purchase_line
+ * desse item ainda sem base_quantity e gera lote+movimento inicial para
+ * cada uma (rollback integral se alguma linha antiga tiver unidade
+ * incompatível com a unidade-base escolhida). Devolve o item já
+ * finalizado (needsReview=false) mais as linhas/lotes/movimentos afetados
+ * por esta chamada.
+ */
+async function finalizarItemCompraNoSupabase(id, dados) {
+  const { data, error } = await supabaseClient.rpc('finalize_purchase_item', {
+    p_purchase_item_id: id,
+    p_name: dados.nome,
+    p_category: dados.categoria,
+    p_tracks_stock: dados.controlaEstoque !== false,
+    p_base_unit: dados.unidadeBase || null,
+    p_product_id: dados.produtoId || null,
+    p_ingredient_id: dados.ingredienteId || null,
+    p_production_supply_id: dados.insumoId || null,
+    p_active: dados.ativo !== false,
+  });
+  if (error) throw new Error(error.message);
+  return {
+    item: _linhaSupabaseParaItemCompra(data.item),
+    linhas: (data.lines || []).map(_linhaSupabaseParaLinhaCompra),
+    lotes: (data.lots || []).map(_linhaSupabaseParaLote),
+    movimentos: data.movements || [],
+  };
+}
+
 /** Busca todos os lotes numa única consulta (sem filtro — agrupamento em memória por item/linha de compra). */
 async function buscarLotesDoSupabase() {
   const { data, error } = await supabaseClient.from('lots').select('*');
@@ -252,7 +290,8 @@ async function buscarLinhasComprasDoSupabase() {
 async function salvarCompraNoSupabase(purchaseId, dados) {
   const linhasPayload = (dados.linhas || []).map((linha) => ({
     line_id: linha.linhaId || null,
-    purchase_item_id: linha.itemCompraId,
+    purchase_item_id: linha.itemCompraId || null,
+    item_name: linha.itemNome || null,
     quantity: linha.quantidade,
     unit: linha.unidade,
     total_price: linha.precoTotal,

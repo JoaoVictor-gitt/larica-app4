@@ -293,3 +293,63 @@
 
 #corpo-tabela-fornecedores td:nth-child(1) { font-weight: 600; }
 #corpo-tabela-fornecedores td:last-child { text-align: right; }
+
+/*
+ * Autocomplete do campo Item (Registrar Compra) — input + lista de
+ * sugestões abaixo, substituindo o antigo <select>. Badges reaproveitadas
+ * tanto para "Novo item" (linha ainda não salva) quanto "Cadastro
+ * pendente"/"Item pendente" (purchase_items.needs_review=true).
+ */
+.compras-autocomplete {
+  position: relative;
+}
+
+.compras-autocomplete-lista {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--cor-branco);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-md);
+  box-shadow: var(--sombra-md);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.compras-autocomplete-lista li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--espaco-sm);
+  padding: 6px 8px;
+  border-radius: var(--raio-sm);
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+.compras-autocomplete-lista li:hover,
+.compras-autocomplete-opcao-ativa {
+  background: var(--cor-cinza-claro);
+}
+
+.compras-autocomplete-opcao-categoria {
+  color: var(--cor-texto-secundario);
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+
+.compras-badge-novo-item,
+.compras-badge-pendente {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--cor-cinza-claro);
+  color: var(--cor-terracota);
+  white-space: nowrap;
+}
