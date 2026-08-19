@@ -423,6 +423,21 @@
   font-weight: 600;
 }
 
+/* Etapa G4 — resumo do lote de compra abaixo de uma linha já adicionada
+   (nome do lote/custo histórico), e o campo de seleção de lote no
+   mini-formulário "+ Adicionar" (só quando o item é item_type='ingredient'). */
+.producao-linha-componente-lote-detalhe {
+  margin: -2px 0 4px;
+  padding: 2px var(--espaco-sm) 4px;
+  font-size: 0.76rem;
+  color: var(--cor-texto-secundario);
+}
+
+.producao-campo-lote {
+  width: 100%;
+  margin-bottom: var(--espaco-xs);
+}
+
 .producao-adicionar-componente {
   display: flex;
   gap: var(--espaco-sm);

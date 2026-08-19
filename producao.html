@@ -573,6 +573,14 @@
               <button type="button" class="btn btn-secundario" id="botao-adicionar-tempero-lote">+ Adicionar tempero/preparo</button>
             </div>
           </div>
+          <div class="form-grupo producao-campo-lote" id="grupo-lote-tempero-lote" style="display:none;">
+            <label for="campo-lote-tempero-lote">Lote</label>
+            <select id="campo-lote-tempero-lote" class="input"></select>
+            <p class="dica-campo" id="dica-lote-tempero-nenhum-disponivel" style="display:none;">Nenhum lote disponível para este ingrediente.</p>
+            <p class="dica-campo" id="dica-lote-tempero-sem-vinculo" style="display:none;">Este ingrediente ainda não está vinculado a um Item de Compra.</p>
+            <p class="dica-campo" id="dica-tempero-lote-saldo-insuficiente" style="display:none; color:var(--cor-status-vermelho);">Quantidade maior que o saldo disponível neste lote.</p>
+            <p class="dica-campo">O saldo será baixado deste lote ao salvar a produção.</p>
+          </div>
           <p class="dica-campo" id="dica-tempero-sem-opcoes" style="display:none;">Nenhum ingrediente ativo na categoria Temperos. Cadastre ou edite Sal/Sal de Parrilha em Produção → Ingredientes e use Categoria = Temperos.</p>
           <p class="producao-preview-custo" id="preview-tempero-lote"></p>
           <p class="dica-campo" id="dica-tempero-lote-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
@@ -664,6 +672,14 @@
             <div class="producao-botao-adicionar-componente">
               <button type="button" class="btn btn-secundario" id="botao-adicionar-componente-acompanhamento">+ Adicionar</button>
             </div>
+          </div>
+          <div class="form-grupo producao-campo-lote" id="grupo-lote-componente-acompanhamento" style="display:none;">
+            <label for="campo-lote-componente-acompanhamento">Lote</label>
+            <select id="campo-lote-componente-acompanhamento" class="input"></select>
+            <p class="dica-campo" id="dica-lote-componente-acompanhamento-nenhum-disponivel" style="display:none;">Nenhum lote disponível para este ingrediente.</p>
+            <p class="dica-campo" id="dica-lote-componente-acompanhamento-sem-vinculo" style="display:none;">Este ingrediente ainda não está vinculado a um Item de Compra.</p>
+            <p class="dica-campo" id="dica-componente-acompanhamento-lote-saldo-insuficiente" style="display:none; color:var(--cor-status-vermelho);">Quantidade maior que o saldo disponível neste lote.</p>
+            <p class="dica-campo">O saldo será baixado deste lote ao salvar a produção.</p>
           </div>
           <p class="producao-preview-custo" id="preview-componente-acompanhamento"></p>
           <p class="dica-campo" id="dica-componente-acompanhamento-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
@@ -813,6 +829,7 @@
   <script src="js/services/side-production-service.js"></script>
   <script src="js/services/production-supplies-service.js"></script>
   <script src="js/services/product-costs-service.js"></script>
+  <script src="js/services/purchases-service.js"></script>
   <script src="js/app.js"></script>
   <script src="js/producao.js"></script>
 </body>

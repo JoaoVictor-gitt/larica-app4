@@ -17,9 +17,20 @@
  * ingredient/supply inteiramente server-side; só o custo de um componente
  * do tipo 'recipe' vem do client (reaproveitando o cálculo recursivo já
  * existente em producao.js, sem duplicar fórmula em SQL), com validação de
- * sanidade dentro da RPC. Exclusão de lote continua um DELETE direto (RLS já
- * basta; a cascata de skewer_batch_components.batch_id cuida dos
- * componentes automaticamente).
+ * sanidade dentro da RPC. Desde a Etapa G3, exclusão de lote passa pela RPC
+ * delete_skewer_production_batch (reverte consumo de lote antes de excluir;
+ * GRANT DELETE direto foi revogado) — ver excluirLoteEspetosNoSupabase mais
+ * abaixo.
+ *
+ * Desde a Etapa G2, um componente item_type='ingredient' pode opcionalmente
+ * trazer lotId (skewer_batch_components.lot_id, coluna existente desde a
+ * Etapa G1) — quando presente, a RPC consome/devolve saldo do lote
+ * (public.lots) dentro da própria transação e resolve o custo do
+ * componente a partir de lots.unit_cost_base, nunca do cadastro atual do
+ * ingrediente. lotId ausente/null preserva o comportamento de sempre
+ * (custo do cadastro, nenhuma baixa de estoque) — js/producao.js (Etapa
+ * G4) é quem decide se envia lotId, via o seletor de lote no formulário de
+ * Temperos/Preparos.
  *
  * criarLoteEspetosNoSupabase/atualizarLoteEspetosNoSupabase mantêm
  * exatamente a mesma assinatura e retorno já usados por js/producao.js
@@ -61,6 +72,7 @@ function _linhaSupabaseParaComponenteLote(linha) {
     ingredienteId: linha.ingredient_id,
     receitaId: linha.recipe_id,
     insumoId: linha.supply_id,
+    lotId: linha.lot_id,
     nomeSnapshot: linha.name_snapshot,
     quantidade: Number(linha.quantity),
     unidade: linha.unit,
@@ -107,6 +119,7 @@ async function _salvarLoteEspetosViaRpc(batchId, dados) {
     const item = {
       item_type: componente.tipoItem,
       reference_id: componente.referenciaId,
+      lot_id: componente.lotId || null,
       quantity: componente.quantidade,
       unit: componente.unidade,
     };
@@ -148,8 +161,18 @@ async function atualizarLoteEspetosNoSupabase(id, dados) {
   return resultado.lote;
 }
 
-/** Exclusão física — cascata (skewer_batch_components.batch_id ON DELETE CASCADE) remove os componentes automaticamente. RLS restringe a admin. */
+/**
+ * Etapa G3: exclusão passa pela RPC delete_skewer_production_batch —
+ * nunca mais um DELETE direto (GRANT DELETE revogado de authenticated).
+ * A RPC reverte, para cada lote com consumo líquido ainda ativo deste
+ * batch, o saldo correspondente (lot_movements 'reversal', calculado só
+ * a partir do ledger) antes de excluir o batch — cascata
+ * (skewer_batch_components.batch_id ON DELETE CASCADE) remove os
+ * componentes; lot_movements nunca é tocado pela exclusão (sem FK),
+ * ledger de auditoria preservado. Mesma assinatura/retorno de antes —
+ * producao.js não precisa de nenhuma mudança.
+ */
 async function excluirLoteEspetosNoSupabase(id) {
-  const { error } = await supabaseClient.from('skewer_production_batches').delete().eq('id', id);
+  const { error } = await supabaseClient.rpc('delete_skewer_production_batch', { p_batch_id: id });
   if (error) throw new Error(error.message);
 }

@@ -47,6 +47,14 @@ let insumosProducaoCache = [];
 let custosProdutosCache = new Map();
 let souAdminProducao = false;
 
+// Etapa G4 — Compras/Lotes: caches carregados uma única vez no
+// DOMContentLoaded (js/services/purchases-service.js), nunca recarregados
+// por render/seleção — só usados para popular o seletor de lote nos
+// componentes item_type='ingredient' de Espetos/Acompanhamentos.
+let lotesCache = [];
+let itensCompraCache = [];
+let movimentosLotesCache = [];
+
 /**
  * Cada seção roda no seu próprio try/catch — uma exceção em qualquer uma
  * (ex. ao ligar eventos de um modal) nunca mais impede as seguintes de
@@ -59,12 +67,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   ligarEventosNavegacaoProducao();
 
   try {
-    const [ingredientes, ehAdmin, produtos, insumos, custosProdutos] = await Promise.all([
+    const [ingredientes, ehAdmin, produtos, insumos, custosProdutos, lotes, itensCompra, movimentosLotes] = await Promise.all([
       buscarIngredientesDoSupabase(),
       usuarioEhAdminNoSupabase(),
       buscarProdutosDoSupabase(),
       buscarInsumosProducaoDoSupabase(),
       buscarCustosProdutosDoSupabase(),
+      buscarLotesDoSupabase(),
+      buscarItensCompraDoSupabase(),
+      buscarMovimentosLotesDoSupabase(),
     ]);
     ingredientesCache = ingredientes;
     souAdminProducao = ehAdmin;
@@ -73,6 +84,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     custosProdutosCache = new Map(
       custosProdutos.map((l) => [l.product_id, l.unit_cost === null || l.unit_cost === undefined ? null : Number(l.unit_cost)])
     );
+    lotesCache = lotes;
+    itensCompraCache = itensCompra;
+    movimentosLotesCache = movimentosLotes;
 
     atualizarEstadoEdicaoIngredientes();
     renderizarTabelaIngredientes();
@@ -488,6 +502,75 @@ function atualizarEstadoEdicaoFichas() {
 /** Busca em ingredientesCache (nunca um cache/mapa à parte) — assim uma edição de preço em Ingredientes (que já recarrega ingredientesCache do zero) é refletida aqui automaticamente, sem sincronização manual. */
 function ingredientePorId(id) {
   return ingredientesCache.find((i) => i.id === id);
+}
+
+// ---------------------------------------------------------------------------
+// Etapa G4 — Compras/Lotes: seleção de lote em componentes item_type=
+// 'ingredient' de Espetos/Acompanhamentos. Nunca faz query nova (tudo
+// derivado dos 3 caches carregados uma vez no DOMContentLoaded). FIFO é só
+// sugestão visual — nunca decide sozinho, nunca pré-seleciona.
+// ---------------------------------------------------------------------------
+
+/** No máximo 1 purchase_item por ingredient_id — já garantido pelo UNIQUE INDEX parcial de Compras (Etapa A). */
+function itemCompraDoIngrediente(ingredienteId) {
+  return itensCompraCache.find((i) => i.ingredienteId === ingredienteId);
+}
+
+function lotePorId(id) {
+  return lotesCache.find((l) => l.id === id);
+}
+
+/** Lotes ATIVOS (status='available' + saldo>0) de um purchase_item, ordenados FIFO (recebidoEm ASC, depois id) — só sugestão de exibição. */
+function lotesDisponiveisDoItemCompra(itemCompraId) {
+  return lotesCache
+    .filter((l) => l.itemCompraId === itemCompraId && l.status === 'available' && l.quantidadeRestante > 0)
+    .sort((a, b) => (a.recebidoEm < b.recebidoEm ? -1 : a.recebidoEm > b.recebidoEm ? 1 : a.id.localeCompare(b.id)));
+}
+
+/**
+ * Consumo líquido ATUAL de um lote dentro de UM batch específico, a partir
+ * do ledger (nunca dos componentes atuais em memória) — mesma fórmula já
+ * usada nas RPCs save_*/delete_* (Etapas G2/G3): SUM(production_use) -
+ * SUM(reversal). origemTipo é 'skewer_production'/'side_production'.
+ */
+function consumoLiquidoLoteNoBatch(loteId, origemTipo, batchId) {
+  return movimentosLotesCache
+    .filter((m) => m.loteId === loteId && m.origemTipo === origemTipo && m.origemId === batchId)
+    .reduce((soma, m) => soma + (m.tipo === 'production_use' ? m.quantidade : m.tipo === 'reversal' ? -m.quantidade : 0), 0);
+}
+
+/**
+ * Disponibilidade EFETIVA de um lote para fins de validação client-side:
+ * saldo atual + o que este batch já consumiu líquido dele. Sem isso, editar
+ * um componente já salvo (ex. 500g já consumidos, saldo atual 200g)
+ * pareceria "saldo insuficiente" mesmo reenviando os mesmos 500g. batchId
+ * null (produção nova) retorna só o saldo puro do lote.
+ */
+function saldoEfetivoLoteParaEdicao(loteId, origemTipo, batchId) {
+  const lote = lotePorId(loteId);
+  if (!lote) return 0;
+  if (!batchId) return lote.quantidadeRestante;
+  return lote.quantidadeRestante + consumoLiquidoLoteNoBatch(loteId, origemTipo, batchId);
+}
+
+/**
+ * "DD/MM/YYYY · 700 g · €0,007143/g", com sufixos conforme o estado: "· Val.
+ * DD/MM/YYYY" (se houver validade), "· Esgotado" (status='depleted'), "· ⚠
+ * Vencido" (validade no passado). usadoNesteBatch força "· Usado neste lote"
+ * — usada só para a opção histórica de um componente já salvo.
+ */
+function rotuloLote(lote, opcoes) {
+  const usadoNesteBatch = (opcoes && opcoes.usadoNesteBatch) || false;
+  const partes = [
+    formatarDataProducao(lote.recebidoEm),
+    `${formatarQuantidadeRendimento(lote.quantidadeRestante)} ${lote.unidadeBase}`,
+    formatarCustoBaseIngrediente(lote.custoPorUnidadeBase, lote.unidadeBase),
+  ];
+  if (lote.validade) partes.push(`Val. ${formatarDataProducao(lote.validade)}`);
+  if (lote.status === 'depleted') partes.push('Esgotado');
+  if (lote.validade && lote.validade < dataHojeLocal()) partes.push('⚠ Vencido');
+  if (usadoNesteBatch) partes.push('Usado neste lote');
+  return partes.join(' · ');
 }
 
 // ---------------------------------------------------------------------------
@@ -1632,6 +1715,47 @@ function popularOpcoesTemperoLote() {
   select.innerHTML = candidatos.map((c) => `<option value="${c.id}">${escaparHtml(c.nome)}</option>`).join('');
 
   atualizarEstadoSemOpcoesTempero(tipo, candidatos.length === 0);
+  popularOpcoesLoteTemperoLote(tipo === 'ingredient' ? select.value || null : null, null);
+}
+
+/**
+ * Etapa G4 — só relevante para item_type='ingredient'. loteAtualId
+ * (não-nulo em edição) sempre aparece como opção, mesmo esgotado/fora da
+ * lista de disponíveis — nunca troca sozinho. FIFO (recebidoEm ASC) só
+ * marca a primeira opção como "Sugerido", nunca pré-seleciona.
+ */
+function popularOpcoesLoteTemperoLote(ingredienteId, loteAtualId) {
+  const grupo = document.getElementById('grupo-lote-tempero-lote');
+  const select = document.getElementById('campo-lote-tempero-lote');
+  const dicaNenhum = document.getElementById('dica-lote-tempero-nenhum-disponivel');
+  const dicaSemItem = document.getElementById('dica-lote-tempero-sem-vinculo');
+
+  if (!ingredienteId) {
+    grupo.style.display = 'none';
+    select.innerHTML = '';
+    return;
+  }
+  grupo.style.display = '';
+
+  const itemCompra = itemCompraDoIngrediente(ingredienteId);
+  dicaSemItem.style.display = itemCompra ? 'none' : '';
+
+  const disponiveis = itemCompra ? lotesDisponiveisDoItemCompra(itemCompra.id) : [];
+  const loteHistorico = loteAtualId ? lotePorId(loteAtualId) : null;
+  const jaNaLista = loteHistorico && disponiveis.some((l) => l.id === loteHistorico.id);
+
+  dicaNenhum.style.display = itemCompra && disponiveis.length === 0 && !loteHistorico ? '' : 'none';
+
+  const opcoes = ['<option value="">Sem lote / custo cadastrado</option>'];
+  if (loteHistorico && !jaNaLista) {
+    opcoes.push(`<option value="${loteHistorico.id}">${escaparHtml(rotuloLote(loteHistorico, { usadoNesteBatch: true }))}</option>`);
+  }
+  disponiveis.forEach((lote, indice) => {
+    const sugerido = indice === 0 ? ' (Sugerido — mais antigo)' : '';
+    opcoes.push(`<option value="${lote.id}">${escaparHtml(rotuloLote(lote))}${sugerido}</option>`);
+  });
+  select.innerHTML = opcoes.join('');
+  select.value = loteAtualId || '';
 }
 
 /**
@@ -1696,6 +1820,11 @@ function linhaComponenteLoteHtml(componente) {
   const tipoLabel = componente.tipoItem === 'supply' ? 'Insumo' : componente.tipoItem === 'recipe' ? 'Preparo' : 'Ingrediente';
   const quantidadeTexto = Number.isInteger(componente.quantidade) ? componente.quantidade : componente.quantidade.toString().replace('.', ',');
   const custoLinha = componente.quantidade * componente.custoPorUnidadePreview;
+  // Etapa G4: resumo de lote abaixo do nome — só quando o componente tem lotId.
+  const loteDoComponente = componente.lotId ? lotePorId(componente.lotId) : null;
+  const linhaLote = loteDoComponente
+    ? `<div class="producao-linha-componente-lote-detalhe">Lote ${formatarDataProducao(loteDoComponente.recebidoEm)} · ${formatarCustoBaseIngrediente(loteDoComponente.custoPorUnidadeBase, loteDoComponente.unidadeBase)}</div>`
+    : '';
 
   return `
     <div class="producao-linha-componente-lote">
@@ -1704,7 +1833,7 @@ function linhaComponenteLoteHtml(componente) {
       <span class="producao-linha-componente-quantidade">${quantidadeTexto} ${componente.unidade}</span>
       <span class="producao-linha-componente-custo">${formatarMoeda(custoLinha)}</span>
       <button type="button" class="btn-icone" data-acao-remover-componente="${indice}" title="Remover" ${souAdminProducao ? '' : 'disabled'}>🗑️</button>
-    </div>`;
+    </div>${linhaLote}`;
 }
 
 function removerComponenteLote(indice) {
@@ -1813,17 +1942,28 @@ function atualizarUnidadeTemperoLote() {
     const rendimento = calcularRendimentoReceita(referenciaId);
     textoUnidade.textContent = rendimento.disponivel ? rendimento.unidade : '—';
   } else {
-    const ingrediente = ingredientePorId(referenciaId);
-    textoUnidade.textContent = ingrediente ? ingrediente.unidadeBase : '—';
+    // Etapa G4: lote selecionado trava a unidade em lote.unidadeBase — nunca
+    // a unidade "natural" do ingrediente quando um lote específico manda.
+    const loteId = document.getElementById('campo-lote-tempero-lote').value;
+    const lote = loteId ? lotePorId(loteId) : null;
+    if (lote) {
+      textoUnidade.textContent = lote.unidadeBase;
+    } else {
+      const ingrediente = ingredientePorId(referenciaId);
+      textoUnidade.textContent = ingrediente ? ingrediente.unidadeBase : '—';
+    }
   }
 }
 
 /** Reaproveita custoTotalReceita/calcularRendimentoReceita (Fichas Técnicas) pra Preparo, e cost_per_base_unit direto pra Ingrediente — nunca duplica fórmula (item 5/13/14 do pedido). */
 function atualizarPreviewTemperoLote() {
   const preview = document.getElementById('preview-tempero-lote');
+  const dicaSaldo = document.getElementById('dica-tempero-lote-saldo-insuficiente');
   const tipo = document.getElementById('campo-tipo-tempero-lote').value;
   const referenciaId = document.getElementById('campo-referencia-tempero-lote').value;
   const quantidade = Number(document.getElementById('campo-quantidade-tempero-lote').value);
+
+  dicaSaldo.style.display = 'none';
 
   if (!referenciaId || !Number.isFinite(quantidade) || quantidade <= 0) {
     preview.textContent = '';
@@ -1850,8 +1990,23 @@ function atualizarPreviewTemperoLote() {
       preview.textContent = '';
       return;
     }
-    const custoEstimado = quantidade * ingrediente.custoPorUnidadeBase;
-    preview.textContent = `${quantidade} ${ingrediente.unidadeBase} × ${formatarCustoBaseIngrediente(ingrediente.custoPorUnidadeBase, ingrediente.unidadeBase)} = ${formatarMoeda(custoEstimado)}`;
+    // Etapa G4: lote selecionado é a fonte do custo (nunca o cadastro atual
+    // do ingrediente) — só a origem do custo muda, a fórmula continua
+    // quantidade × custo por unidade.
+    const loteId = document.getElementById('campo-lote-tempero-lote').value;
+    const lote = loteId ? lotePorId(loteId) : null;
+    const custoPorUnidade = lote ? lote.custoPorUnidadeBase : ingrediente.custoPorUnidadeBase;
+    const unidadeExibicao = lote ? lote.unidadeBase : ingrediente.unidadeBase;
+    const custoEstimado = quantidade * custoPorUnidade;
+    preview.textContent = `${quantidade} ${unidadeExibicao} × ${formatarCustoBaseIngrediente(custoPorUnidade, unidadeExibicao)} = ${formatarMoeda(custoEstimado)}`;
+
+    if (lote) {
+      const idLoteAtual = document.getElementById('campo-id-lote-espeto').value || null;
+      const saldoEfetivo = saldoEfetivoLoteParaEdicao(lote.id, 'skewer_production', idLoteAtual);
+      if (quantidade > saldoEfetivo) {
+        dicaSaldo.style.display = '';
+      }
+    }
   }
 }
 
@@ -1861,6 +2016,8 @@ function adicionarComponenteTempero() {
   const tipo = document.getElementById('campo-tipo-tempero-lote').value;
   const referenciaId = document.getElementById('campo-referencia-tempero-lote').value;
   const quantidade = Number(document.getElementById('campo-quantidade-tempero-lote').value);
+  // Etapa G4: lotId só se aplica a 'ingredient' — recipe nunca tem lote.
+  const lotId = tipo === 'ingredient' ? document.getElementById('campo-lote-tempero-lote').value || null : null;
 
   if (!referenciaId) {
     dicaErro.textContent = tipo === 'recipe' ? 'Selecione um preparo.' : 'Selecione um ingrediente.';
@@ -1872,8 +2029,12 @@ function adicionarComponenteTempero() {
     dicaErro.style.display = '';
     return;
   }
-  if (componentesLoteEmEdicao.some((c) => c.tipoItem === tipo && c.referenciaId === referenciaId)) {
-    dicaErro.textContent = tipo === 'recipe' ? 'Este preparo já foi adicionado a este lote.' : 'Este ingrediente já foi adicionado a este lote.';
+  // Chave de duplicidade inclui lotId (item 21-23 do pedido G4) — mesma
+  // regra já validada na RPC (Etapa G2): permite o mesmo ingrediente em
+  // lotes diferentes, continua bloqueando o mesmo ingrediente+mesmo lote
+  // (ou mesmo ingrediente sem lote) repetido.
+  if (componentesLoteEmEdicao.some((c) => c.tipoItem === tipo && c.referenciaId === referenciaId && (c.lotId || null) === lotId)) {
+    dicaErro.textContent = tipo === 'recipe' ? 'Este preparo já foi adicionado a este lote.' : 'Este ingrediente já foi adicionado a este lote (mesmo lote, ou sem lote).';
     dicaErro.style.display = '';
     return;
   }
@@ -1901,16 +2062,29 @@ function adicionarComponenteTempero() {
       dicaErro.style.display = '';
       return;
     }
+    const lote = lotId ? lotePorId(lotId) : null;
     nome = ingrediente.nome;
-    unidade = ingrediente.unidadeBase;
-    custoPorUnidadePreview = ingrediente.custoPorUnidadeBase;
+    unidade = lote ? lote.unidadeBase : ingrediente.unidadeBase;
+    custoPorUnidadePreview = lote ? lote.custoPorUnidadeBase : ingrediente.custoPorUnidadeBase;
+
+    if (lote) {
+      const idLoteAtual = document.getElementById('campo-id-lote-espeto').value || null;
+      const saldoEfetivo = saldoEfetivoLoteParaEdicao(lote.id, 'skewer_production', idLoteAtual);
+      if (quantidade > saldoEfetivo) {
+        dicaErro.textContent = 'Quantidade maior que o saldo disponível neste lote.';
+        dicaErro.style.display = '';
+        return;
+      }
+    }
   }
 
   dicaErro.style.display = 'none';
-  componentesLoteEmEdicao.push({ tipoItem: tipo, referenciaId, quantidade, unidade, nome, custoPorUnidadePreview });
+  componentesLoteEmEdicao.push({ tipoItem: tipo, referenciaId, quantidade, unidade, nome, custoPorUnidadePreview, lotId });
 
   document.getElementById('campo-quantidade-tempero-lote').value = '';
   document.getElementById('preview-tempero-lote').textContent = '';
+  document.getElementById('dica-tempero-lote-saldo-insuficiente').style.display = 'none';
+  popularOpcoesLoteTemperoLote(tipo === 'ingredient' ? referenciaId : null, null);
   renderizarListasComponentesLote();
 }
 
@@ -2066,6 +2240,15 @@ function ligarEventosModalLoteEspeto() {
     atualizarPreviewTemperoLote();
   });
   document.getElementById('campo-referencia-tempero-lote').addEventListener('change', () => {
+    // Etapa G4 (item 12): trocar o ingrediente/preparo limpa o lote
+    // selecionado imediatamente — nunca preserva o lote do ingrediente anterior.
+    const tipo = document.getElementById('campo-tipo-tempero-lote').value;
+    const referenciaId = document.getElementById('campo-referencia-tempero-lote').value;
+    popularOpcoesLoteTemperoLote(tipo === 'ingredient' ? referenciaId || null : null, null);
+    atualizarUnidadeTemperoLote();
+    atualizarPreviewTemperoLote();
+  });
+  document.getElementById('campo-lote-tempero-lote').addEventListener('change', () => {
     atualizarUnidadeTemperoLote();
     atualizarPreviewTemperoLote();
   });
@@ -2116,6 +2299,7 @@ function reiniciarFormularioCustosAdicionaisLote() {
   document.getElementById('campo-quantidade-tempero-lote').value = '';
   document.getElementById('preview-tempero-lote').textContent = '';
   document.getElementById('dica-tempero-lote-erro').style.display = 'none';
+  document.getElementById('dica-tempero-lote-saldo-insuficiente').style.display = 'none';
 
   renderizarListasComponentesLote();
 }
@@ -2187,6 +2371,7 @@ function abrirModalLoteEspeto(id) {
     unidade: c.unidade,
     nome: c.nomeSnapshot,
     custoPorUnidadePreview: c.custoPorUnidadeSnapshot,
+    lotId: c.lotId || null,
   }));
   reiniciarFormularioCustosAdicionaisLote();
   renderizarBlocoCustoProduto(lote);
@@ -2276,6 +2461,7 @@ function montarComponentesPayloadParaSalvar() {
         referenciaId: componente.referenciaId,
         quantidade: componente.quantidade,
         unidade: componente.unidade,
+        lotId: componente.lotId || null,
       };
     }
 
@@ -2658,7 +2844,46 @@ function popularOpcoesComponenteAcompanhamento() {
   }
   select.innerHTML = candidatos.map((c) => `<option value="${c.id}">${escaparHtml(c.nome)}</option>`).join('');
 
+  popularOpcoesLoteComponenteAcompanhamento(tipo === 'ingredient' ? select.value || null : null, null);
   atualizarUnidadeComponenteAcompanhamento();
+}
+
+/**
+ * Etapa G4 — equivalente exato de popularOpcoesLoteTemperoLote (Espetos),
+ * só com ids trocados. Só relevante para item_type='ingredient'.
+ */
+function popularOpcoesLoteComponenteAcompanhamento(ingredienteId, loteAtualId) {
+  const grupo = document.getElementById('grupo-lote-componente-acompanhamento');
+  const select = document.getElementById('campo-lote-componente-acompanhamento');
+  const dicaNenhum = document.getElementById('dica-lote-componente-acompanhamento-nenhum-disponivel');
+  const dicaSemItem = document.getElementById('dica-lote-componente-acompanhamento-sem-vinculo');
+
+  if (!ingredienteId) {
+    grupo.style.display = 'none';
+    select.innerHTML = '';
+    return;
+  }
+  grupo.style.display = '';
+
+  const itemCompra = itemCompraDoIngrediente(ingredienteId);
+  dicaSemItem.style.display = itemCompra ? 'none' : '';
+
+  const disponiveis = itemCompra ? lotesDisponiveisDoItemCompra(itemCompra.id) : [];
+  const loteHistorico = loteAtualId ? lotePorId(loteAtualId) : null;
+  const jaNaLista = loteHistorico && disponiveis.some((l) => l.id === loteHistorico.id);
+
+  dicaNenhum.style.display = itemCompra && disponiveis.length === 0 && !loteHistorico ? '' : 'none';
+
+  const opcoes = ['<option value="">Sem lote / custo cadastrado</option>'];
+  if (loteHistorico && !jaNaLista) {
+    opcoes.push(`<option value="${loteHistorico.id}">${escaparHtml(rotuloLote(loteHistorico, { usadoNesteBatch: true }))}</option>`);
+  }
+  disponiveis.forEach((lote, indice) => {
+    const sugerido = indice === 0 ? ' (Sugerido — mais antigo)' : '';
+    opcoes.push(`<option value="${lote.id}">${escaparHtml(rotuloLote(lote))}${sugerido}</option>`);
+  });
+  select.innerHTML = opcoes.join('');
+  select.value = loteAtualId || '';
 }
 
 function atualizarUnidadeComponenteAcompanhamento() {
@@ -2674,17 +2899,27 @@ function atualizarUnidadeComponenteAcompanhamento() {
     const rendimento = calcularRendimentoReceita(referenciaId);
     textoUnidade.textContent = rendimento.disponivel ? rendimento.unidade : '—';
   } else {
-    const ingrediente = ingredientePorId(referenciaId);
-    textoUnidade.textContent = ingrediente ? ingrediente.unidadeBase : '—';
+    // Etapa G4: lote selecionado trava a unidade em lote.unidadeBase.
+    const loteId = document.getElementById('campo-lote-componente-acompanhamento').value;
+    const lote = loteId ? lotePorId(loteId) : null;
+    if (lote) {
+      textoUnidade.textContent = lote.unidadeBase;
+    } else {
+      const ingrediente = ingredientePorId(referenciaId);
+      textoUnidade.textContent = ingrediente ? ingrediente.unidadeBase : '—';
+    }
   }
 }
 
 /** Reaproveita custoTotalReceita/calcularRendimentoReceita (Fichas Técnicas) pra Preparo, e cost_per_base_unit direto pra Ingrediente — nunca duplica fórmula. */
 function atualizarPreviewComponenteAcompanhamento() {
   const preview = document.getElementById('preview-componente-acompanhamento');
+  const dicaSaldo = document.getElementById('dica-componente-acompanhamento-lote-saldo-insuficiente');
   const tipo = document.getElementById('campo-tipo-componente-acompanhamento').value;
   const referenciaId = document.getElementById('campo-referencia-componente-acompanhamento').value;
   const quantidade = Number(document.getElementById('campo-quantidade-componente-acompanhamento').value);
+
+  dicaSaldo.style.display = 'none';
 
   if (!referenciaId || !Number.isFinite(quantidade) || quantidade <= 0) {
     preview.textContent = '';
@@ -2711,8 +2946,22 @@ function atualizarPreviewComponenteAcompanhamento() {
       preview.textContent = '';
       return;
     }
-    const custoEstimado = quantidade * ingrediente.custoPorUnidadeBase;
-    preview.textContent = `${quantidade} ${ingrediente.unidadeBase} × ${formatarCustoBaseIngrediente(ingrediente.custoPorUnidadeBase, ingrediente.unidadeBase)} = ${formatarMoeda(custoEstimado)}`;
+    // Etapa G4: lote selecionado é a fonte do custo — nunca o cadastro
+    // atual do ingrediente quando um lote específico manda.
+    const loteId = document.getElementById('campo-lote-componente-acompanhamento').value;
+    const lote = loteId ? lotePorId(loteId) : null;
+    const custoPorUnidade = lote ? lote.custoPorUnidadeBase : ingrediente.custoPorUnidadeBase;
+    const unidadeExibicao = lote ? lote.unidadeBase : ingrediente.unidadeBase;
+    const custoEstimado = quantidade * custoPorUnidade;
+    preview.textContent = `${quantidade} ${unidadeExibicao} × ${formatarCustoBaseIngrediente(custoPorUnidade, unidadeExibicao)} = ${formatarMoeda(custoEstimado)}`;
+
+    if (lote) {
+      const idLoteAtual = document.getElementById('campo-id-lote-acompanhamento').value || null;
+      const saldoEfetivo = saldoEfetivoLoteParaEdicao(lote.id, 'side_production', idLoteAtual);
+      if (quantidade > saldoEfetivo) {
+        dicaSaldo.style.display = '';
+      }
+    }
   }
 }
 
@@ -2722,6 +2971,7 @@ function adicionarComponenteAcompanhamento() {
   const tipo = document.getElementById('campo-tipo-componente-acompanhamento').value;
   const referenciaId = document.getElementById('campo-referencia-componente-acompanhamento').value;
   const quantidade = Number(document.getElementById('campo-quantidade-componente-acompanhamento').value);
+  const lotId = tipo === 'ingredient' ? document.getElementById('campo-lote-componente-acompanhamento').value || null : null;
 
   if (!referenciaId) {
     dicaErro.textContent = tipo === 'recipe' ? 'Selecione um preparo.' : 'Selecione um ingrediente.';
@@ -2733,8 +2983,8 @@ function adicionarComponenteAcompanhamento() {
     dicaErro.style.display = '';
     return;
   }
-  if (componentesAcompanhamentoEmEdicao.some((c) => c.tipoItem === tipo && c.referenciaId === referenciaId)) {
-    dicaErro.textContent = tipo === 'recipe' ? 'Este preparo já foi adicionado a este lote.' : 'Este ingrediente já foi adicionado a este lote.';
+  if (componentesAcompanhamentoEmEdicao.some((c) => c.tipoItem === tipo && c.referenciaId === referenciaId && (c.lotId || null) === lotId)) {
+    dicaErro.textContent = tipo === 'recipe' ? 'Este preparo já foi adicionado a este lote.' : 'Este ingrediente já foi adicionado a este lote (mesmo lote, ou sem lote).';
     dicaErro.style.display = '';
     return;
   }
@@ -2762,16 +3012,29 @@ function adicionarComponenteAcompanhamento() {
       dicaErro.style.display = '';
       return;
     }
+    const lote = lotId ? lotePorId(lotId) : null;
     nome = ingrediente.nome;
-    unidade = ingrediente.unidadeBase;
-    custoPorUnidadePreview = ingrediente.custoPorUnidadeBase;
+    unidade = lote ? lote.unidadeBase : ingrediente.unidadeBase;
+    custoPorUnidadePreview = lote ? lote.custoPorUnidadeBase : ingrediente.custoPorUnidadeBase;
+
+    if (lote) {
+      const idLoteAtual = document.getElementById('campo-id-lote-acompanhamento').value || null;
+      const saldoEfetivo = saldoEfetivoLoteParaEdicao(lote.id, 'side_production', idLoteAtual);
+      if (quantidade > saldoEfetivo) {
+        dicaErro.textContent = 'Quantidade maior que o saldo disponível neste lote.';
+        dicaErro.style.display = '';
+        return;
+      }
+    }
   }
 
   dicaErro.style.display = 'none';
-  componentesAcompanhamentoEmEdicao.push({ tipoItem: tipo, referenciaId, quantidade, unidade, nome, custoPorUnidadePreview });
+  componentesAcompanhamentoEmEdicao.push({ tipoItem: tipo, referenciaId, quantidade, unidade, nome, custoPorUnidadePreview, lotId });
 
   document.getElementById('campo-quantidade-componente-acompanhamento').value = '';
   document.getElementById('preview-componente-acompanhamento').textContent = '';
+  document.getElementById('dica-componente-acompanhamento-lote-saldo-insuficiente').style.display = 'none';
+  popularOpcoesLoteComponenteAcompanhamento(tipo === 'ingredient' ? referenciaId : null, null);
   renderizarListaComponentesAcompanhamento();
 }
 
@@ -2800,6 +3063,11 @@ function linhaComponenteAcompanhamentoHtml(componente) {
   const tipoLabel = componente.tipoItem === 'recipe' ? 'Preparo' : 'Ingrediente';
   const quantidadeTexto = Number.isInteger(componente.quantidade) ? componente.quantidade : componente.quantidade.toString().replace('.', ',');
   const custoLinha = componente.quantidade * componente.custoPorUnidadePreview;
+  // Etapa G4: resumo de lote abaixo do nome — só quando o componente tem lotId.
+  const loteDoComponente = componente.lotId ? lotePorId(componente.lotId) : null;
+  const linhaLote = loteDoComponente
+    ? `<div class="producao-linha-componente-lote-detalhe">Lote ${formatarDataProducao(loteDoComponente.recebidoEm)} · ${formatarCustoBaseIngrediente(loteDoComponente.custoPorUnidadeBase, loteDoComponente.unidadeBase)}</div>`
+    : '';
 
   return `
     <div class="producao-linha-componente-lote">
@@ -2808,7 +3076,7 @@ function linhaComponenteAcompanhamentoHtml(componente) {
       <span class="producao-linha-componente-quantidade">${quantidadeTexto} ${componente.unidade}</span>
       <span class="producao-linha-componente-custo">${formatarMoeda(custoLinha)}</span>
       <button type="button" class="btn-icone" data-acao-remover-componente-acompanhamento="${indice}" title="Remover" ${souAdminProducao ? '' : 'disabled'}>🗑️</button>
-    </div>`;
+    </div>${linhaLote}`;
 }
 
 function removerComponenteAcompanhamento(indice) {
@@ -3064,6 +3332,15 @@ function ligarEventosModalLoteAcompanhamento() {
     atualizarPreviewComponenteAcompanhamento();
   });
   document.getElementById('campo-referencia-componente-acompanhamento').addEventListener('change', () => {
+    // Etapa G4 (item 12): trocar o ingrediente/preparo limpa o lote
+    // selecionado imediatamente.
+    const tipo = document.getElementById('campo-tipo-componente-acompanhamento').value;
+    const referenciaId = document.getElementById('campo-referencia-componente-acompanhamento').value;
+    popularOpcoesLoteComponenteAcompanhamento(tipo === 'ingredient' ? referenciaId || null : null, null);
+    atualizarUnidadeComponenteAcompanhamento();
+    atualizarPreviewComponenteAcompanhamento();
+  });
+  document.getElementById('campo-lote-componente-acompanhamento').addEventListener('change', () => {
     atualizarUnidadeComponenteAcompanhamento();
     atualizarPreviewComponenteAcompanhamento();
   });
@@ -3078,6 +3355,7 @@ function reiniciarFormularioComponenteAcompanhamento() {
   document.getElementById('campo-quantidade-componente-acompanhamento').value = '';
   document.getElementById('preview-componente-acompanhamento').textContent = '';
   document.getElementById('dica-componente-acompanhamento-erro').style.display = 'none';
+  document.getElementById('dica-componente-acompanhamento-lote-saldo-insuficiente').style.display = 'none';
   renderizarListaComponentesAcompanhamento();
 }
 
@@ -3137,6 +3415,7 @@ function abrirModalLoteAcompanhamento(id) {
     unidade: c.unidade,
     nome: c.nomeSnapshot,
     custoPorUnidadePreview: c.custoPorUnidadeSnapshot,
+    lotId: c.lotId || null,
   }));
   reiniciarFormularioComponenteAcompanhamento();
   renderizarBlocoCustoAcompanhamentoProduto(lote);
@@ -3185,6 +3464,7 @@ function montarComponentesPayloadParaSalvarAcompanhamento() {
         referenciaId: componente.referenciaId,
         quantidade: componente.quantidade,
         unidade: componente.unidade,
+        lotId: componente.lotId || null,
       };
     }
 
