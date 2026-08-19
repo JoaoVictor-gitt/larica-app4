@@ -1,0 +1,295 @@
+/*
+ * compras.css
+ * Área Compras: grade de cards (Registrar Compra / Itens de Compra /
+ * Fornecedores / Lotes em Estoque / Histórico de Compras) + navegação
+ * interna entre a central e cada seção (mesmo padrão de producao.css,
+ * classes próprias com prefixo compras- porque as páginas não compartilham
+ * CSS entre si). .dica-campo é redefinida aqui (só existe em producao.css
+ * hoje, que esta página não carrega) — mesmo estilo exato.
+ */
+
+.dica-campo {
+  margin: 0 0 var(--espaco-md);
+  font-size: 0.78rem;
+  color: var(--cor-texto-secundario);
+}
+
+.compras-central {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-xl);
+}
+
+.compras-card {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-md);
+  padding: var(--espaco-lg);
+  background: var(--cor-branco);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-md);
+  box-shadow: var(--sombra-sm);
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  transition: box-shadow var(--transicao-padrao), transform var(--transicao-padrao), border-color var(--transicao-rapida);
+}
+
+.compras-card:hover {
+  box-shadow: var(--sombra-md);
+  transform: translateY(-2px);
+  border-color: var(--cor-terracota);
+}
+
+.compras-card:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: 2px;
+}
+
+.compras-card-icone {
+  font-size: 1.6rem;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: var(--raio-md);
+  background: var(--cor-cinza-claro);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.compras-card-texto {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.compras-card-texto strong { font-size: 0.98rem; color: var(--cor-texto); }
+.compras-card-texto span { font-size: 0.82rem; color: var(--cor-texto-secundario); }
+
+.compras-card-seta {
+  font-size: 1.1rem;
+  color: var(--cor-texto-secundario);
+  flex-shrink: 0;
+}
+
+/* Seções (subtelas) — escondidas por padrão; a central some quando uma abre */
+.compras-secao {
+  display: none;
+}
+
+.compras-secao.compras-secao-ativa {
+  display: block;
+}
+
+.compras-botao-voltar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--espaco-xs);
+  background: none;
+  border: none;
+  padding: 0;
+  margin-bottom: var(--espaco-md);
+  color: var(--cor-texto-secundario);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.compras-botao-voltar:hover { color: var(--cor-terracota); }
+
+.compras-botao-voltar:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: 2px;
+}
+
+.compras-secao-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-sm);
+}
+
+.compras-secao-cabecalho h2 { margin: 0; }
+
+.compras-subtitulo {
+  font-size: 0.95rem;
+  margin: var(--espaco-lg) 0 var(--espaco-sm);
+}
+
+.compras-tabela-wrap { padding: 0; overflow-x: auto; }
+.compras-tabela-wrap .tabela { min-width: 760px; }
+
+.compras-filtros {
+  display: flex;
+  gap: var(--espaco-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--espaco-md);
+}
+
+/*
+ * Modal alto — modificador escopado só a esta página, mesma técnica já
+ * validada em producao.css: só o corpo rola, cabeçalho e rodapé ficam
+ * sempre visíveis. Sem listener de fechamento por backdrop em nenhum
+ * modal desta página (estado final já corrigido em Produção).
+ */
+.modal.compras-modal-rolavel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.compras-modal-rolavel > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.compras-modal-rolavel .modal-corpo {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.compras-modal-rolavel .modal-cabecalho,
+.compras-modal-rolavel .modal-rodape {
+  flex-shrink: 0;
+}
+
+.compras-preview-custo {
+  font-size: 0.85rem;
+  color: var(--cor-texto-secundario);
+  background: var(--cor-cinza-claro);
+  border-left: 3px solid var(--cor-terracota);
+  padding: var(--espaco-sm) var(--espaco-md);
+  border-radius: var(--raio-sm);
+  min-height: 1.2em;
+}
+
+/* Linhas da Compra — lista de itens já adicionados ao formulário de Registrar Compra */
+.compras-lista-linhas-compra {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: var(--espaco-xs);
+}
+
+.compras-linha-linha-compra {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  padding: 6px var(--espaco-sm);
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-sm);
+  font-size: 0.85rem;
+}
+
+.compras-linha-linha-compra-nome {
+  flex: 2;
+  min-width: 100px;
+  font-weight: 600;
+}
+
+.compras-linha-linha-compra-quantidade {
+  flex: 1;
+  min-width: 80px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.compras-linha-linha-compra-preco {
+  flex: 1;
+  min-width: 80px;
+  text-align: right;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.compras-linha-linha-compra-validade {
+  flex: 1;
+  min-width: 90px;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--cor-texto-secundario);
+  font-size: 0.78rem;
+}
+
+.compras-adicionar-linha {
+  display: flex;
+  gap: var(--espaco-sm);
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: var(--espaco-xs);
+}
+
+.compras-botao-adicionar-linha {
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 1px;
+}
+
+/* Resumo (Total da compra) e valor restante de lote — mesmo layout já validado em Produção */
+.compras-resumo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  margin-bottom: var(--espaco-md);
+  font-size: 0.9rem;
+}
+
+.compras-resumo-destaque {
+  display: flex;
+  justify-content: space-between;
+  font-size: 1.05rem;
+}
+
+.compras-resumo-destaque strong {
+  color: var(--cor-terracota);
+  font-size: 1.2rem;
+}
+
+.compras-rodape-secao {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--espaco-sm);
+  margin-top: var(--espaco-md);
+}
+
+/* Lotes em Estoque — colunas numéricas alinhadas à direita */
+#corpo-tabela-lotes td:nth-child(4),
+#corpo-tabela-lotes td:nth-child(5),
+#corpo-tabela-lotes td:nth-child(7),
+#corpo-tabela-lotes td:nth-child(8) {
+  text-align: right;
+}
+
+#corpo-tabela-lotes td:nth-child(9) {
+  text-align: center;
+}
+
+/* Histórico de Compras — colunas numéricas alinhadas à direita */
+#corpo-tabela-historico-compras td:nth-child(3),
+#corpo-tabela-historico-compras td:nth-child(4),
+#corpo-tabela-historico-compras td:nth-child(5) {
+  text-align: right;
+}
+
+#corpo-tabela-historico-compras td:last-child {
+  text-align: right;
+}
+
+/* Itens de Compra / Fornecedores — mesma estrutura de tabela já usada em Produção */
+#corpo-tabela-itens-compra td:nth-child(1) { font-weight: 600; }
+#corpo-tabela-itens-compra td:nth-child(3) { text-align: center; }
+#corpo-tabela-itens-compra td:last-child { text-align: right; }
+
+#corpo-tabela-fornecedores td:nth-child(1) { font-weight: 600; }
+#corpo-tabela-fornecedores td:last-child { text-align: right; }
