@@ -449,22 +449,21 @@
           </div>
 
           <!-- Lote da compra vinculado à CARNE PRINCIPAL do header
-               (skewer_production_batches.lot_id/ingredient_id) — mecanismo
-               independente do seletor de lote dos componentes (Ingredientes/
-               Temperos/Preparos, mais abaixo, que grava em
-               skewer_batch_components.lot_id). O ingredient_id da carne é
-               sempre DERIVADO do purchase_item vinculado ao lote escolhido
-               (lot -> purchase_item -> ingredient_id), nunca escolhido
-               manualmente — não existe (e não é criado aqui) nenhum vínculo
-               produto->ingrediente por nome; o usuário escolhe explicitamente
-               qual lote de carne está usando, mesmo que o nome do item de
-               compra não bata com o nome do Produto selecionado acima. -->
+               (skewer_production_batches.lot_id) — mecanismo independente do
+               seletor de lote dos componentes (Ingredientes/Temperos/
+               Preparos, mais abaixo, que grava em
+               skewer_batch_components.lot_id e usa purchase_items.
+               ingredient_id). A carne principal usa o vínculo Produto:
+               products.id -> purchase_items.product_id -> lots (nunca
+               ingredient_id, nunca heurística por nome) — os lotes exibidos
+               aqui dependem só do PRODUTO selecionado acima. -->
           <div class="form-grupo producao-campo-lote" id="grupo-lote-carne-lote">
             <label for="campo-lote-carne-lote">Lote da carne</label>
             <select id="campo-lote-carne-lote" class="input">
               <option value="">Sem lote / custo manual</option>
             </select>
-            <p class="dica-campo" id="dica-lote-carne-nenhum-disponivel" style="display:none;">Nenhum lote de carne disponível. Verifique se o item de compra correspondente controla estoque, está vinculado a um ingrediente, e possui saldo em gramas.</p>
+            <p class="dica-campo" id="dica-lote-carne-sem-vinculo" style="display:none;">Este produto ainda não está vinculado a um Item de Compra.</p>
+            <p class="dica-campo" id="dica-lote-carne-nenhum-disponivel" style="display:none;">Nenhum lote disponível para este produto.</p>
             <p class="dica-campo" id="texto-saldo-lote-carne" style="display:none;"></p>
             <p class="dica-campo" id="dica-lote-carne-saldo-insuficiente" style="display:none; color:var(--cor-status-vermelho);">Peso bruto maior que o saldo disponível neste lote.</p>
           </div>
