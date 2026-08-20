@@ -530,6 +530,10 @@ function itemCompraDoIngrediente(ingredienteId) {
   return itensCompraCache.find((i) => i.ingredienteId === ingredienteId);
 }
 
+function itemCompraPorId(id) {
+  return itensCompraCache.find((i) => i.id === id);
+}
+
 function lotePorId(id) {
   return lotesCache.find((l) => l.id === id);
 }
@@ -1685,59 +1689,63 @@ function popularOpcoesProdutoLote(produtoAtualId) {
   select.innerHTML = opcoesHtml;
 }
 
-function popularOpcoesIngredienteLote(ingredienteAtualId) {
-  const select = document.getElementById('campo-ingrediente-lote');
-  const ativos = ingredientesCache.filter((i) => i.ativo).sort((a, b) => a.nome.localeCompare(b.nome));
+/**
+ * Etapa H3 (ajuste) — candidatos ao lote da CARNE PRINCIPAL: todos os
+ * lotes 'available'/saldo>0 de QUALQUER purchase_item elegível
+ * (tracks_stock=true, base_unit='g', ingredient_id preenchido) — nunca
+ * depende de nenhum ingrediente escolhido manualmente (esse campo foi
+ * removido da UI; ver rotuloLoteCarne/popularOpcoesLoteCarneLote). Não
+ * existe (e não é criado aqui) nenhum vínculo produto->ingrediente por
+ * nome — o usuário sempre escolhe explicitamente qual carne está usando,
+ * o nome do item de compra é sempre mostrado no label pra isso.
+ */
+function lotesCandidatosParaCarnePrincipal() {
+  const itensElegiveis = itensCompraCache.filter((i) => i.controlaEstoque && i.unidadeBase === 'g' && i.ingredienteId);
+  const idsElegiveis = new Set(itensElegiveis.map((i) => i.id));
+  return lotesCache
+    .filter((l) => idsElegiveis.has(l.itemCompraId) && l.status === 'available' && l.quantidadeRestante > 0)
+    .sort((a, b) => {
+      const nomeA = (itemCompraPorId(a.itemCompraId) || {}).nome || '';
+      const nomeB = (itemCompraPorId(b.itemCompraId) || {}).nome || '';
+      if (nomeA !== nomeB) return nomeA.localeCompare(nomeB);
+      return a.recebidoEm < b.recebidoEm ? -1 : a.recebidoEm > b.recebidoEm ? 1 : a.id.localeCompare(b.id);
+    });
+}
 
-  let opcoesHtml = '<option value="">— Nenhum —</option>' + ativos.map((i) => `<option value="${i.id}">${escaparHtml(i.nome)}</option>`).join('');
-
-  const atual = ingredienteAtualId ? ingredientePorId(ingredienteAtualId) : null;
-  if (atual && !ativos.some((i) => i.id === atual.id)) {
-    opcoesHtml += `<option value="${atual.id}">${escaparHtml(atual.nome)} (inativo)</option>`;
-  }
-
-  select.innerHTML = opcoesHtml;
+/** Mesmo formato de rotuloLote (G4), com o nome do item de compra prefixado — essencial aqui porque o usuário escolhe entre lotes de itens/ingredientes diferentes num único select (item 9 do pedido: "Contra Filé · 19/08/2026 · 500 g · €0,020000/g"). */
+function rotuloLoteCarne(lote, opcoes) {
+  const itemCompra = itemCompraPorId(lote.itemCompraId);
+  const nomeItem = itemCompra ? itemCompra.nome : '(item removido)';
+  return `${nomeItem} · ${rotuloLote(lote, opcoes)}`;
 }
 
 /**
- * Etapa H3 — lote da CARNE PRINCIPAL (header, não é componente). Mesmo
- * padrão de popularOpcoesLoteTemperoLote (G4): loteAtualId sempre aparece
- * como opção histórica mesmo esgotado/fora da lista de disponíveis, nunca
- * troca sozinho; FIFO (recebidoEm ASC) só marca "Sugerido", nunca
- * pré-seleciona. Só considera lotes base_unit='g' (a carne sempre é medida
- * em gramas) — um purchase_item com base_unit diferente nunca aparece
- * aqui, mesmo que exista (defesa em profundidade; o backend também valida
- * isso).
+ * Etapa H3 (ajuste) — "Lote da carne" no topo do modal. loteAtualId sempre
+ * aparece como opção histórica mesmo esgotado/fora da lista de
+ * disponíveis, nunca troca sozinho. FIFO (recebidoEm ASC) só marca
+ * "Sugerido — mais antigo" dentro do MESMO item de compra — nunca sugere
+ * um lote de um item diferente do que já está sugerido para outro.
  */
-function popularOpcoesLoteCarneLote(ingredienteId, loteAtualId) {
-  const grupo = document.getElementById('grupo-lote-carne-lote');
+function popularOpcoesLoteCarneLote(loteAtualId) {
   const select = document.getElementById('campo-lote-carne-lote');
-  const dicaSemVinculo = document.getElementById('dica-lote-carne-sem-vinculo');
   const dicaNenhum = document.getElementById('dica-lote-carne-nenhum-disponivel');
 
-  if (!ingredienteId) {
-    grupo.style.display = 'none';
-    select.innerHTML = '<option value="">Sem lote / custo manual</option>';
-    return;
-  }
-  grupo.style.display = '';
-
-  const itemCompra = itemCompraDoIngrediente(ingredienteId);
-  dicaSemVinculo.style.display = itemCompra ? 'none' : '';
-
-  const disponiveis = itemCompra ? lotesDisponiveisDoItemCompra(itemCompra.id).filter((l) => l.unidadeBase === 'g') : [];
+  const disponiveis = lotesCandidatosParaCarnePrincipal();
   const loteHistorico = loteAtualId ? lotePorId(loteAtualId) : null;
   const jaNaLista = loteHistorico && disponiveis.some((l) => l.id === loteHistorico.id);
 
-  dicaNenhum.style.display = itemCompra && disponiveis.length === 0 && !loteHistorico ? '' : 'none';
+  dicaNenhum.style.display = disponiveis.length === 0 && !loteHistorico ? '' : 'none';
 
   const opcoes = ['<option value="">Sem lote / custo manual</option>'];
   if (loteHistorico && !jaNaLista) {
-    opcoes.push(`<option value="${loteHistorico.id}">${escaparHtml(rotuloLote(loteHistorico, { usadoNesteBatch: true }))}</option>`);
+    opcoes.push(`<option value="${loteHistorico.id}">${escaparHtml(rotuloLoteCarne(loteHistorico, { usadoNesteBatch: true }))}</option>`);
   }
-  disponiveis.forEach((lote, indice) => {
-    const sugerido = indice === 0 ? ' (Sugerido — mais antigo)' : '';
-    opcoes.push(`<option value="${lote.id}">${escaparHtml(rotuloLote(lote))}${sugerido}</option>`);
+  const itensJaSugeridos = new Set();
+  disponiveis.forEach((lote) => {
+    const primeiroDoItem = !itensJaSugeridos.has(lote.itemCompraId);
+    itensJaSugeridos.add(lote.itemCompraId);
+    const sugerido = primeiroDoItem ? ' (Sugerido — mais antigo)' : '';
+    opcoes.push(`<option value="${lote.id}">${escaparHtml(rotuloLoteCarne(lote))}${sugerido}</option>`);
   });
   select.innerHTML = opcoes.join('');
   select.value = loteAtualId || '';
@@ -2285,14 +2293,16 @@ function ligarEventosModalLoteEspeto() {
   document.getElementById('form-lote-espeto').addEventListener('submit', salvarFormularioLoteEspeto);
   document.getElementById('botao-aplicar-custo-produto').addEventListener('click', aplicarCustoAoProdutoModal);
 
-  document.getElementById('campo-ingrediente-lote').addEventListener('change', () => {
-    // Etapa H3: trocar o ingrediente da carne limpa o lote imediatamente —
-    // nunca mantém o lote de um ingrediente anterior (item 17 do pedido).
-    const ingredienteId = document.getElementById('campo-ingrediente-lote').value || null;
-    popularOpcoesLoteCarneLote(ingredienteId, null);
+  document.getElementById('campo-lote-carne-lote').addEventListener('change', () => {
+    // Etapa H3 (ajuste): trocar o lote deriva o ingredient_id do
+    // purchase_item vinculado a ele — nunca escolhido manualmente (item
+    // 12 do pedido: lotId, ingredientId, custo e saldo atualizados juntos).
+    const loteId = document.getElementById('campo-lote-carne-lote').value || null;
+    const lote = loteId ? lotePorId(loteId) : null;
+    const itemCompra = lote ? itemCompraPorId(lote.itemCompraId) : null;
+    ingredienteIdCarnePrincipal = itemCompra ? itemCompra.ingredienteId : null;
     atualizarPreviewLoteEspeto();
   });
-  document.getElementById('campo-lote-carne-lote').addEventListener('change', atualizarPreviewLoteEspeto);
 
   document.getElementById('campo-supply-lote').addEventListener('change', () => {
     sugerirQuantidadePalito();
@@ -2362,6 +2372,17 @@ function preencherCampoPeso(idValor, idUnidade, valorG) {
  * por abrirModalLoteEspeto, resetada automaticamente na primeira chamada.
  */
 let ignorarRecalculoCustoCarneNaProximaChamada = false;
+
+/**
+ * Etapa H3 (ajuste) — ingredient_id da carne principal, sempre DERIVADO do
+ * purchase_item vinculado ao lote escolhido em #campo-lote-carne-lote
+ * (lot -> purchase_item -> ingredient_id), nunca escolhido manualmente
+ * (o campo visual "Ingrediente da carne" foi removido). null no modo sem
+ * lote. Estado interno só — a RPC continua exigindo p_ingredient_id
+ * quando p_lot_id da carne está presente (H2), então este valor é o que
+ * vai no payload de salvamento.
+ */
+let ingredienteIdCarnePrincipal = null;
 
 /**
  * Alterna o campo "Valor total da carne (€)" entre editável (sem lote) e
@@ -2434,10 +2455,9 @@ function abrirModalNovoLoteEspeto() {
   document.getElementById('titulo-modal-lote-espeto').textContent = 'Novo Lote de Produção';
   document.getElementById('campo-id-lote-espeto').value = '';
   popularOpcoesProdutoLote(null);
-  popularOpcoesIngredienteLote(null);
   document.getElementById('campo-produto-lote').value = '';
-  document.getElementById('campo-ingrediente-lote').value = '';
-  popularOpcoesLoteCarneLote(null, null);
+  ingredienteIdCarnePrincipal = null;
+  popularOpcoesLoteCarneLote(null);
   document.getElementById('campo-data-lote').value = dataHojeLocal();
   document.getElementById('campo-peso-bruto-lote').value = '';
   document.getElementById('campo-unidade-peso-bruto-lote').value = 'kg';
@@ -2475,10 +2495,21 @@ function abrirModalLoteEspeto(id) {
   document.getElementById('titulo-modal-lote-espeto').textContent = 'Editar Lote de Produção';
   document.getElementById('campo-id-lote-espeto').value = lote.id;
   popularOpcoesProdutoLote(lote.produtoId);
-  popularOpcoesIngredienteLote(lote.ingredienteId);
   document.getElementById('campo-produto-lote').value = lote.produtoId;
-  document.getElementById('campo-ingrediente-lote').value = lote.ingredienteId || '';
-  popularOpcoesLoteCarneLote(lote.ingredienteId || null, lote.lotId || null);
+
+  // Etapa H3 (ajuste, item 14): ingredient_id da carne reconstruído a
+  // partir do próprio lote histórico (lote → purchase_item →
+  // ingredient_id) — nunca do campo visual removido. lote.ingredienteId
+  // (header já persistido) é usado só como fallback defensivo se o lote
+  // de compra não for encontrado no cache por algum motivo.
+  if (lote.lotId) {
+    const loteCompraHistorico = lotePorId(lote.lotId);
+    const itemCompraHistorico = loteCompraHistorico ? itemCompraPorId(loteCompraHistorico.itemCompraId) : null;
+    ingredienteIdCarnePrincipal = itemCompraHistorico ? itemCompraHistorico.ingredienteId : lote.ingredienteId || null;
+  } else {
+    ingredienteIdCarnePrincipal = lote.ingredienteId || null;
+  }
+  popularOpcoesLoteCarneLote(lote.lotId || null);
   document.getElementById('campo-data-lote').value = lote.produzidoEm;
 
   preencherCampoPeso('campo-peso-bruto-lote', 'campo-unidade-peso-bruto-lote', lote.pesoBrutoG);
@@ -2625,7 +2656,10 @@ async function salvarFormularioLoteEspeto(evento) {
 
   const id = document.getElementById('campo-id-lote-espeto').value;
   const produtoId = document.getElementById('campo-produto-lote').value;
-  const ingredienteId = document.getElementById('campo-ingrediente-lote').value || null;
+  // Etapa H3 (ajuste): nunca lido de um campo visual — sempre o valor
+  // derivado do purchase_item vinculado ao lote escolhido (ver listener
+  // de #campo-lote-carne-lote em ligarEventosModalLoteEspeto).
+  const ingredienteId = ingredienteIdCarnePrincipal;
   const lotId = document.getElementById('campo-lote-carne-lote').value || null;
   const dataProducao = document.getElementById('campo-data-lote').value;
   const dados = lerDadosFormularioLoteEspeto();

@@ -448,13 +448,25 @@
             <select id="campo-produto-lote" class="input" required></select>
           </div>
 
-          <!-- Vínculo técnico com ingredients (ingredient_id) — é o que a RPC usa
-               como p_ingredient_id, exigido para vincular um lote de compra à
-               carne principal (Etapa H2/H3). Continua opcional: sem
-               ingrediente, o modo de custo é sempre manual (sem lote). -->
-          <div class="form-grupo">
-            <label for="campo-ingrediente-lote">Ingrediente da carne (opcional)</label>
-            <select id="campo-ingrediente-lote" class="input"></select>
+          <!-- Lote da compra vinculado à CARNE PRINCIPAL do header
+               (skewer_production_batches.lot_id/ingredient_id) — mecanismo
+               independente do seletor de lote dos componentes (Ingredientes/
+               Temperos/Preparos, mais abaixo, que grava em
+               skewer_batch_components.lot_id). O ingredient_id da carne é
+               sempre DERIVADO do purchase_item vinculado ao lote escolhido
+               (lot -> purchase_item -> ingredient_id), nunca escolhido
+               manualmente — não existe (e não é criado aqui) nenhum vínculo
+               produto->ingrediente por nome; o usuário escolhe explicitamente
+               qual lote de carne está usando, mesmo que o nome do item de
+               compra não bata com o nome do Produto selecionado acima. -->
+          <div class="form-grupo producao-campo-lote" id="grupo-lote-carne-lote">
+            <label for="campo-lote-carne-lote">Lote da carne</label>
+            <select id="campo-lote-carne-lote" class="input">
+              <option value="">Sem lote / custo manual</option>
+            </select>
+            <p class="dica-campo" id="dica-lote-carne-nenhum-disponivel" style="display:none;">Nenhum lote de carne disponível. Verifique se o item de compra correspondente controla estoque, está vinculado a um ingrediente, e possui saldo em gramas.</p>
+            <p class="dica-campo" id="texto-saldo-lote-carne" style="display:none;"></p>
+            <p class="dica-campo" id="dica-lote-carne-saldo-insuficiente" style="display:none; color:var(--cor-status-vermelho);">Peso bruto maior que o saldo disponível neste lote.</p>
           </div>
 
           <div class="form-grupo">
@@ -488,17 +500,6 @@
                 <option value="g">g</option>
               </select>
             </div>
-          </div>
-
-          <div class="form-grupo producao-campo-lote" id="grupo-lote-carne-lote" style="display:none;">
-            <label for="campo-lote-carne-lote">Lote da carne</label>
-            <select id="campo-lote-carne-lote" class="input">
-              <option value="">Sem lote / custo manual</option>
-            </select>
-            <p class="dica-campo" id="dica-lote-carne-sem-vinculo" style="display:none;">Este ingrediente ainda não está vinculado a um Item de Compra.</p>
-            <p class="dica-campo" id="dica-lote-carne-nenhum-disponivel" style="display:none;">Nenhum lote disponível para esta carne.</p>
-            <p class="dica-campo" id="texto-saldo-lote-carne" style="display:none;"></p>
-            <p class="dica-campo" id="dica-lote-carne-saldo-insuficiente" style="display:none; color:var(--cor-status-vermelho);">Peso bruto maior que o saldo disponível neste lote.</p>
           </div>
 
           <div class="form-grupo">
@@ -588,7 +589,7 @@
             </div>
           </div>
           <div class="form-grupo producao-campo-lote" id="grupo-lote-tempero-lote" style="display:none;">
-            <label for="campo-lote-tempero-lote">Lote</label>
+            <label for="campo-lote-tempero-lote">Lote do ingrediente</label>
             <select id="campo-lote-tempero-lote" class="input"></select>
             <p class="dica-campo" id="dica-lote-tempero-nenhum-disponivel" style="display:none;">Nenhum lote disponível para este ingrediente.</p>
             <p class="dica-campo" id="dica-lote-tempero-sem-vinculo" style="display:none;">Este ingrediente ainda não está vinculado a um Item de Compra.</p>
