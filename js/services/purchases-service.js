@@ -15,11 +15,16 @@
  * pode vir sem purchase_item_id (só item_name digitado) — save_purchase
  * resolve por nome normalizado (reaproveita item existente ou cria um
  * provisório needs_review=true) inteiramente server-side; o client nunca
- * decide isso sozinho. suppliers/purchase_items continuam cadastro
- * simples (GRANT direto, protegido só por RLS) para edição normal — a
- * única exceção é completar um item pendente, que passa pela RPC
- * finalize_purchase_item (migration 20260818200000), nunca por UPDATE
- * direto. lots/lot_movements são só-leitura pra authenticated (nenhuma
+ * decide isso sozinho. suppliers continua cadastro simples (GRANT direto,
+ * protegido só por RLS). Desde a Etapa I2, purchase_items passou a exigir
+ * RPC pra toda escrita — criar/editar vai por save_purchase_item
+ * (migration 20260818290000), completar um item pendente continua indo
+ * por finalize_purchase_item (migration 20260818200000, evoluída na I2) —
+ * nunca mais INSERT/UPDATE direto (GRANT revogado). Pra category IN
+ * ('supply','packaging') sem vínculo enviado, as duas RPCs criam/vinculam
+ * um production_supply automaticamente (unifica o cadastro de Insumos de
+ * Produção dentro de Itens de Compra); cleaning fica de propósito fora
+ * dessa auto-criação. lots/lot_movements são só-leitura pra authenticated (nenhuma
  * escrita direta em hipótese nenhuma). Exclusão de compra passa pela RPC
  * delete_purchase (migration 20260818240000) — só permitida se nenhum
  * lote da compra já teve movimentação real (production_use/sale/waste/
@@ -175,46 +180,39 @@ async function atualizarFornecedorNoSupabase(id, dados) {
   return _linhaSupabaseParaFornecedor(data);
 }
 
-/** Cria um item de compra — INSERT direto (RLS/admin protege, sem RPC dedicada). No máximo um vínculo enviado — os outros dois sempre null (reforça client-side o CHECK XOR já existente no banco). */
-async function criarItemCompraNoSupabase(dados) {
-  const { data, error } = await supabaseClient
-    .from('purchase_items')
-    .insert({
-      name: dados.nome,
-      category: dados.categoria,
-      tracks_stock: dados.controlaEstoque !== false,
-      base_unit: dados.unidadeBase || null,
-      active: dados.ativo !== false,
-      product_id: dados.produtoId || null,
-      ingredient_id: dados.ingredienteId || null,
-      production_supply_id: dados.insumoId || null,
-    })
-    .select()
-    .single();
+/**
+ * Único ponto de escrita real de purchase_items — RPC save_purchase_item
+ * (Etapa I2), nunca INSERT/UPDATE direto (GRANT revogado). Pra category
+ * IN ('supply','packaging') sem nenhum vínculo enviado, a RPC cria/
+ * vincula um production_supply inteiramente server-side (nunca decidido
+ * aqui) — cleaning fica de propósito fora dessa auto-criação. No máximo
+ * um vínculo enviado — os outros dois sempre null (reforça client-side o
+ * CHECK XOR já existente no banco, que a RPC também valida).
+ */
+async function _salvarItemCompraViaRpc(id, dados) {
+  const { data, error } = await supabaseClient.rpc('save_purchase_item', {
+    p_purchase_item_id: id || null,
+    p_name: dados.nome,
+    p_category: dados.categoria,
+    p_tracks_stock: dados.controlaEstoque !== false,
+    p_base_unit: dados.unidadeBase || null,
+    p_product_id: dados.produtoId || null,
+    p_ingredient_id: dados.ingredienteId || null,
+    p_production_supply_id: dados.insumoId || null,
+    p_active: dados.ativo !== false,
+  });
   if (error) throw new Error(error.message);
-  return _linhaSupabaseParaItemCompra(data);
+  return _linhaSupabaseParaItemCompra(data.item);
 }
 
-/** Atualiza um item de compra existente — UPDATE direto (RLS/admin protege). */
+/** Cria um item de compra. Mesma assinatura/retorno de antes da Etapa I2 — ver comentário de _salvarItemCompraViaRpc. RLS/RPC restringem esta operação a admin. */
+async function criarItemCompraNoSupabase(dados) {
+  return _salvarItemCompraViaRpc(null, dados);
+}
+
+/** Atualiza um item de compra existente. Mesma assinatura/retorno de antes da Etapa I2 — ver comentário de _salvarItemCompraViaRpc. RLS/RPC restringem esta operação a admin. */
 async function atualizarItemCompraNoSupabase(id, dados) {
-  const { data, error } = await supabaseClient
-    .from('purchase_items')
-    .update({
-      name: dados.nome,
-      category: dados.categoria,
-      tracks_stock: dados.controlaEstoque !== false,
-      base_unit: dados.unidadeBase || null,
-      active: dados.ativo !== false,
-      product_id: dados.produtoId || null,
-      ingredient_id: dados.ingredienteId || null,
-      production_supply_id: dados.insumoId || null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return _linhaSupabaseParaItemCompra(data);
+  return _salvarItemCompraViaRpc(id, dados);
 }
 
 /**

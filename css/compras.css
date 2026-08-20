@@ -14,6 +14,18 @@
   color: var(--cor-texto-secundario);
 }
 
+/* Etapa I2: exibição somente-leitura de um vínculo já resolvido (ex.
+   Insumo de Produção auto-vinculado) — mesmo padrão visual de "valor
+   travado" já usado em producao.css (.producao-unidade-travada). */
+.compras-vinculo-travado {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 var(--espaco-sm);
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-sm);
+}
+
 .compras-central {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

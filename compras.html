@@ -369,7 +369,7 @@
             </select>
           </div>
 
-          <div class="form-grupo">
+          <div class="form-grupo" id="grupo-tipo-vinculo-item-compra">
             <label for="campo-tipo-vinculo-item-compra">Vínculo (opcional)</label>
             <select id="campo-tipo-vinculo-item-compra" class="input">
               <option value="">Nenhum</option>
@@ -381,6 +381,18 @@
           <div class="form-grupo" id="grupo-referencia-vinculo-item-compra" style="display:none;">
             <label for="campo-referencia-vinculo-item-compra">Referência</label>
             <select id="campo-referencia-vinculo-item-compra" class="input"></select>
+          </div>
+          <!-- Etapa I2: categorias Insumo/Embalagem criam/vinculam um
+               Insumo de Produção automaticamente ao salvar, sem exigir
+               escolha manual — o seletor de Vínculo acima continua
+               disponível pra quem quiser apontar pra um Insumo de
+               Produção JÁ EXISTENTE (evita duplicar um cadastro legado).
+               Uma vez vinculado (auto ou manual), o bloco abaixo some e
+               este vira somente-leitura, pra não desvincular por acidente. -->
+          <p class="dica-campo" id="dica-vinculo-supply-auto" style="display:none;">Se nenhum vínculo for selecionado acima, um Insumo de Produção será criado e vinculado automaticamente ao salvar.</p>
+          <div class="form-grupo" id="grupo-vinculo-supply-existente" style="display:none;">
+            <label>Vínculo</label>
+            <span class="compras-vinculo-travado" id="texto-vinculo-supply-existente">—</span>
           </div>
 
           <div class="form-grupo">

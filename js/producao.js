@@ -1702,42 +1702,65 @@ function rotuloLoteCarne(lote, opcoes) {
 }
 
 /**
- * Ajuste de arquitetura — "Lote da carne" no topo do modal, agora escopado
- * pelo PRODUTO selecionado (products.id -> purchase_items.product_id ->
- * lots), nunca por ingredient_id (esse caminho é exclusivo dos
- * componentes/temperos, mais abaixo). loteAtualId sempre aparece como
- * opção histórica mesmo esgotado/fora da lista de disponíveis, nunca troca
- * sozinho; FIFO (recebidoEm ASC) só marca "Sugerido — mais antigo", nunca
- * pré-seleciona. Só considera lotes base_unit='g' (a carne sempre é medida
- * em gramas) — defesa em profundidade, o backend também valida isso.
+ * Item de compra + lotes disponíveis (available, saldo>0, base_unit='g')
+ * para o vínculo Produto da carne principal — reaproveitado tanto pelo
+ * select (popularOpcoesLoteCarneLote) quanto pela validação de salvar
+ * (validarFormularioLoteEspeto, Etapa I1), pra nunca duplicar a mesma
+ * regra de filtro em dois lugares.
  */
-function popularOpcoesLoteCarneLote(produtoId, loteAtualId) {
+function loteInfoCarneDoProduto(produtoId) {
+  if (!produtoId) return { itemCompra: null, disponiveis: [] };
+  const itemCompra = itemCompraDoProduto(produtoId);
+  if (!itemCompra) return { itemCompra: null, disponiveis: [] };
+  const disponiveis = lotesCache
+    .filter((l) => l.itemCompraId === itemCompra.id && l.status === 'available' && l.quantidadeRestante > 0 && l.unidadeBase === 'g')
+    .sort((a, b) => (a.recebidoEm < b.recebidoEm ? -1 : a.recebidoEm > b.recebidoEm ? 1 : a.id.localeCompare(b.id)));
+  return { itemCompra, disponiveis };
+}
+
+/**
+ * Ajuste de arquitetura — "Lote da carne" no topo do modal, escopado pelo
+ * PRODUTO selecionado (products.id -> purchase_items.product_id -> lots),
+ * nunca por ingredient_id (esse caminho é exclusivo dos componentes/
+ * temperos, mais abaixo). loteAtualId sempre aparece como opção histórica
+ * mesmo esgotado/fora da lista de disponíveis, nunca troca sozinho; FIFO
+ * (recebidoEm ASC) só marca "Sugerido — mais antigo", nunca pré-seleciona.
+ *
+ * Etapa I1 — idBatchAtual (o id do lote de produção sendo editado, `null`
+ * pra uma produção nova) decide se "Sem lote / custo manual" é oferecido:
+ * numa produção NOVA esse modo deixou de existir (item 5 do pedido) — o
+ * select nasce sem nenhuma opção selecionada, só com um placeholder
+ * desabilitado "Selecione um lote"; editando uma produção já existente o
+ * comportamento é o mesmo de sempre (preserva compatibilidade com
+ * históricas sem lote, item 6/7 do pedido — nada muda aqui pra edição).
+ */
+function popularOpcoesLoteCarneLote(produtoId, loteAtualId, idBatchAtual) {
   const select = document.getElementById('campo-lote-carne-lote');
   const dicaSemVinculo = document.getElementById('dica-lote-carne-sem-vinculo');
   const dicaNenhum = document.getElementById('dica-lote-carne-nenhum-disponivel');
+  const ehProducaoNova = !idBatchAtual;
+
+  const opcaoPlaceholder = ehProducaoNova
+    ? '<option value="" disabled selected>Selecione um lote</option>'
+    : '<option value="">Sem lote / custo manual</option>';
 
   if (!produtoId) {
-    select.innerHTML = '<option value="">Sem lote / custo manual</option>';
+    select.innerHTML = opcaoPlaceholder;
     dicaSemVinculo.style.display = 'none';
     dicaNenhum.style.display = 'none';
     select.value = '';
     return;
   }
 
-  const itemCompra = itemCompraDoProduto(produtoId);
+  const { itemCompra, disponiveis } = loteInfoCarneDoProduto(produtoId);
   dicaSemVinculo.style.display = itemCompra ? 'none' : '';
 
-  const disponiveis = itemCompra
-    ? lotesCache
-        .filter((l) => l.itemCompraId === itemCompra.id && l.status === 'available' && l.quantidadeRestante > 0 && l.unidadeBase === 'g')
-        .sort((a, b) => (a.recebidoEm < b.recebidoEm ? -1 : a.recebidoEm > b.recebidoEm ? 1 : a.id.localeCompare(b.id)))
-    : [];
   const loteHistorico = loteAtualId ? lotePorId(loteAtualId) : null;
   const jaNaLista = loteHistorico && disponiveis.some((l) => l.id === loteHistorico.id);
 
   dicaNenhum.style.display = itemCompra && disponiveis.length === 0 && !loteHistorico ? '' : 'none';
 
-  const opcoes = ['<option value="">Sem lote / custo manual</option>'];
+  const opcoes = [opcaoPlaceholder];
   if (loteHistorico && !jaNaLista) {
     opcoes.push(`<option value="${loteHistorico.id}">${escaparHtml(rotuloLoteCarne(loteHistorico, { usadoNesteBatch: true }))}</option>`);
   }
@@ -2278,7 +2301,6 @@ function ligarEventosModalLoteEspeto() {
     'campo-unidade-peso-bruto-lote',
     'campo-peso-util-lote',
     'campo-unidade-peso-util-lote',
-    'campo-custo-total-lote',
     'campo-peso-espeto-lote',
     'campo-quantidade-real-lote',
   ].forEach((idCampo) => {
@@ -2296,7 +2318,8 @@ function ligarEventosModalLoteEspeto() {
     // imediatamente e recalcula a lista a partir do novo produto — nunca
     // mantém o lote do produto anterior (item 14 do pedido).
     const produtoId = document.getElementById('campo-produto-lote').value || null;
-    popularOpcoesLoteCarneLote(produtoId, null);
+    const idBatchAtual = document.getElementById('campo-id-lote-espeto').value || null;
+    popularOpcoesLoteCarneLote(produtoId, null, idBatchAtual);
     atualizarPreviewLoteEspeto();
   });
   document.getElementById('campo-lote-carne-lote').addEventListener('change', atualizarPreviewLoteEspeto);
@@ -2382,15 +2405,18 @@ let ignorarRecalculoCustoCarneNaProximaChamada = false;
 let ingredienteIdCarnePrincipal = null;
 
 /**
- * Alterna o campo "Valor total da carne (€)" entre editável (sem lote) e
- * readonly-calculado (com lote) — chamada a cada atualização de preview
- * (peso bruto/unidade mudou, lote mudou). Custo SEMPRE gross×unit_cost_base
- * do lote, NUNCA usable_weight_g (item 9 do pedido) — mesmo com peso útil
- * diferente, o cálculo de custo ignora completamente esse campo.
+ * Etapa I1 — campo-custo-total-lote deixou de ser um input visível/
+ * editável (agora type="hidden") — esta função só o mantém atualizado
+ * (fonte de dados pra lerDadosFormularioLoteEspeto/payload de save) e
+ * espelha o valor formatado em texto-custo-carne-lote (leitura pro
+ * usuário). Chamada a cada atualização de preview (peso bruto/unidade
+ * mudou, lote mudou). Custo SEMPRE gross×unit_cost_base do lote, NUNCA
+ * usable_weight_g (item 9/10 do pedido) — mesmo com peso útil diferente,
+ * o cálculo de custo ignora completamente esse campo.
  */
 function atualizarCustoCarneLote() {
   const campoCusto = document.getElementById('campo-custo-total-lote');
-  const rotuloCusto = document.getElementById('rotulo-custo-total-lote');
+  const textoCusto = document.getElementById('texto-custo-carne-lote');
   const loteId = document.getElementById('campo-lote-carne-lote').value || null;
   const textoSaldo = document.getElementById('texto-saldo-lote-carne');
   const dicaSaldoInsuficiente = document.getElementById('dica-lote-carne-saldo-insuficiente');
@@ -2398,17 +2424,17 @@ function atualizarCustoCarneLote() {
   const lote = loteId ? lotePorId(loteId) : null;
 
   if (!lote) {
-    campoCusto.readOnly = false;
-    campoCusto.required = true;
-    rotuloCusto.textContent = 'Valor total da carne (€)';
+    // Sem lote — produção nova ainda incompleta, ou edição de uma produção
+    // histórica que nasceu sem lote (item 6/7 do pedido). Nenhuma UI altera
+    // mais campoCusto.value por aqui — só exibe o que já está nele (o
+    // snapshot carregado por abrirModalLoteEspeto, ou vazio numa produção
+    // nova), nunca inventa/zera um valor histórico.
     textoSaldo.style.display = 'none';
     dicaSaldoInsuficiente.style.display = 'none';
+    const valorAtual = campoCusto.value === '' ? NaN : Number(campoCusto.value);
+    textoCusto.textContent = Number.isFinite(valorAtual) ? formatarMoeda(valorAtual) : '—';
     return;
   }
-
-  rotuloCusto.textContent = 'Custo da carne (€)';
-  campoCusto.readOnly = true;
-  campoCusto.required = false;
 
   const pesoBrutoG = lerPesoEmGramas('campo-peso-bruto-lote', 'campo-unidade-peso-bruto-lote');
 
@@ -2419,6 +2445,9 @@ function atualizarCustoCarneLote() {
   } else {
     campoCusto.value = '';
   }
+
+  const valorExibido = campoCusto.value === '' ? NaN : Number(campoCusto.value);
+  textoCusto.textContent = Number.isFinite(valorExibido) ? formatarMoeda(valorExibido) : '—';
 
   const idLoteAtual = document.getElementById('campo-id-lote-espeto').value || null;
   const saldoEfetivo = saldoEfetivoLoteParaEdicao(lote.id, 'skewer_production', idLoteAtual);
@@ -2454,7 +2483,7 @@ function abrirModalNovoLoteEspeto() {
   popularOpcoesProdutoLote(null);
   document.getElementById('campo-produto-lote').value = '';
   ingredienteIdCarnePrincipal = null;
-  popularOpcoesLoteCarneLote(null, null);
+  popularOpcoesLoteCarneLote(null, null, null);
   document.getElementById('campo-data-lote').value = dataHojeLocal();
   document.getElementById('campo-peso-bruto-lote').value = '';
   document.getElementById('campo-unidade-peso-bruto-lote').value = 'kg';
@@ -2500,7 +2529,7 @@ function abrirModalLoteEspeto(id) {
   // header é só preservado como valor vestigial (nunca derivado/validado
   // pela RPC no fluxo de lote da carne) — não quebra p_ingredient_id.
   ingredienteIdCarnePrincipal = lote.ingredienteId || null;
-  popularOpcoesLoteCarneLote(lote.produtoId, lote.lotId || null);
+  popularOpcoesLoteCarneLote(lote.produtoId, lote.lotId || null, lote.id);
   document.getElementById('campo-data-lote').value = lote.produzidoEm;
 
   preencherCampoPeso('campo-peso-bruto-lote', 'campo-unidade-peso-bruto-lote', lote.pesoBrutoG);
@@ -2589,14 +2618,30 @@ function validarFormularioLoteEspeto({ produtoId, dataProducao, pesoBrutoG, peso
   if (!Number.isFinite(pesoBrutoG) || pesoBrutoG <= 0) return 'Informe um peso bruto válido, maior que zero.';
   if (!Number.isFinite(pesoUtilG) || pesoUtilG <= 0) return 'Informe um peso após limpeza válido, maior que zero.';
   if (pesoUtilG > pesoBrutoG) return 'O peso após limpeza não pode ser maior que o peso bruto.';
-  // Etapa H3: com lote, o custo é sempre derivado (não faz sentido validar
-  // um campo que o usuário não controla) — em vez disso, valida saldo.
+
+  const ehProducaoNova = !idLoteAtual;
+
   if (lotId) {
+    // Com lote (nova produção ou edição): custo é sempre derivado, só
+    // valida saldo — nunca lê/valida custoTotal aqui.
     const saldoEfetivo = saldoEfetivoLoteParaEdicao(lotId, 'skewer_production', idLoteAtual);
     if (pesoBrutoG > saldoEfetivo) return 'Saldo insuficiente no lote selecionado para a carne principal.';
+  } else if (ehProducaoNova) {
+    // Etapa I1: produção NOVA sem lote é sempre bloqueada — a mensagem
+    // exata depende de qual parte do vínculo está faltando (itens 2/3/4
+    // do pedido). RPC (item 11) continua a barreira real; isto é só UX.
+    const { itemCompra, disponiveis } = loteInfoCarneDoProduto(produtoId);
+    if (!itemCompra) return 'Cadastre um Item de Compra para este produto antes de registrar a produção.';
+    if (disponiveis.length === 0) return 'Cadastre uma compra/lote para este produto antes de registrar a produção.';
+    return 'Selecione um lote da carne antes de registrar a produção.';
   } else {
+    // Edição de produção histórica que nasceu sem lote — modo manual
+    // preservado (item 6/7 do pedido): custo continua o que já estava
+    // (campo oculto, nunca mais editado por esta UI, ver
+    // atualizarCustoCarneLote), só validado como número são.
     if (!Number.isFinite(custoTotal) || custoTotal < 0) return 'Informe um valor total válido (não pode ser negativo).';
   }
+
   if (!Number.isFinite(pesoEspetoG) || pesoEspetoG <= 0) return 'Informe o peso padrão por espeto, maior que zero.';
   if (!Number.isFinite(quantidadeReal) || quantidadeReal <= 0 || !Number.isInteger(quantidadeReal)) {
     return 'Informe a quantidade realmente produzida, um número inteiro maior que zero.';

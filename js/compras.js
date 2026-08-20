@@ -328,6 +328,7 @@ function ligarEventosModalItemCompra() {
   document.getElementById('botao-cancelar-item-compra').addEventListener('click', fecharModalItemCompra);
   document.getElementById('campo-controla-estoque-item-compra').addEventListener('change', atualizarVisibilidadeUnidadeBaseItemCompra);
   document.getElementById('campo-tipo-vinculo-item-compra').addEventListener('change', () => popularOpcoesVinculoItemCompra(null));
+  document.getElementById('campo-categoria-item-compra').addEventListener('change', atualizarVisibilidadeVinculoItemCompra);
   document.getElementById('form-item-compra').addEventListener('submit', salvarFormularioItemCompra);
   document.getElementById('filtro-itens-compra-pendentes').addEventListener('change', (evento) => {
     filtroItensCompraSomentePendentes = evento.target.value === 'pendentes';
@@ -372,6 +373,45 @@ function popularOpcoesVinculoItemCompra(vinculoAtual) {
   select.value = vinculoAtual || '';
 }
 
+/**
+ * Etapa I2 — categorias Insumo ('supply')/Embalagem ('packaging') criam/
+ * vinculam um Insumo de Produção automaticamente ao salvar (server-side,
+ * save_purchase_item/finalize_purchase_item), sem exigir escolha manual.
+ * Enquanto o item AINDA não tem insumoId: mantém o seletor de Vínculo
+ * disponível (permite apontar pra um Insumo de Produção legado já
+ * existente, evitando duplicar cadastro) + mostra a dica explicando a
+ * criação automática. Uma vez vinculado (auto ou manual): esconde o
+ * seletor editável e mostra só o nome, somente-leitura — nunca deixa
+ * desvincular/trocar por acidente através deste formulário.
+ */
+function atualizarVisibilidadeVinculoItemCompra() {
+  const categoria = document.getElementById('campo-categoria-item-compra').value;
+  const id = document.getElementById('campo-id-item-compra').value;
+  const itemAtual = id ? itemCompraPorId(id) : null;
+  const elegivel = categoria === 'supply' || categoria === 'packaging';
+  const jaVinculado = elegivel && !!(itemAtual && itemAtual.insumoId);
+
+  const grupoTipo = document.getElementById('grupo-tipo-vinculo-item-compra');
+  const dicaAuto = document.getElementById('dica-vinculo-supply-auto');
+  const grupoExistente = document.getElementById('grupo-vinculo-supply-existente');
+  const textoExistente = document.getElementById('texto-vinculo-supply-existente');
+
+  if (jaVinculado) {
+    grupoTipo.style.display = 'none';
+    document.getElementById('grupo-referencia-vinculo-item-compra').style.display = 'none';
+    dicaAuto.style.display = 'none';
+    grupoExistente.style.display = '';
+    const insumo = insumosCache.find((i) => i.id === itemAtual.insumoId);
+    textoExistente.textContent = insumo ? insumo.nome : '(insumo removido)';
+  } else {
+    grupoTipo.style.display = '';
+    grupoExistente.style.display = 'none';
+    dicaAuto.style.display = elegivel ? '' : 'none';
+    // grupo-referencia-vinculo-item-compra continua controlado por
+    // popularOpcoesVinculoItemCompra (depende do Tipo de vínculo escolhido).
+  }
+}
+
 function abrirModalNovoItemCompra() {
   if (!souAdminCompras) return;
 
@@ -388,6 +428,7 @@ function abrirModalNovoItemCompra() {
 
   atualizarVisibilidadeUnidadeBaseItemCompra();
   popularOpcoesVinculoItemCompra(null);
+  atualizarVisibilidadeVinculoItemCompra();
   abrirModal('modal-overlay-item-compra');
 }
 
@@ -412,6 +453,7 @@ function abrirModalItemCompra(id) {
   const vinculoId = item.produtoId || item.ingredienteId || item.insumoId || null;
   document.getElementById('campo-tipo-vinculo-item-compra').value = tipoVinculo;
   popularOpcoesVinculoItemCompra(vinculoId);
+  atualizarVisibilidadeVinculoItemCompra();
 
   abrirModal('modal-overlay-item-compra');
 }
@@ -492,6 +534,16 @@ async function salvarFormularioItemCompra(evento) {
     return;
   }
   botaoSalvar.disabled = false;
+
+  // Etapa I2: category IN ('supply','packaging') pode ter criado/vinculado
+  // um Insumo de Produção novo dentro da própria RPC — recarrega
+  // insumosCache pra refletir isso (ex. abrir o item de novo já mostra o
+  // vínculo). Melhor esforço: uma falha aqui não desfaz o save já concluído.
+  try {
+    insumosCache = await buscarInsumosProducaoDoSupabase();
+  } catch (erroRecarregarInsumos) {
+    console.error('Erro ao recarregar insumos de produção:', erroRecarregarInsumos);
+  }
 
   if (eraPendente) {
     const qtdLotes = resultadoFinalizacao.lotes.length;
