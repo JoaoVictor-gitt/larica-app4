@@ -438,6 +438,11 @@
   margin-bottom: var(--espaco-xs);
 }
 
+#campo-custo-total-lote:read-only {
+  background: var(--cor-cinza-claro);
+  cursor: default;
+}
+
 .producao-adicionar-componente {
   display: flex;
   gap: var(--espaco-sm);
