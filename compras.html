@@ -40,14 +40,6 @@
         </span>
         <span class="compras-card-seta">→</span>
       </button>
-      <button type="button" class="compras-card" data-compras-abrir="insumos">
-        <span class="compras-card-icone">🧷</span>
-        <span class="compras-card-texto">
-          <strong>Insumos e Embalagens</strong>
-          <span>Itens de Compra já filtrado por supply/packaging</span>
-        </span>
-        <span class="compras-card-seta">→</span>
-      </button>
       <button type="button" class="compras-card" data-compras-abrir="fornecedores">
         <span class="compras-card-icone">🚚</span>
         <span class="compras-card-texto">
@@ -403,13 +395,17 @@
             <select id="campo-referencia-vinculo-item-compra" class="input"></select>
           </div>
           <!-- Etapa I2: categorias Insumo/Embalagem criam/vinculam um
-               Insumo de Produção automaticamente ao salvar, sem exigir
-               escolha manual — o seletor de Vínculo acima continua
-               disponível pra quem quiser apontar pra um Insumo de
-               Produção JÁ EXISTENTE (evita duplicar um cadastro legado).
-               Uma vez vinculado (auto ou manual), o bloco abaixo some e
-               este vira somente-leitura, pra não desvincular por acidente. -->
-          <p class="dica-campo" id="dica-vinculo-supply-auto" style="display:none;">Se nenhum vínculo for selecionado acima, um Insumo de Produção será criado e vinculado automaticamente ao salvar.</p>
+               Insumo de Produção automaticamente ao salvar. Etapa J3:
+               categoria Ingrediente ganha o mesmo tratamento (cria/vincula
+               um public.ingredients). Em ambos os casos, sem exigir escolha
+               manual — o seletor de Vínculo acima continua disponível pra
+               quem quiser apontar pra um Insumo/Ingrediente JÁ EXISTENTE
+               (evita duplicar cadastro legado). Uma vez vinculado (auto ou
+               manual), o bloco abaixo some e este vira somente-leitura, pra
+               não desvincular por acidente. Texto de dica-vinculo-supply-auto
+               é trocado dinamicamente conforme a categoria (ver
+               atualizarVisibilidadeVinculoItemCompra em js/compras.js). -->
+          <p class="dica-campo" id="dica-vinculo-supply-auto" style="display:none;"></p>
           <div class="form-grupo" id="grupo-vinculo-supply-existente" style="display:none;">
             <label>Vínculo</label>
             <span class="compras-vinculo-travado" id="texto-vinculo-supply-existente">—</span>

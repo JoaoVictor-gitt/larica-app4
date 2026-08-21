@@ -188,21 +188,7 @@ function ligarEventosNavegacaoCompras() {
   });
 }
 
-/**
- * Etapa I4: 'insumos' não é uma seção própria — é um atalho pra "itens" já
- * com o filtro de categoria aplicado (supply+packaging, ver
- * itemCompraPassaFiltroCategoria). Nenhuma tela/CRUD nova é aberta, só a
- * mesma tabela de Itens de Compra pré-filtrada.
- */
 function abrirSecaoCompras(chave) {
-  if (chave === 'insumos') {
-    filtroItensCompraCategoria = 'insumos_embalagens';
-    const selectCategoria = document.getElementById('filtro-itens-compra-categoria');
-    if (selectCategoria) selectCategoria.value = 'insumos_embalagens';
-    renderizarTabelaItensCompra();
-    chave = 'itens';
-  }
-
   document.getElementById('compras-central').style.display = 'none';
   document.querySelectorAll('.compras-secao').forEach((secao) => {
     secao.classList.toggle('compras-secao-ativa', secao.dataset.comprasSecao === chave);
@@ -414,21 +400,33 @@ function popularOpcoesVinculoItemCompra(vinculoAtual) {
 
 /**
  * Etapa I2 — categorias Insumo ('supply')/Embalagem ('packaging') criam/
- * vinculam um Insumo de Produção automaticamente ao salvar (server-side,
- * save_purchase_item/finalize_purchase_item), sem exigir escolha manual.
- * Enquanto o item AINDA não tem insumoId: mantém o seletor de Vínculo
- * disponível (permite apontar pra um Insumo de Produção legado já
- * existente, evitando duplicar cadastro) + mostra a dica explicando a
- * criação automática. Uma vez vinculado (auto ou manual): esconde o
- * seletor editável e mostra só o nome, somente-leitura — nunca deixa
- * desvincular/trocar por acidente através deste formulário.
+ * vinculam um Insumo de Produção automaticamente ao salvar. Etapa J3 —
+ * category='ingredient' ganha o mesmo tratamento, criando/vinculando um
+ * public.ingredients automaticamente (server-side, save_purchase_item/
+ * finalize_purchase_item, helper _resolve_ingredient_link — nunca 'meat',
+ * que continua usando o vínculo Produto pra carne principal). Enquanto o
+ * item AINDA não tem vínculo (insumoId OU ingredienteId, conforme a
+ * categoria): mantém o seletor de Vínculo disponível (permite apontar pra
+ * um Insumo de Produção OU Ingrediente legado já existente, evitando
+ * duplicar cadastro) + mostra a dica explicando a criação automática. Uma
+ * vez vinculado (auto ou manual): esconde o seletor editável e mostra só o
+ * nome, somente-leitura — nunca deixa desvincular/trocar por acidente
+ * através deste formulário. Os ids '...-supply-auto'/'...-supply-existente'
+ * são reaproveitados (texto trocado dinamicamente conforme a categoria) —
+ * não renomeados, pra não aumentar o diff sem necessidade funcional.
  */
 function atualizarVisibilidadeVinculoItemCompra() {
   const categoria = document.getElementById('campo-categoria-item-compra').value;
   const id = document.getElementById('campo-id-item-compra').value;
   const itemAtual = id ? itemCompraPorId(id) : null;
-  const elegivel = categoria === 'supply' || categoria === 'packaging';
-  const jaVinculado = elegivel && !!(itemAtual && itemAtual.insumoId);
+
+  const elegivelSupply = categoria === 'supply' || categoria === 'packaging';
+  const elegivelIngredient = categoria === 'ingredient';
+  const elegivel = elegivelSupply || elegivelIngredient;
+
+  const jaVinculadoSupply = elegivelSupply && !!(itemAtual && itemAtual.insumoId);
+  const jaVinculadoIngredient = elegivelIngredient && !!(itemAtual && itemAtual.ingredienteId);
+  const jaVinculado = jaVinculadoSupply || jaVinculadoIngredient;
 
   const grupoTipo = document.getElementById('grupo-tipo-vinculo-item-compra');
   const dicaAuto = document.getElementById('dica-vinculo-supply-auto');
@@ -440,12 +438,22 @@ function atualizarVisibilidadeVinculoItemCompra() {
     document.getElementById('grupo-referencia-vinculo-item-compra').style.display = 'none';
     dicaAuto.style.display = 'none';
     grupoExistente.style.display = '';
-    const insumo = insumosCache.find((i) => i.id === itemAtual.insumoId);
-    textoExistente.textContent = insumo ? insumo.nome : '(insumo removido)';
+    if (jaVinculadoSupply) {
+      const insumo = insumosCache.find((i) => i.id === itemAtual.insumoId);
+      textoExistente.textContent = insumo ? insumo.nome : '(insumo removido)';
+    } else {
+      const ingrediente = ingredientesCache.find((i) => i.id === itemAtual.ingredienteId);
+      textoExistente.textContent = ingrediente ? ingrediente.nome : '(ingrediente removido)';
+    }
   } else {
     grupoTipo.style.display = '';
     grupoExistente.style.display = 'none';
     dicaAuto.style.display = elegivel ? '' : 'none';
+    if (elegivelIngredient) {
+      dicaAuto.textContent = 'Se nenhum vínculo for selecionado acima, um Ingrediente será criado e vinculado automaticamente ao salvar.';
+    } else if (elegivelSupply) {
+      dicaAuto.textContent = 'Se nenhum vínculo for selecionado acima, um Insumo de Produção será criado e vinculado automaticamente ao salvar.';
+    }
     // grupo-referencia-vinculo-item-compra continua controlado por
     // popularOpcoesVinculoItemCompra (depende do Tipo de vínculo escolhido).
   }
@@ -577,11 +585,19 @@ async function salvarFormularioItemCompra(evento) {
   // Etapa I2: category IN ('supply','packaging') pode ter criado/vinculado
   // um Insumo de Produção novo dentro da própria RPC — recarrega
   // insumosCache pra refletir isso (ex. abrir o item de novo já mostra o
-  // vínculo). Melhor esforço: uma falha aqui não desfaz o save já concluído.
+  // vínculo). Etapa J3: category='ingredient' pode ter criado/vinculado um
+  // public.ingredients novo pelo mesmo caminho — recarrega ingredientesCache
+  // também. Melhor esforço nos dois casos: uma falha aqui não desfaz o save
+  // já concluído.
   try {
     insumosCache = await buscarInsumosProducaoDoSupabase();
   } catch (erroRecarregarInsumos) {
     console.error('Erro ao recarregar insumos de produção:', erroRecarregarInsumos);
+  }
+  try {
+    ingredientesCache = await buscarIngredientesDoSupabase();
+  } catch (erroRecarregarIngredientes) {
+    console.error('Erro ao recarregar ingredientes:', erroRecarregarIngredientes);
   }
 
   if (eraPendente) {
