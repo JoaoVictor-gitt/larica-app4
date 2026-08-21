@@ -530,6 +530,11 @@ function itemCompraDoIngrediente(ingredienteId) {
   return itensCompraCache.find((i) => i.ingredienteId === ingredienteId);
 }
 
+/** Etapa I3: mesmo padrão de itemCompraDoIngrediente, para o vínculo de insumos (production_supply_id). */
+function itemCompraDoInsumo(insumoId) {
+  return itensCompraCache.find((i) => i.insumoId === insumoId);
+}
+
 function itemCompraPorId(id) {
   return itensCompraCache.find((i) => i.id === id);
 }
@@ -1777,6 +1782,55 @@ function popularOpcoesSupplyLote() {
   const select = document.getElementById('campo-supply-lote');
   const ativos = insumosProducaoCache.filter((i) => i.ativo).sort((a, b) => a.nome.localeCompare(b.nome));
   select.innerHTML = ativos.map((i) => `<option value="${i.id}">${escaparHtml(i.nome)}</option>`).join('');
+  popularOpcoesLoteSupplyLote(select.value || null, null);
+  atualizarUnidadeSupplyLote();
+}
+
+/**
+ * Etapa I3 — mesmo padrão de popularOpcoesLoteTemperoLote (G4), agora para
+ * item_type='supply'. loteAtualId sempre aparece como opção histórica,
+ * mesmo esgotado/fora da lista de disponíveis — nunca troca sozinho. FIFO
+ * (recebidoEm ASC) só marca a primeira opção como "Sugerido".
+ */
+function popularOpcoesLoteSupplyLote(insumoId, loteAtualId) {
+  const grupo = document.getElementById('grupo-lote-supply-lote');
+  const select = document.getElementById('campo-lote-supply-lote');
+  const dicaNenhum = document.getElementById('dica-lote-supply-nenhum-disponivel');
+  const dicaSemItem = document.getElementById('dica-lote-supply-sem-vinculo');
+
+  if (!insumoId) {
+    grupo.style.display = 'none';
+    select.innerHTML = '';
+    return;
+  }
+  grupo.style.display = '';
+
+  const itemCompra = itemCompraDoInsumo(insumoId);
+  dicaSemItem.style.display = itemCompra ? 'none' : '';
+
+  const disponiveis = itemCompra ? lotesDisponiveisDoItemCompra(itemCompra.id) : [];
+  const loteHistorico = loteAtualId ? lotePorId(loteAtualId) : null;
+  const jaNaLista = loteHistorico && disponiveis.some((l) => l.id === loteHistorico.id);
+
+  dicaNenhum.style.display = itemCompra && disponiveis.length === 0 && !loteHistorico ? '' : 'none';
+
+  const opcoes = ['<option value="">Sem lote / custo cadastrado</option>'];
+  if (loteHistorico && !jaNaLista) {
+    opcoes.push(`<option value="${loteHistorico.id}">${escaparHtml(rotuloLote(loteHistorico, { usadoNesteBatch: true }))}</option>`);
+  }
+  disponiveis.forEach((lote, indice) => {
+    const sugerido = indice === 0 ? ' (Sugerido — mais antigo)' : '';
+    opcoes.push(`<option value="${lote.id}">${escaparHtml(rotuloLote(lote))}${sugerido}</option>`);
+  });
+  select.innerHTML = opcoes.join('');
+  select.value = loteAtualId || '';
+}
+
+/** Etapa I3: lote selecionado trava a unidade em lote.unidadeBase (nunca hardcoded 'un') — sem lote, unidade legada 'un'. */
+function atualizarUnidadeSupplyLote() {
+  const loteId = document.getElementById('campo-lote-supply-lote').value;
+  const lote = loteId ? lotePorId(loteId) : null;
+  document.getElementById('texto-unidade-supply-lote').textContent = lote ? lote.unidadeBase : 'un';
 }
 
 /**
@@ -1963,18 +2017,41 @@ function sugerirQuantidadePalito() {
   }
 }
 
-/** Sempre usa o custo ATUAL de production_supplies (item 10 do pedido) — no payload de salvamento nunca se envia esse custo, a RPC resolve sozinha. */
+/**
+ * Etapa I3: com lote, custo vem SEMPRE de lots.unit_cost_base (nunca
+ * production_supplies.cost_per_unit) — mesma disciplina já usada em
+ * ingredient (G4). Sem lote, comportamento legado intocado: custo ATUAL de
+ * production_supplies, unidade 'un'. formatarCustoBaseIngrediente(valor,
+ * 'un') produz exatamente a mesma string que formatarCustoInsumo já
+ * produzia (ambas toFixed(6) + '/un') — unifica os dois caminhos sem mudar
+ * a saída do modo legado.
+ */
 function atualizarPreviewSupplyLote() {
   const preview = document.getElementById('preview-supply-lote');
+  const dicaSaldo = document.getElementById('dica-supply-lote-saldo-insuficiente');
   const insumo = insumoProducaoPorId(document.getElementById('campo-supply-lote').value);
   const quantidade = Number(document.getElementById('campo-quantidade-supply-lote').value);
+  const loteId = document.getElementById('campo-lote-supply-lote').value;
+  const lote = loteId ? lotePorId(loteId) : null;
+
+  dicaSaldo.style.display = 'none';
 
   if (!insumo || !Number.isFinite(quantidade) || quantidade <= 0) {
     preview.textContent = '';
     return;
   }
 
-  preview.textContent = `${quantidade} un × ${formatarCustoInsumo(insumo.custoPorUnidade)} = ${formatarMoeda(quantidade * insumo.custoPorUnidade)}`;
+  const unidade = lote ? lote.unidadeBase : 'un';
+  const custoPorUnidade = lote ? lote.custoPorUnidadeBase : insumo.custoPorUnidade;
+  preview.textContent = `${quantidade} ${unidade} × ${formatarCustoBaseIngrediente(custoPorUnidade, unidade)} = ${formatarMoeda(quantidade * custoPorUnidade)}`;
+
+  if (lote) {
+    const idLoteAtual = document.getElementById('campo-id-lote-espeto').value || null;
+    const saldoEfetivo = saldoEfetivoLoteParaEdicao(lote.id, 'skewer_production', idLoteAtual);
+    if (quantidade > saldoEfetivo) {
+      dicaSaldo.style.display = '';
+    }
+  }
 }
 
 function adicionarComponenteSupply() {
@@ -1982,6 +2059,7 @@ function adicionarComponenteSupply() {
   const dicaErro = document.getElementById('dica-supply-lote-erro');
   const insumo = insumoProducaoPorId(document.getElementById('campo-supply-lote').value);
   const quantidade = Number(document.getElementById('campo-quantidade-supply-lote').value);
+  const lotId = document.getElementById('campo-lote-supply-lote').value || null;
 
   if (!insumo) {
     dicaErro.textContent = 'Selecione um insumo.';
@@ -1993,24 +2071,57 @@ function adicionarComponenteSupply() {
     dicaErro.style.display = '';
     return;
   }
-  if (componentesLoteEmEdicao.some((c) => c.tipoItem === 'supply' && c.referenciaId === insumo.id)) {
-    dicaErro.textContent = 'Este insumo já foi adicionado a este lote.';
+
+  // Etapa I3: insumo vinculado a um Item de Compra que controla estoque
+  // exige lote pra NOVA inclusão — insumo legado (sem vínculo, ou vínculo
+  // sem controle de estoque) continua podendo ser adicionado sem lote.
+  const itemCompra = itemCompraDoInsumo(insumo.id);
+  if (itemCompra && itemCompra.controlaEstoque && !lotId) {
+    dicaErro.textContent = 'Selecione um lote para este insumo.';
     dicaErro.style.display = '';
     return;
   }
+
+  // Chave de duplicidade inclui lotId (mesma regra já validada na RPC) —
+  // permite o mesmo insumo em lotes diferentes, continua bloqueando o
+  // mesmo insumo+mesmo lote (ou mesmo insumo sem lote) repetido.
+  if (componentesLoteEmEdicao.some((c) => c.tipoItem === 'supply' && c.referenciaId === insumo.id && (c.lotId || null) === lotId)) {
+    dicaErro.textContent = 'Este insumo já foi adicionado a este lote (mesmo lote, ou sem lote).';
+    dicaErro.style.display = '';
+    return;
+  }
+
+  const lote = lotId ? lotePorId(lotId) : null;
+  const unidade = lote ? lote.unidadeBase : 'un';
+  const custoPorUnidadePreview = lote ? lote.custoPorUnidadeBase : insumo.custoPorUnidade;
+
+  if (lote) {
+    const idLoteAtual = document.getElementById('campo-id-lote-espeto').value || null;
+    const saldoEfetivo = saldoEfetivoLoteParaEdicao(lote.id, 'skewer_production', idLoteAtual);
+    if (quantidade > saldoEfetivo) {
+      dicaErro.textContent = 'Quantidade maior que o saldo disponível neste lote.';
+      dicaErro.style.display = '';
+      return;
+    }
+  }
+
   dicaErro.style.display = 'none';
 
   componentesLoteEmEdicao.push({
     tipoItem: 'supply',
     referenciaId: insumo.id,
     quantidade,
-    unidade: 'un',
+    unidade,
     nome: insumo.nome,
-    custoPorUnidadePreview: insumo.custoPorUnidade,
+    custoPorUnidadePreview,
+    lotId,
   });
 
   document.getElementById('campo-quantidade-supply-lote').value = '';
   document.getElementById('preview-supply-lote').textContent = '';
+  document.getElementById('dica-supply-lote-saldo-insuficiente').style.display = 'none';
+  popularOpcoesLoteSupplyLote(insumo.id, null);
+  atualizarUnidadeSupplyLote();
   renderizarListasComponentesLote();
 }
 
@@ -2326,9 +2437,16 @@ function ligarEventosModalLoteEspeto() {
 
   document.getElementById('campo-supply-lote').addEventListener('change', () => {
     sugerirQuantidadePalito();
+    const insumoId = document.getElementById('campo-supply-lote').value || null;
+    popularOpcoesLoteSupplyLote(insumoId, null);
+    atualizarUnidadeSupplyLote();
     atualizarPreviewSupplyLote();
   });
   document.getElementById('campo-quantidade-supply-lote').addEventListener('input', atualizarPreviewSupplyLote);
+  document.getElementById('campo-lote-supply-lote').addEventListener('change', () => {
+    atualizarUnidadeSupplyLote();
+    atualizarPreviewSupplyLote();
+  });
   document.getElementById('botao-adicionar-supply-lote').addEventListener('click', adicionarComponenteSupply);
 
   document.getElementById('campo-tipo-tempero-lote').addEventListener('change', () => {
@@ -2463,6 +2581,7 @@ function reiniciarFormularioCustosAdicionaisLote() {
   document.getElementById('campo-quantidade-supply-lote').value = '';
   document.getElementById('preview-supply-lote').textContent = '';
   document.getElementById('dica-supply-lote-erro').style.display = 'none';
+  document.getElementById('dica-supply-lote-saldo-insuficiente').style.display = 'none';
 
   document.getElementById('campo-tipo-tempero-lote').value = 'recipe';
   popularOpcoesTemperoLote();
