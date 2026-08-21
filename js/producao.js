@@ -7,14 +7,18 @@
  * a partir de peças de carne com perda de limpeza (skewer_production_batches)
  * — perda, rendimento e custos sempre calculados on-read
  * (calcularIndicadoresLoteEspetos), nunca persistidos, nunca lidos de
- * product_costs (isso só entra numa etapa futura). Insumos de Produção:
- * quarta aba, cadastro standalone de insumos contados por unidade
- * (production_supplies — palito hoje, embalagem/bandeja no futuro) — Etapa
- * 3A, ainda SEM nenhuma integração com o lote de espetos (isso só entra na
- * Etapa 3B, via skewer_batch_components + RPC). Depende de utils.js,
- * js/services/ingredients-service.js, js/services/recipes-service.js,
- * js/services/products-service.js, js/services/skewer-production-service.js
- * e js/services/production-supplies-service.js.
+ * product_costs (isso só entra numa etapa futura). Insumos de produção
+ * (production_supplies — palito, embalagem etc.): desde a Etapa I4, esta
+ * página não tem mais cadastro próprio para eles — Compras -> Itens de
+ * Compra é a única porta de criação/edição (auto-vínculo de category IN
+ * ('supply','packaging'), Etapa I2). Aqui só se CONSOME production_supplies
+ * já existentes: insumosProducaoCache é lido (buscarInsumosProducaoDoSupabase)
+ * e usado pelo seletor "Tipo = Insumo" + lote (Etapa I3) dentro de Produção
+ * de Espetos. Depende de utils.js, js/services/ingredients-service.js,
+ * js/services/recipes-service.js, js/services/products-service.js,
+ * js/services/skewer-production-service.js e
+ * js/services/production-supplies-service.js (só a função de leitura é
+ * usada — criar/atualizar/excluir ficam sem chamador nesta página).
  *
  * souAdminProducao decide só a edição (criar/editar/ativar/desativar/
  * excluir) — visualização já é liberada pra qualquer staff que acesse esta
@@ -88,24 +92,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('estado-carregando-ingredientes').style.display = 'none';
   } catch (erroCarregamento) {
     console.error('Erro ao carregar dados iniciais de Produção:', erroCarregamento);
-    // Ingredientes/Produtos/Insumos são carregados juntos aqui — se isso falhar,
-    // as 4 seções (que dependem desses dados) precisam mostrar erro, nunca ficar
-    // presas em "Carregando...".
+    // Ingredientes/Produtos/Insumos (cache de leitura) são carregados juntos
+    // aqui — se isso falhar, as seções que dependem desses dados precisam
+    // mostrar erro, nunca ficar presas em "Carregando...". Insumos de
+    // Produção não tem mais seção própria (Etapa I4) — só o cache
+    // (insumosProducaoCache) é afetado por uma falha aqui, refletido
+    // indiretamente no formulário de Insumo dentro de Produção de Espetos.
     finalizarSecaoComErro('estado-carregando-ingredientes', 'estado-erro-ingredientes', erroCarregamento);
     finalizarSecaoComErro('estado-carregando-receitas', 'estado-erro-receitas', erroCarregamento);
     finalizarSecaoComErro('estado-carregando-lotes-espetos', 'estado-erro-lotes-espetos', erroCarregamento);
     finalizarSecaoComErro('estado-carregando-acompanhamentos', 'estado-erro-acompanhamentos', erroCarregamento);
-    finalizarSecaoComErro('estado-carregando-insumos', 'estado-erro-insumos', erroCarregamento);
     return;
   }
 
   // Etapa G4 — Compras/Lotes: isolado do bloco essencial acima de propósito.
   // Uma falha aqui (ex. RLS ainda não ajustada pra purchase_items/lots/
   // lot_movements) nunca pode derrubar Ingredientes/Fichas Técnicas/Espetos/
-  // Acompanhamentos/Insumos — lotesCache/itensCompraCache/movimentosLotesCache
+  // Acompanhamentos — lotesCache/itensCompraCache/movimentosLotesCache
   // continuam [] (valor inicial), e todo helper da G4 já é seguro com arrays
-  // vazios: o seletor de lote só mostra "nenhum lote disponível" em vez de
-  // quebrar qualquer coisa. Erro nunca escondido — sempre logado no console.
+  // vazios: o seletor de lote (inclusive de Insumo, Etapa I3) só mostra
+  // "nenhum lote disponível" em vez de quebrar qualquer coisa. Erro nunca
+  // escondido — sempre logado no console.
   try {
     const [lotes, itensCompra, movimentosLotes] = await Promise.all([
       buscarLotesDoSupabase(),
@@ -143,8 +150,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Erro ao preparar Produção de Acompanhamentos:', erroAcompanhamentos);
     finalizarSecaoComErro('estado-carregando-acompanhamentos', 'estado-erro-acompanhamentos', erroAcompanhamentos);
   }
-
-  await carregarSecaoInsumos();
 });
 
 /** Garante que uma seção nunca fique presa em "Carregando..." — usada tanto pela falha do bloco de dados compartilhados quanto por qualquer exceção síncrona ao preparar uma seção específica. */
@@ -156,31 +161,6 @@ function finalizarSecaoComErro(idCarregando, idErro, erro) {
     elErro.textContent = 'Não foi possível carregar os dados. ' + (erro && erro.message ? erro.message : '');
     elErro.style.display = 'block';
   }
-}
-
-/**
- * Insumos nunca teve uma função carregarX() própria (Etapa 3A) — os dados já
- * vêm do Promise.all inicial acima, mas faltava esconder "Carregando
- * insumos..." depois de renderizar (bug real: renderizarTabelaInsumos()
- * nunca tocava nesse elemento). Corrigido aqui, no mesmo formato de
- * carregarFichasTecnicas/carregarLotesEspetos — sempre esconde o loading
- * nos dois caminhos (sucesso e erro).
- */
-async function carregarSecaoInsumos() {
-  const carregando = document.getElementById('estado-carregando-insumos');
-  const erro = document.getElementById('estado-erro-insumos');
-  try {
-    atualizarEstadoEdicaoInsumos();
-    renderizarTabelaInsumos();
-    ligarEventosModalInsumo();
-  } catch (erroInsumos) {
-    console.error('Erro ao preparar Insumos de Produção:', erroInsumos);
-    carregando.style.display = 'none';
-    erro.textContent = 'Não foi possível carregar os insumos. ' + erroInsumos.message;
-    erro.style.display = 'block';
-    return;
-  }
-  carregando.style.display = 'none';
 }
 
 // ---------------------------------------------------------------------------
@@ -2022,9 +2002,9 @@ function sugerirQuantidadePalito() {
  * production_supplies.cost_per_unit) — mesma disciplina já usada em
  * ingredient (G4). Sem lote, comportamento legado intocado: custo ATUAL de
  * production_supplies, unidade 'un'. formatarCustoBaseIngrediente(valor,
- * 'un') produz exatamente a mesma string que formatarCustoInsumo já
- * produzia (ambas toFixed(6) + '/un') — unifica os dois caminhos sem mudar
- * a saída do modo legado.
+ * 'un') produz a mesma formatação (toFixed(6) + '/un') já usada em todo o
+ * projeto pra custo por unidade base — unifica os dois caminhos (com/sem
+ * lote) sob a mesma função de exibição.
  */
 function atualizarPreviewSupplyLote() {
   const preview = document.getElementById('preview-supply-lote');
@@ -3887,184 +3867,13 @@ async function excluirLoteAcompanhamentoModal() {
 }
 
 // =============================================================================
-// INSUMOS DE PRODUÇÃO — production_supplies (Etapa 3A). Cadastro standalone
-// de insumos contados por unidade (palito de espeto hoje; embalagem/bandeja
-// no futuro, sem migration nova — só uma linha nova aqui). Custo por
-// unidade (custoPorUnidade) vem sempre de cost_per_unit, coluna GERADA no
-// banco (purchase_price / purchase_quantity) — nunca calculado nem digitado
-// aqui. NENHUMA integração com skewer_production_batches/lotes ainda — essa
-// leitura só entra na Etapa 3B (skewer_batch_components + RPC
-// save_skewer_production_batch).
+// INSUMOS DE PRODUÇÃO — Etapa I4: o CRUD standalone (cadastro/edição de
+// production_supplies) foi removido desta página. Compras → Itens de Compra
+// é agora a única porta de cadastro (save_purchase_item/finalize_purchase_item,
+// auto-vínculo de category IN ('supply','packaging'), Etapa I2). Esta página
+// continua só CONSUMINDO production_supplies já existentes — leitura
+// (buscarInsumosProducaoDoSupabase -> insumosProducaoCache, carregada no
+// Promise.all inicial), itemCompraDoInsumo/insumoProducaoPorId e todo o
+// fluxo de seleção de insumo+lote em Produção de Espetos (Etapa I3)
+// permanecem intocados, mais acima neste arquivo.
 // =============================================================================
-
-function atualizarEstadoEdicaoInsumos() {
-  const botaoNovo = document.getElementById('botao-novo-insumo');
-  const dica = document.getElementById('dica-insumos-somente-admin');
-  botaoNovo.disabled = !souAdminProducao;
-  dica.style.display = souAdminProducao ? 'none' : '';
-}
-
-/** "€0,012000/un" — mesma disciplina de formatarCustoBaseIngrediente (nunca esconder precisão real). */
-function formatarCustoInsumo(valor) {
-  if (valor === null || !Number.isFinite(valor)) return '—';
-  return '€' + valor.toFixed(6).replace('.', ',') + '/un';
-}
-
-/** "1000 un" — quantidade comprada, sempre em unidades inteiras nesta V1. */
-function formatarQuantidadeInsumo(insumo) {
-  const quantidade = insumo.quantidadeCompra;
-  const texto = Number.isInteger(quantidade) ? String(quantidade) : String(quantidade).replace('.', ',');
-  return `${texto} un`;
-}
-
-function renderizarTabelaInsumos() {
-  const corpo = document.getElementById('corpo-tabela-insumos');
-  const vazio = document.getElementById('estado-vazio-insumos');
-
-  if (insumosProducaoCache.length === 0) {
-    corpo.innerHTML = '';
-    vazio.style.display = 'block';
-    return;
-  }
-  vazio.style.display = 'none';
-
-  corpo.innerHTML = insumosProducaoCache.map(linhaInsumoHtml).join('');
-
-  corpo.querySelectorAll('[data-acao-editar-insumo]').forEach((botao) => {
-    botao.addEventListener('click', () => abrirModalInsumo(botao.dataset.acaoEditarInsumo));
-  });
-}
-
-function linhaInsumoHtml(insumo) {
-  return `
-    <tr>
-      <td>${escaparHtml(insumo.nome)}</td>
-      <td>${escaparHtml(formatarQuantidadeInsumo(insumo))}</td>
-      <td>${formatarMoeda(insumo.precoCompra)}</td>
-      <td>${formatarCustoInsumo(insumo.custoPorUnidade)}</td>
-      <td>${formatarData(insumo.atualizadoEm)}</td>
-      <td><span class="badge badge-${insumo.ativo ? 'ativo' : 'inativo'}">${insumo.ativo ? 'Ativo' : 'Inativo'}</span></td>
-      <td>
-        <button class="btn-icone" data-acao-editar-insumo="${insumo.id}" title="Editar" ${souAdminProducao ? '' : 'disabled'}>✏️</button>
-      </td>
-    </tr>`;
-}
-
-// ---------------------------------------------------------------------------
-// Modal
-// ---------------------------------------------------------------------------
-
-function ligarEventosModalInsumo() {
-  document.getElementById('botao-novo-insumo').addEventListener('click', abrirModalNovoInsumo);
-  document.getElementById('botao-fechar-modal-insumo').addEventListener('click', fecharModalInsumo);
-  document.getElementById('botao-cancelar-insumo').addEventListener('click', fecharModalInsumo);
-
-  document.getElementById('campo-quantidade-insumo').addEventListener('input', atualizarPreviewCustoInsumo);
-  document.getElementById('campo-preco-insumo').addEventListener('input', atualizarPreviewCustoInsumo);
-
-  document.getElementById('form-insumo').addEventListener('submit', salvarFormularioInsumo);
-}
-
-function atualizarPreviewCustoInsumo() {
-  const preview = document.getElementById('preview-custo-insumo');
-  const quantidade = Number(document.getElementById('campo-quantidade-insumo').value);
-  const preco = Number(document.getElementById('campo-preco-insumo').value);
-
-  if (!Number.isFinite(quantidade) || quantidade <= 0 || !Number.isFinite(preco) || preco < 0) {
-    preview.textContent = '';
-    return;
-  }
-
-  const custo = preco / quantidade;
-  const quantidadeTexto = Number.isInteger(quantidade) ? quantidade : quantidade.toString().replace('.', ',');
-
-  preview.textContent = `${quantidadeTexto} unidades por ${formatarMoeda(preco)} · Custo unitário: ${formatarCustoInsumo(custo)}`;
-}
-
-function abrirModalNovoInsumo() {
-  if (!souAdminProducao) return;
-
-  document.getElementById('titulo-modal-insumo').textContent = 'Novo Insumo';
-  document.getElementById('campo-id-insumo').value = '';
-  document.getElementById('campo-nome-insumo').value = '';
-  document.getElementById('campo-quantidade-insumo').value = '';
-  document.getElementById('campo-preco-insumo').value = '';
-  document.getElementById('campo-status-insumo').value = 'ativo';
-  document.getElementById('dica-insumo-erro').style.display = 'none';
-
-  atualizarPreviewCustoInsumo();
-  abrirModal('modal-overlay-insumo');
-}
-
-function abrirModalInsumo(id) {
-  if (!souAdminProducao) return;
-  const insumo = insumosProducaoCache.find((i) => i.id === id);
-  if (!insumo) return;
-
-  document.getElementById('titulo-modal-insumo').textContent = 'Editar Insumo';
-  document.getElementById('campo-id-insumo').value = insumo.id;
-  document.getElementById('campo-nome-insumo').value = insumo.nome;
-  document.getElementById('campo-quantidade-insumo').value = insumo.quantidadeCompra;
-  document.getElementById('campo-preco-insumo').value = insumo.precoCompra;
-  document.getElementById('campo-status-insumo').value = insumo.ativo ? 'ativo' : 'inativo';
-  document.getElementById('dica-insumo-erro').style.display = 'none';
-
-  atualizarPreviewCustoInsumo();
-  abrirModal('modal-overlay-insumo');
-}
-
-function fecharModalInsumo() {
-  fecharModal('modal-overlay-insumo');
-}
-
-/** Espelha no cliente os CHECKs do banco, só pra feedback mais rápido — o banco continua a fonte real. */
-function validarFormularioInsumo({ nome, quantidade, preco }) {
-  if (!nome) return 'Informe o nome do insumo.';
-  if (!Number.isFinite(quantidade) || quantidade <= 0) return 'Informe uma quantidade comprada maior que zero.';
-  if (!Number.isFinite(preco) || preco < 0) return 'Informe um preço pago válido (não pode ser negativo).';
-  return null;
-}
-
-async function salvarFormularioInsumo(evento) {
-  evento.preventDefault();
-  if (!souAdminProducao) return;
-
-  const id = document.getElementById('campo-id-insumo').value;
-  const nome = document.getElementById('campo-nome-insumo').value.trim();
-  const quantidade = Number(document.getElementById('campo-quantidade-insumo').value);
-  const preco = Number(document.getElementById('campo-preco-insumo').value);
-  const ativo = document.getElementById('campo-status-insumo').value === 'ativo';
-
-  const erroValidacao = validarFormularioInsumo({ nome, quantidade, preco });
-  const dicaErro = document.getElementById('dica-insumo-erro');
-  if (erroValidacao) {
-    dicaErro.textContent = erroValidacao;
-    dicaErro.style.display = '';
-    return;
-  }
-  dicaErro.style.display = 'none';
-
-  const dados = { nome, quantidadeCompra: quantidade, precoCompra: preco, ativo };
-
-  try {
-    if (id) {
-      await atualizarInsumoProducaoNoSupabase(id, dados);
-    } else {
-      await criarInsumoProducaoNoSupabase(dados);
-    }
-  } catch (erro) {
-    dicaErro.textContent = 'Não foi possível salvar o insumo. ' + erro.message;
-    dicaErro.style.display = '';
-    return;
-  }
-
-  mostrarToast('Insumo salvo.', 'sucesso');
-  fecharModalInsumo();
-
-  try {
-    insumosProducaoCache = await buscarInsumosProducaoDoSupabase();
-  } catch (erroRecarregar) {
-    console.error('Erro ao recarregar insumos:', erroRecarregar);
-  }
-  renderizarTabelaInsumos();
-}

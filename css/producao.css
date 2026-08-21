@@ -349,21 +349,6 @@
 }
 
 /*
- * Insumos de Produção — tabela de listagem (mesma estrutura de
- * #corpo-tabela-ingredientes).
- */
-#corpo-tabela-insumos td:nth-child(1) { font-weight: 600; }
-
-#corpo-tabela-insumos td:nth-child(3),
-#corpo-tabela-insumos td:nth-child(4) {
-  text-align: right;
-}
-
-#corpo-tabela-insumos td:last-child {
-  text-align: right;
-}
-
-/*
  * Produção de Espetos — Custos Adicionais (Etapa 3C): sub-título das duas
  * subseções (Insumos / Temperos-Preparos), lista de componentes já
  * adicionados ao lote em edição, mini-formulário de adicionar componente, e

@@ -4,10 +4,20 @@
  * (Etapa 3A de Produção de Espetos). Cadastro administrativo standalone,
  * mesmo padrão de segurança de ingredients: anon sem GRANT nenhum, staff só
  * visualiza, admin cria/edita/exclui (RLS, ver migration 20260818100000).
- * Isolado de skewer-production-service.js/ingredients-service.js de
- * propósito — nesta etapa NADA lê production_supplies fora deste arquivo
- * (integração com o lote só entra na Etapa 3B). Depende de js/supabase.js
- * (supabaseClient), carregado antes deste arquivo.
+ * Depende de js/supabase.js (supabaseClient), carregado antes deste arquivo.
+ *
+ * Etapa I4: `js/producao.js` removeu o CRUD standalone de Insumos (tela
+ * própria em producao.html) — Compras -> Itens de Compra passou a ser a
+ * única porta de cadastro/edição de insumos (via save_purchase_item/
+ * finalize_purchase_item, que auto-vinculam production_supplies pra
+ * category IN ('supply','packaging'), Etapa I2). Consequência: nenhuma UI
+ * deste projeto chama mais `criarInsumoProducaoNoSupabase`,
+ * `atualizarInsumoProducaoNoSupabase`, `alternarStatusInsumoProducaoNoSupabase`
+ * ou `excluirInsumoProducaoNoSupabase` — mantidas aqui como legado interno
+ * (nenhum diff desnecessário), não removidas. `buscarInsumosProducaoDoSupabase`
+ * continua sendo a única função realmente usada (por `producao.js`, pra
+ * popular `insumosProducaoCache` e o seletor "Tipo = Insumo" + lote da
+ * Produção de Espetos, Etapa I3).
  */
 
 /** Converte uma linha crua do Supabase (snake_case) pro formato pt-BR usado no restante do projeto. */

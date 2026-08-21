@@ -40,6 +40,14 @@
         </span>
         <span class="compras-card-seta">→</span>
       </button>
+      <button type="button" class="compras-card" data-compras-abrir="insumos">
+        <span class="compras-card-icone">🧷</span>
+        <span class="compras-card-texto">
+          <strong>Insumos e Embalagens</strong>
+          <span>Itens de Compra já filtrado por supply/packaging</span>
+        </span>
+        <span class="compras-card-seta">→</span>
+      </button>
       <button type="button" class="compras-card" data-compras-abrir="fornecedores">
         <span class="compras-card-icone">🚚</span>
         <span class="compras-card-texto">
@@ -74,6 +82,17 @@
         <h2>Itens de Compra</h2>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <span class="compras-badge-pendente" id="texto-itens-compra-pendentes-contador" style="display:none;"></span>
+          <select id="filtro-itens-compra-categoria" class="input" style="width:auto;">
+            <option value="">Todas as categorias</option>
+            <option value="insumos_embalagens">Insumos e Embalagens</option>
+            <option value="ingredient">Ingrediente</option>
+            <option value="meat">Carne</option>
+            <option value="beverage">Bebida</option>
+            <option value="supply">Insumo</option>
+            <option value="packaging">Embalagem</option>
+            <option value="cleaning">Limpeza</option>
+            <option value="other">Outros</option>
+          </select>
           <select id="filtro-itens-compra-pendentes" class="input" style="width:auto;">
             <option value="todos">Todos</option>
             <option value="pendentes">Pendentes</option>
@@ -82,6 +101,7 @@
         </div>
       </div>
       <p class="dica-campo" id="dica-itens-compra-somente-admin" style="display:none;">Somente administradores podem cadastrar ou editar itens de compra.</p>
+      <p class="dica-campo">Insumos e embalagens cadastrados aqui ficam disponíveis automaticamente na Produção.</p>
 
       <div class="card compras-tabela-wrap">
         <table class="tabela">

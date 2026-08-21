@@ -68,6 +68,8 @@ let lotesMostrandoHistoricoCompleto = false;
 let itemLinhaCompraSelecionadoId = null;
 let indiceSugestaoItemLinhaCompraAtiva = -1;
 let filtroItensCompraSomentePendentes = false;
+/** Etapa I4: '' = todas; 'insumos_embalagens' (sintético) = supply+packaging; ou uma categoria real (ver itemCompraPassaFiltroCategoria). */
+let filtroItensCompraCategoria = '';
 
 /**
  * Cada seção roda no seu próprio try/catch — uma exceção em qualquer uma
@@ -186,7 +188,21 @@ function ligarEventosNavegacaoCompras() {
   });
 }
 
+/**
+ * Etapa I4: 'insumos' não é uma seção própria — é um atalho pra "itens" já
+ * com o filtro de categoria aplicado (supply+packaging, ver
+ * itemCompraPassaFiltroCategoria). Nenhuma tela/CRUD nova é aberta, só a
+ * mesma tabela de Itens de Compra pré-filtrada.
+ */
 function abrirSecaoCompras(chave) {
+  if (chave === 'insumos') {
+    filtroItensCompraCategoria = 'insumos_embalagens';
+    const selectCategoria = document.getElementById('filtro-itens-compra-categoria');
+    if (selectCategoria) selectCategoria.value = 'insumos_embalagens';
+    renderizarTabelaItensCompra();
+    chave = 'itens';
+  }
+
   document.getElementById('compras-central').style.display = 'none';
   document.querySelectorAll('.compras-secao').forEach((secao) => {
     secao.classList.toggle('compras-secao-ativa', secao.dataset.comprasSecao === chave);
@@ -268,21 +284,40 @@ function textoVinculoItemCompra(item) {
   return '—';
 }
 
+/**
+ * Etapa I4: filtro de categoria da tabela Itens de Compra. 'insumos_embalagens'
+ * é um valor sintético (nunca gravado no banco) que agrupa category IN
+ * ('supply','packaging') — é o mesmo filtro usado pelo atalho "Insumos e
+ * Embalagens" do Hub Compras (ver abrirSecaoCompras). Qualquer outro valor é
+ * uma categoria real de purchase_items.category, filtrada por igualdade.
+ */
+function itemCompraPassaFiltroCategoria(item) {
+  if (!filtroItensCompraCategoria) return true;
+  if (filtroItensCompraCategoria === 'insumos_embalagens') {
+    return item.categoria === 'supply' || item.categoria === 'packaging';
+  }
+  return item.categoria === filtroItensCompraCategoria;
+}
+
 function renderizarTabelaItensCompra() {
   const corpo = document.getElementById('corpo-tabela-itens-compra');
   const vazio = document.getElementById('estado-vazio-itens-compra');
 
   atualizarContadorPendentesItensCompra();
 
-  const itensFiltrados = filtroItensCompraSomentePendentes
-    ? itensCompraCache.filter((i) => i.needsReview)
-    : itensCompraCache;
+  const itensFiltrados = itensCompraCache
+    .filter((i) => (filtroItensCompraSomentePendentes ? i.needsReview : true))
+    .filter(itemCompraPassaFiltroCategoria);
 
   if (itensFiltrados.length === 0) {
     corpo.innerHTML = '';
-    vazio.textContent = filtroItensCompraSomentePendentes
-      ? 'Nenhum item pendente de revisão.'
-      : 'Nenhum item de compra cadastrado ainda.';
+    if (filtroItensCompraSomentePendentes) {
+      vazio.textContent = 'Nenhum item pendente de revisão.';
+    } else if (filtroItensCompraCategoria) {
+      vazio.textContent = 'Nenhum item de compra encontrado para esta categoria.';
+    } else {
+      vazio.textContent = 'Nenhum item de compra cadastrado ainda.';
+    }
     vazio.style.display = 'block';
     return;
   }
@@ -332,6 +367,10 @@ function ligarEventosModalItemCompra() {
   document.getElementById('form-item-compra').addEventListener('submit', salvarFormularioItemCompra);
   document.getElementById('filtro-itens-compra-pendentes').addEventListener('change', (evento) => {
     filtroItensCompraSomentePendentes = evento.target.value === 'pendentes';
+    renderizarTabelaItensCompra();
+  });
+  document.getElementById('filtro-itens-compra-categoria').addEventListener('change', (evento) => {
+    filtroItensCompraCategoria = evento.target.value;
     renderizarTabelaItensCompra();
   });
 }

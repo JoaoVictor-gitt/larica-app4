@@ -56,14 +56,6 @@
         </span>
         <span class="producao-card-seta">→</span>
       </button>
-      <button type="button" class="producao-card" data-producao-abrir="insumos">
-        <span class="producao-card-icone">🧷</span>
-        <span class="producao-card-texto">
-          <strong>Insumos de Produção</strong>
-          <span>Cadastre palitos e outros insumos contados por unidade</span>
-        </span>
-        <span class="producao-card-seta">→</span>
-      </button>
     </div>
 
     <!-- Ingredientes -->
@@ -202,38 +194,6 @@
       </div>
     </section>
 
-    <!-- Insumos de Produção -->
-    <section class="producao-secao" data-producao-secao="insumos">
-      <button type="button" class="producao-botao-voltar" data-producao-voltar>← Voltar para Produção</button>
-
-      <div class="producao-secao-cabecalho">
-        <h2>Insumos de Produção</h2>
-        <button type="button" class="btn btn-primario" id="botao-novo-insumo">+ Novo Insumo</button>
-      </div>
-      <p class="dica-campo" id="dica-insumos-somente-admin" style="display:none;">Somente administradores podem cadastrar ou editar insumos.</p>
-
-      <div class="card tabela-producao-wrap">
-        <table class="tabela">
-          <thead>
-            <tr>
-              <th>Insumo</th>
-              <th>Compra</th>
-              <th>Preço pago</th>
-              <th>Custo unitário</th>
-              <th>Atualizado em</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="corpo-tabela-insumos"></tbody>
-        </table>
-        <div class="estado-vazio" id="estado-carregando-insumos">Carregando insumos...</div>
-        <div class="estado-vazio" id="estado-erro-insumos" style="display:none;"></div>
-        <div class="estado-vazio" id="estado-vazio-insumos" style="display:none;">
-          Nenhum insumo cadastrado ainda.
-        </div>
-      </div>
-    </section>
   </main>
 
   <!-- Modal de ingrediente -->
@@ -804,50 +764,6 @@
           <button type="button" class="btn btn-secundario" id="botao-excluir-lote-acompanhamento" style="margin-right:auto; display:none;">🗑️ Excluir Lote</button>
           <button type="button" class="btn btn-secundario" id="botao-cancelar-lote-acompanhamento">Cancelar</button>
           <button type="submit" class="btn btn-primario" id="botao-salvar-lote-acompanhamento">Salvar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Modal: novo/editar insumo de produção -->
-  <div class="modal-overlay" id="modal-overlay-insumo">
-    <div class="modal producao-modal-rolavel" style="max-width:460px;">
-      <div class="modal-cabecalho">
-        <h2 id="titulo-modal-insumo">Novo Insumo</h2>
-        <button class="btn-icone" id="botao-fechar-modal-insumo" aria-label="Fechar">✕</button>
-      </div>
-      <form id="form-insumo">
-        <input type="hidden" id="campo-id-insumo" />
-        <div class="modal-corpo">
-          <div class="form-grupo">
-            <label for="campo-nome-insumo">Nome</label>
-            <input type="text" id="campo-nome-insumo" class="input" required />
-          </div>
-
-          <div class="form-grupo">
-            <label for="campo-quantidade-insumo">Quantidade comprada (un)</label>
-            <input type="number" id="campo-quantidade-insumo" class="input" min="0" step="1" required />
-          </div>
-
-          <div class="form-grupo">
-            <label for="campo-preco-insumo">Preço total pago (€)</label>
-            <input type="number" id="campo-preco-insumo" class="input" min="0" step="0.0001" required />
-          </div>
-
-          <div class="form-grupo">
-            <label for="campo-status-insumo">Status</label>
-            <select id="campo-status-insumo" class="input">
-              <option value="ativo">Ativo</option>
-              <option value="inativo">Inativo</option>
-            </select>
-          </div>
-
-          <p class="producao-preview-custo" id="preview-custo-insumo"></p>
-          <p class="dica-campo" id="dica-insumo-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
-        </div>
-        <div class="modal-rodape">
-          <button type="button" class="btn btn-secundario" id="botao-cancelar-insumo">Cancelar</button>
-          <button type="submit" class="btn btn-primario" id="botao-salvar-insumo">Salvar Insumo</button>
         </div>
       </form>
     </div>
