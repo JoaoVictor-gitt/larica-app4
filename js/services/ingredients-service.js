@@ -7,6 +7,16 @@
  * NUNCA carregar este arquivo em pedido.html/js/pedido.js. Isolado de
  * products-service.js de propósito — ingredient não é product. Depende de
  * js/supabase.js (supabaseClient), carregado antes deste arquivo.
+ *
+ * Etapa J5: o CRUD de Ingredientes em producao.html/producao.js foi
+ * removido — criação/edição de ingredient acontece hoje só em Compras
+ * (save_purchase_item/finalize_purchase_item, Etapas J3/J4). Por isso
+ * criarIngredienteNoSupabase/atualizarIngredienteNoSupabase/
+ * alternarStatusIngredienteNoSupabase/excluirIngredienteNoSupabase ficam
+ * sem nenhum chamador nesta versão do projeto — mantidas como escrita
+ * direta legada, sem UI, não removidas de propósito (mesmo padrão adotado
+ * para production-supplies-service.js na Etapa I4). buscarIngredientesDoSupabase
+ * continua em uso ativo (producao.js carrega ingredientesCache com ela).
  */
 
 /** Converte uma linha crua do Supabase (snake_case) pro formato pt-BR usado no restante do projeto. */

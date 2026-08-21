@@ -24,14 +24,6 @@
     </div>
 
     <div class="producao-central" id="producao-central">
-      <button type="button" class="producao-card" data-producao-abrir="ingredientes">
-        <span class="producao-card-icone">🥔</span>
-        <span class="producao-card-texto">
-          <strong>Ingredientes</strong>
-          <span>Cadastre matérias-primas e o custo por grama/ml/unidade</span>
-        </span>
-        <span class="producao-card-seta">→</span>
-      </button>
       <button type="button" class="producao-card" data-producao-abrir="fichas">
         <span class="producao-card-icone">📖</span>
         <span class="producao-card-texto">
@@ -57,40 +49,6 @@
         <span class="producao-card-seta">→</span>
       </button>
     </div>
-
-    <!-- Ingredientes -->
-    <section class="producao-secao" data-producao-secao="ingredientes">
-      <button type="button" class="producao-botao-voltar" data-producao-voltar>← Voltar para Produção</button>
-
-      <div class="producao-secao-cabecalho">
-        <h2>Ingredientes</h2>
-        <button type="button" class="btn btn-primario" id="botao-novo-ingrediente">+ Novo Ingrediente</button>
-      </div>
-      <p class="dica-campo" id="dica-ingredientes-somente-admin" style="display:none;">Somente administradores podem cadastrar ou editar ingredientes.</p>
-
-      <div class="card tabela-producao-wrap">
-        <table class="tabela">
-          <thead>
-            <tr>
-              <th>Ingrediente</th>
-              <th>Compra</th>
-              <th>Preço pago</th>
-              <th>Custo base</th>
-              <th>Categoria</th>
-              <th>Atualizado em</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="corpo-tabela-ingredientes"></tbody>
-        </table>
-        <div class="estado-vazio" id="estado-carregando-ingredientes">Carregando ingredientes...</div>
-        <div class="estado-vazio" id="estado-erro-ingredientes" style="display:none;"></div>
-        <div class="estado-vazio" id="estado-vazio-ingredientes" style="display:none;">
-          Nenhum ingrediente cadastrado ainda.
-        </div>
-      </div>
-    </section>
 
     <!-- Fichas Técnicas -->
     <section class="producao-secao" data-producao-secao="fichas">
@@ -195,95 +153,6 @@
     </section>
 
   </main>
-
-  <!-- Modal de ingrediente -->
-  <div class="modal-overlay" id="modal-overlay-ingrediente">
-    <div class="modal producao-modal-rolavel" style="max-width:520px;">
-      <div class="modal-cabecalho">
-        <h2 id="titulo-modal-ingrediente">Novo Ingrediente</h2>
-        <button class="btn-icone" id="botao-fechar-modal-ingrediente" aria-label="Fechar">✕</button>
-      </div>
-      <form id="form-ingrediente">
-        <input type="hidden" id="campo-id-ingrediente" />
-        <div class="modal-corpo">
-          <div class="form-grupo">
-            <label for="campo-nome-ingrediente">Nome</label>
-            <input type="text" id="campo-nome-ingrediente" class="input" required />
-          </div>
-
-          <div class="form-grupo">
-            <label for="campo-tipo-ingrediente">Tipo</label>
-            <select id="campo-tipo-ingrediente" class="input" required>
-              <option value="peso">Peso</option>
-              <option value="volume">Volume</option>
-              <option value="contagem">Contagem</option>
-            </select>
-          </div>
-
-          <div style="display:flex; gap:12px;">
-            <div class="form-grupo" style="flex:1;">
-              <label for="campo-quantidade-ingrediente">Quantidade comprada</label>
-              <input type="number" id="campo-quantidade-ingrediente" class="input" min="0" step="0.001" required />
-            </div>
-            <div class="form-grupo" style="flex:1;">
-              <label for="campo-unidade-ingrediente">Unidade</label>
-              <select id="campo-unidade-ingrediente" class="input" required></select>
-            </div>
-          </div>
-
-          <details class="producao-detalhe-embalagem">
-            <summary>Comprei em embalagens/caixas (opcional)</summary>
-            <p class="dica-campo">Preenche a Quantidade comprada acima automaticamente — nada disso é salvo separadamente.</p>
-            <div style="display:flex; gap:12px;">
-              <div class="form-grupo" style="flex:1;">
-                <label for="campo-embalagens-qtd">Nº de embalagens/caixas</label>
-                <input type="number" id="campo-embalagens-qtd" class="input" min="0" step="1" placeholder="Ex: 2" />
-              </div>
-              <div class="form-grupo" style="flex:1;">
-                <label for="campo-embalagens-tamanho">Tamanho de cada uma</label>
-                <input type="number" id="campo-embalagens-tamanho" class="input" min="0" step="0.001" placeholder="Ex: 5" />
-              </div>
-            </div>
-          </details>
-
-          <div class="form-grupo">
-            <label for="campo-preco-ingrediente">Preço total pago (€)</label>
-            <input type="number" id="campo-preco-ingrediente" class="input" min="0" step="0.0001" required />
-          </div>
-
-          <div class="form-grupo">
-            <label for="campo-categoria-ingrediente">Categoria (opcional)</label>
-            <input type="text" id="campo-categoria-ingrediente" class="input" list="lista-categorias-ingrediente" placeholder="Ex: Hortifruti" />
-            <datalist id="lista-categorias-ingrediente">
-              <option value="Hortifruti"></option>
-              <option value="Carnes"></option>
-              <option value="Laticínios"></option>
-              <option value="Secos"></option>
-              <option value="Temperos"></option>
-              <option value="Molhos"></option>
-              <option value="Bebidas"></option>
-              <option value="Outros"></option>
-            </datalist>
-          </div>
-
-          <div class="form-grupo">
-            <label for="campo-status-ingrediente">Status</label>
-            <select id="campo-status-ingrediente" class="input">
-              <option value="ativo">Ativo</option>
-              <option value="inativo">Inativo</option>
-            </select>
-          </div>
-
-          <p class="producao-preview-custo" id="preview-custo-ingrediente"></p>
-          <p class="dica-campo" id="dica-ingrediente-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
-        </div>
-        <div class="modal-rodape">
-          <button type="button" class="btn btn-secundario" id="botao-cancelar-ingrediente">Cancelar</button>
-          <button type="submit" class="btn btn-primario" id="botao-salvar-ingrediente">Salvar Ingrediente</button>
-        </div>
-      </form>
-    </div>
-  </div>
 
   <!-- Modal: nova ficha técnica (só nome — rendimento passa a ser calculado sozinho a partir dos ingredientes, adicionados depois no detalhe) -->
   <div class="modal-overlay" id="modal-overlay-nova-ficha">
@@ -577,7 +446,7 @@
             <p class="dica-campo" id="dica-tempero-lote-saldo-insuficiente" style="display:none; color:var(--cor-status-vermelho);">Quantidade maior que o saldo disponível neste lote.</p>
             <p class="dica-campo">O saldo será baixado deste lote ao salvar a produção.</p>
           </div>
-          <p class="dica-campo" id="dica-tempero-sem-opcoes" style="display:none;">Nenhum ingrediente ativo na categoria Temperos. Cadastre ou edite Sal/Sal de Parrilha em Produção → Ingredientes e use Categoria = Temperos.</p>
+          <p class="dica-campo" id="dica-tempero-sem-opcoes" style="display:none;">Nenhum ingrediente ativo na categoria Temperos. Em Compras → Itens de Compra, edite ou crie um item de compra com Categoria = Ingrediente e Categoria do ingrediente = Temperos.</p>
           <p class="producao-preview-custo" id="preview-tempero-lote"></p>
           <p class="dica-campo" id="dica-tempero-lote-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
 

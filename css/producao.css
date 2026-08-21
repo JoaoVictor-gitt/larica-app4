@@ -128,40 +128,6 @@
 .tabela-producao-wrap { padding: 0; overflow-x: auto; }
 .tabela-producao-wrap .tabela { min-width: 760px; }
 
-#corpo-tabela-ingredientes td:nth-child(1) { font-weight: 600; }
-
-#corpo-tabela-ingredientes td:nth-child(3),
-#corpo-tabela-ingredientes td:nth-child(4) {
-  text-align: right;
-}
-
-#corpo-tabela-ingredientes td:nth-child(7) {
-  text-align: center;
-}
-
-#corpo-tabela-ingredientes td:last-child {
-  text-align: right;
-}
-
-/* Modal de ingrediente */
-.producao-detalhe-embalagem {
-  border: 1px solid var(--cor-borda);
-  border-radius: var(--raio-sm);
-  padding: var(--espaco-sm) var(--espaco-md);
-  margin-bottom: var(--espaco-md);
-}
-
-.producao-detalhe-embalagem summary {
-  cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--cor-texto-secundario);
-}
-
-.producao-detalhe-embalagem[open] summary {
-  margin-bottom: var(--espaco-sm);
-}
-
 .producao-preview-custo {
   font-size: 0.85rem;
   color: var(--cor-texto-secundario);
@@ -173,7 +139,7 @@
 }
 
 /*
- * Fichas Técnicas — tabela de listagem (mesma estrutura de #corpo-tabela-ingredientes)
+ * Fichas Técnicas — tabela de listagem
  */
 #corpo-tabela-receitas td:nth-child(1) { font-weight: 600; }
 
@@ -289,8 +255,7 @@
 
 /*
  * Produção de Espetos — tabela de listagem (mesma estrutura de
- * #corpo-tabela-ingredientes/#corpo-tabela-receitas) e prévia ao vivo do
- * modal de novo/editar lote.
+ * #corpo-tabela-receitas) e prévia ao vivo do modal de novo/editar lote.
  */
 #corpo-tabela-lotes-espetos td:nth-child(2) { font-weight: 600; }
 

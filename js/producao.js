@@ -1,24 +1,32 @@
 /*
  * producao.js
- * Lógica da área Produção. Etapa 1: aba Ingredientes. Etapa 2: aba Fichas
- * Técnicas com ingredientes simples. Etapa 3: sub-receitas (item_type=
- * 'recipe' — um item de receita pode ser outro preparo) + exclusão de
- * ficha técnica. Produção de Espetos: terceira aba, lotes reais de produção
- * a partir de peças de carne com perda de limpeza (skewer_production_batches)
- * — perda, rendimento e custos sempre calculados on-read
- * (calcularIndicadoresLoteEspetos), nunca persistidos, nunca lidos de
- * product_costs (isso só entra numa etapa futura). Insumos de produção
+ * Lógica da área Produção. Etapa 2: aba Fichas Técnicas com ingredientes
+ * simples. Etapa 3: sub-receitas (item_type='recipe' — um item de receita
+ * pode ser outro preparo) + exclusão de ficha técnica. Produção de Espetos:
+ * terceira aba, lotes reais de produção a partir de peças de carne com
+ * perda de limpeza (skewer_production_batches) — perda, rendimento e custos
+ * sempre calculados on-read (calcularIndicadoresLoteEspetos), nunca
+ * persistidos, nunca lidos de product_costs (isso só entra numa etapa
+ * futura). Ingredientes (public.ingredients): desde a Etapa J5, esta página
+ * não tem mais cadastro próprio para eles — Compras -> Itens de Compra é a
+ * única porta de criação/edição (auto-vínculo/categoria via
+ * save_purchase_item/finalize_purchase_item, Etapas J3/J4). Aqui só se
+ * CONSOME ingredients já existentes: ingredientesCache é lido
+ * (buscarIngredientesDoSupabase) e usado por Fichas Técnicas, pelo seletor
+ * "Tipo = Ingrediente" + lote em Produção de Espetos/Acompanhamentos e pelo
+ * filtro de Temperos (ehIngredienteTempero). Insumos de produção
  * (production_supplies — palito, embalagem etc.): desde a Etapa I4, esta
- * página não tem mais cadastro próprio para eles — Compras -> Itens de
- * Compra é a única porta de criação/edição (auto-vínculo de category IN
- * ('supply','packaging'), Etapa I2). Aqui só se CONSOME production_supplies
- * já existentes: insumosProducaoCache é lido (buscarInsumosProducaoDoSupabase)
- * e usado pelo seletor "Tipo = Insumo" + lote (Etapa I3) dentro de Produção
- * de Espetos. Depende de utils.js, js/services/ingredients-service.js,
+ * página também não tem mais cadastro próprio para eles — mesma lógica,
+ * via Compras (auto-vínculo de category IN ('supply','packaging'), Etapa
+ * I2). Aqui só se CONSOME production_supplies já existentes:
+ * insumosProducaoCache é lido (buscarInsumosProducaoDoSupabase) e usado
+ * pelo seletor "Tipo = Insumo" + lote (Etapa I3) dentro de Produção de
+ * Espetos. Depende de utils.js, js/services/ingredients-service.js,
  * js/services/recipes-service.js, js/services/products-service.js,
  * js/services/skewer-production-service.js e
  * js/services/production-supplies-service.js (só a função de leitura é
- * usada — criar/atualizar/excluir ficam sem chamador nesta página).
+ * usada em ambos — criar/atualizar/desativar/excluir ficam sem chamador
+ * nesta página).
  *
  * souAdminProducao decide só a edição (criar/editar/ativar/desativar/
  * excluir) — visualização já é liberada pra qualquer staff que acesse esta
@@ -34,11 +42,12 @@
  * (item pode ser ingrediente OU sub-receita) e memoizado por receitaId
  * num Map novo a cada passada de render (nunca persistido em recipes/
  * recipe_items, nunca lido de product_costs — isso só entra na Etapa 4).
- * ingredientesCache é recarregado do zero a cada criar/editar ingrediente
- * (salvarFormularioIngrediente, Etapa 1, não alterado aqui) — por isso os
- * cálculos de custo, que sempre fazem ingredientesCache.find(...) na hora
- * de ler (nunca guardam uma cópia à parte), automaticamente refletem uma
- * mudança de preço na próxima renderização, sem esforço extra.
+ * ingredientesCache é carregado uma única vez no DOMContentLoaded desta
+ * página — uma criação/edição feita em Compras (Etapas J3/J4) só aparece
+ * aqui na próxima vez que esta página for aberta/recarregada, nunca ao
+ * vivo. Os cálculos de custo sempre fazem ingredientesCache.find(...) na
+ * hora de ler (nunca guardam uma cópia à parte), então refletem qualquer
+ * valor já presente no cache sem esforço extra de sincronização.
  */
 
 const FATORES_CONVERSAO_UNIDADE_INGREDIENTE = { kg: 1000, g: 1, L: 1000, ml: 1, un: 1 };
@@ -86,10 +95,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       custosProdutos.map((l) => [l.product_id, l.unit_cost === null || l.unit_cost === undefined ? null : Number(l.unit_cost)])
     );
 
-    atualizarEstadoEdicaoIngredientes();
-    renderizarTabelaIngredientes();
-    ligarEventosModalIngrediente();
-    document.getElementById('estado-carregando-ingredientes').style.display = 'none';
   } catch (erroCarregamento) {
     console.error('Erro ao carregar dados iniciais de Produção:', erroCarregamento);
     // Ingredientes/Produtos/Insumos (cache de leitura) são carregados juntos
@@ -98,7 +103,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Produção não tem mais seção própria (Etapa I4) — só o cache
     // (insumosProducaoCache) é afetado por uma falha aqui, refletido
     // indiretamente no formulário de Insumo dentro de Produção de Espetos.
-    finalizarSecaoComErro('estado-carregando-ingredientes', 'estado-erro-ingredientes', erroCarregamento);
+    // Ingredientes (Etapa J5) também não tem mais seção própria — o cache
+    // continua carregado aqui pra Fichas Técnicas/Espetos/Acompanhamentos.
     finalizarSecaoComErro('estado-carregando-receitas', 'estado-erro-receitas', erroCarregamento);
     finalizarSecaoComErro('estado-carregando-lotes-espetos', 'estado-erro-lotes-espetos', erroCarregamento);
     finalizarSecaoComErro('estado-carregando-acompanhamentos', 'estado-erro-acompanhamentos', erroCarregamento);
@@ -189,17 +195,6 @@ function fecharSecaoProducao() {
 }
 
 // ---------------------------------------------------------------------------
-// Admin x staff — reflete a RLS real (só admin escreve)
-// ---------------------------------------------------------------------------
-
-function atualizarEstadoEdicaoIngredientes() {
-  const botaoNovo = document.getElementById('botao-novo-ingrediente');
-  const dica = document.getElementById('dica-ingredientes-somente-admin');
-  botaoNovo.disabled = !souAdminProducao;
-  dica.style.display = souAdminProducao ? 'none' : '';
-}
-
-// ---------------------------------------------------------------------------
 // Formatação
 // ---------------------------------------------------------------------------
 
@@ -209,168 +204,9 @@ function formatarCustoBaseIngrediente(valor, unidadeBase) {
   return '€' + valor.toFixed(6).replace('.', ',') + '/' + unidadeBase;
 }
 
-/** "5 kg" / "24 un" — quantidade comprada como foi digitada, sem casas decimais desnecessárias. */
-function formatarQuantidadeCompraIngrediente(ingrediente) {
-  const quantidade = ingrediente.quantidadeCompraExibicao;
-  const texto = Number.isInteger(quantidade) ? String(quantidade) : String(quantidade).replace('.', ',');
-  return `${texto} ${ingrediente.unidadeCompraExibicao}`;
-}
-
 // ---------------------------------------------------------------------------
-// Listagem
+// Modal (genérico — compartilhado por todos os modais da página)
 // ---------------------------------------------------------------------------
-
-function renderizarTabelaIngredientes() {
-  const corpo = document.getElementById('corpo-tabela-ingredientes');
-  const vazio = document.getElementById('estado-vazio-ingredientes');
-
-  if (ingredientesCache.length === 0) {
-    corpo.innerHTML = '';
-    vazio.style.display = 'block';
-    return;
-  }
-  vazio.style.display = 'none';
-
-  corpo.innerHTML = ingredientesCache.map(linhaIngredienteHtml).join('');
-
-  corpo.querySelectorAll('[data-acao-editar]').forEach((botao) => {
-    botao.addEventListener('click', () => abrirModalIngrediente(botao.dataset.acaoEditar));
-  });
-}
-
-function linhaIngredienteHtml(ingrediente) {
-  return `
-    <tr>
-      <td>${escaparHtml(ingrediente.nome)}</td>
-      <td>${escaparHtml(formatarQuantidadeCompraIngrediente(ingrediente))}</td>
-      <td>${formatarMoeda(ingrediente.precoCompra)}</td>
-      <td>${formatarCustoBaseIngrediente(ingrediente.custoPorUnidadeBase, ingrediente.unidadeBase)}</td>
-      <td>${ingrediente.categoria ? escaparHtml(ingrediente.categoria) : '—'}</td>
-      <td>${formatarData(ingrediente.atualizadoEm)}</td>
-      <td><span class="badge badge-${ingrediente.ativo ? 'ativo' : 'inativo'}">${ingrediente.ativo ? 'Ativo' : 'Inativo'}</span></td>
-      <td>
-        <button class="btn-icone" data-acao-editar="${ingrediente.id}" title="Editar" ${souAdminProducao ? '' : 'disabled'}>✏️</button>
-      </td>
-    </tr>`;
-}
-
-// ---------------------------------------------------------------------------
-// Unidades — dropdown de unidade filtrado pelo tipo selecionado
-// ---------------------------------------------------------------------------
-
-function atualizarOpcoesUnidadeIngrediente() {
-  const tipo = document.getElementById('campo-tipo-ingrediente').value;
-  const selectUnidade = document.getElementById('campo-unidade-ingrediente');
-  const unidadeAtual = selectUnidade.value;
-  const opcoes = UNIDADES_COMPRA_POR_TIPO_INGREDIENTE[tipo] || [];
-
-  selectUnidade.innerHTML = opcoes.map((u) => `<option value="${u}">${u}</option>`).join('');
-  selectUnidade.value = opcoes.includes(unidadeAtual) ? unidadeAtual : opcoes[0];
-}
-
-// ---------------------------------------------------------------------------
-// Modal
-// ---------------------------------------------------------------------------
-
-function ligarEventosModalIngrediente() {
-  document.getElementById('botao-novo-ingrediente').addEventListener('click', abrirModalNovoIngrediente);
-  document.getElementById('botao-fechar-modal-ingrediente').addEventListener('click', fecharModalIngrediente);
-  document.getElementById('botao-cancelar-ingrediente').addEventListener('click', fecharModalIngrediente);
-
-  document.getElementById('campo-tipo-ingrediente').addEventListener('change', () => {
-    atualizarOpcoesUnidadeIngrediente();
-    atualizarPreviewCustoIngrediente();
-  });
-  document.getElementById('campo-quantidade-ingrediente').addEventListener('input', atualizarPreviewCustoIngrediente);
-  document.getElementById('campo-unidade-ingrediente').addEventListener('change', atualizarPreviewCustoIngrediente);
-  document.getElementById('campo-preco-ingrediente').addEventListener('input', atualizarPreviewCustoIngrediente);
-
-  document.getElementById('campo-embalagens-qtd').addEventListener('input', aplicarConvenienciaEmbalagem);
-  document.getElementById('campo-embalagens-tamanho').addEventListener('input', aplicarConvenienciaEmbalagem);
-
-  document.getElementById('form-ingrediente').addEventListener('submit', salvarFormularioIngrediente);
-}
-
-/** Multiplica embalagens × tamanho e preenche a Quantidade comprada — puramente uma conveniência de formulário, nada disso é enviado ao banco. */
-function aplicarConvenienciaEmbalagem() {
-  const qtdEmbalagens = Number(document.getElementById('campo-embalagens-qtd').value);
-  const tamanhoEmbalagem = Number(document.getElementById('campo-embalagens-tamanho').value);
-
-  if (Number.isFinite(qtdEmbalagens) && qtdEmbalagens > 0 && Number.isFinite(tamanhoEmbalagem) && tamanhoEmbalagem > 0) {
-    document.getElementById('campo-quantidade-ingrediente').value = qtdEmbalagens * tamanhoEmbalagem;
-    atualizarPreviewCustoIngrediente();
-  }
-}
-
-function atualizarPreviewCustoIngrediente() {
-  const preview = document.getElementById('preview-custo-ingrediente');
-  const tipo = document.getElementById('campo-tipo-ingrediente').value;
-  const quantidade = Number(document.getElementById('campo-quantidade-ingrediente').value);
-  const unidade = document.getElementById('campo-unidade-ingrediente').value;
-  const preco = Number(document.getElementById('campo-preco-ingrediente').value);
-
-  const fator = FATORES_CONVERSAO_UNIDADE_INGREDIENTE[unidade];
-  const unidadeBase = UNIDADE_BASE_POR_TIPO_INGREDIENTE[tipo];
-
-  if (!Number.isFinite(quantidade) || quantidade <= 0 || !fator || !Number.isFinite(preco) || preco < 0) {
-    preview.textContent = '';
-    return;
-  }
-
-  const quantidadeBase = quantidade * fator;
-  const custoBase = preco / quantidadeBase;
-  const quantidadeTexto = Number.isInteger(quantidade) ? quantidade : quantidade.toString().replace('.', ',');
-  const quantidadeBaseTexto = Number.isInteger(quantidadeBase) ? quantidadeBase : quantidadeBase.toFixed(3).replace('.', ',');
-
-  preview.textContent = `${quantidadeTexto} ${unidade} = ${quantidadeBaseTexto} ${unidadeBase} · Custo: ${formatarCustoBaseIngrediente(custoBase, unidadeBase)}`;
-}
-
-function abrirModalNovoIngrediente() {
-  if (!souAdminProducao) return;
-
-  document.getElementById('titulo-modal-ingrediente').textContent = 'Novo Ingrediente';
-  document.getElementById('campo-id-ingrediente').value = '';
-  document.getElementById('campo-nome-ingrediente').value = '';
-  document.getElementById('campo-tipo-ingrediente').value = 'peso';
-  document.getElementById('campo-quantidade-ingrediente').value = '';
-  document.getElementById('campo-embalagens-qtd').value = '';
-  document.getElementById('campo-embalagens-tamanho').value = '';
-  document.getElementById('campo-preco-ingrediente').value = '';
-  document.getElementById('campo-categoria-ingrediente').value = '';
-  document.getElementById('campo-status-ingrediente').value = 'ativo';
-  document.getElementById('dica-ingrediente-erro').style.display = 'none';
-
-  atualizarOpcoesUnidadeIngrediente();
-  atualizarPreviewCustoIngrediente();
-  abrirModal('modal-overlay-ingrediente');
-}
-
-function abrirModalIngrediente(id) {
-  if (!souAdminProducao) return;
-  const ingrediente = ingredientesCache.find((i) => i.id === id);
-  if (!ingrediente) return;
-
-  document.getElementById('titulo-modal-ingrediente').textContent = 'Editar Ingrediente';
-  document.getElementById('campo-id-ingrediente').value = ingrediente.id;
-  document.getElementById('campo-nome-ingrediente').value = ingrediente.nome;
-  document.getElementById('campo-tipo-ingrediente').value = ingrediente.tipoUnidade;
-  atualizarOpcoesUnidadeIngrediente();
-  document.getElementById('campo-unidade-ingrediente').value = ingrediente.unidadeCompraExibicao;
-  document.getElementById('campo-quantidade-ingrediente').value = ingrediente.quantidadeCompraExibicao;
-  document.getElementById('campo-embalagens-qtd').value = '';
-  document.getElementById('campo-embalagens-tamanho').value = '';
-  document.getElementById('campo-preco-ingrediente').value = ingrediente.precoCompra;
-  document.getElementById('campo-categoria-ingrediente').value = ingrediente.categoria || '';
-  document.getElementById('campo-status-ingrediente').value = ingrediente.ativo ? 'ativo' : 'inativo';
-  document.getElementById('dica-ingrediente-erro').style.display = 'none';
-
-  atualizarPreviewCustoIngrediente();
-  abrirModal('modal-overlay-ingrediente');
-}
-
-function fecharModalIngrediente() {
-  fecharModal('modal-overlay-ingrediente');
-}
 
 function abrirModal(idOverlay) {
   document.getElementById(idOverlay).classList.add('modal-visivel');
@@ -378,77 +214,6 @@ function abrirModal(idOverlay) {
 
 function fecharModal(idOverlay) {
   document.getElementById(idOverlay).classList.remove('modal-visivel');
-}
-
-// ---------------------------------------------------------------------------
-// Validação e salvamento
-// ---------------------------------------------------------------------------
-
-/** Espelha no cliente os CHECKs do banco, só pra feedback mais rápido — o banco continua a fonte real. */
-function validarFormularioIngrediente({ nome, tipo, quantidade, unidade, preco }) {
-  if (!nome) return 'Informe o nome do ingrediente.';
-  if (!['peso', 'volume', 'contagem'].includes(tipo)) return 'Tipo inválido.';
-  if (!Number.isFinite(quantidade) || quantidade <= 0) return 'Informe uma quantidade comprada maior que zero.';
-  if (!UNIDADES_COMPRA_POR_TIPO_INGREDIENTE[tipo].includes(unidade)) return 'Unidade incompatível com o tipo selecionado.';
-  if (!Number.isFinite(preco) || preco < 0) return 'Informe um preço pago válido (não pode ser negativo).';
-  return null;
-}
-
-async function salvarFormularioIngrediente(evento) {
-  evento.preventDefault();
-  if (!souAdminProducao) return;
-
-  const id = document.getElementById('campo-id-ingrediente').value;
-  const nome = document.getElementById('campo-nome-ingrediente').value.trim();
-  const tipo = document.getElementById('campo-tipo-ingrediente').value;
-  const quantidade = Number(document.getElementById('campo-quantidade-ingrediente').value);
-  const unidade = document.getElementById('campo-unidade-ingrediente').value;
-  const preco = Number(document.getElementById('campo-preco-ingrediente').value);
-  const categoria = document.getElementById('campo-categoria-ingrediente').value.trim();
-  const ativo = document.getElementById('campo-status-ingrediente').value === 'ativo';
-
-  const erroValidacao = validarFormularioIngrediente({ nome, tipo, quantidade, unidade, preco });
-  const dicaErro = document.getElementById('dica-ingrediente-erro');
-  if (erroValidacao) {
-    dicaErro.textContent = erroValidacao;
-    dicaErro.style.display = '';
-    return;
-  }
-  dicaErro.style.display = 'none';
-
-  const fator = FATORES_CONVERSAO_UNIDADE_INGREDIENTE[unidade];
-  const dados = {
-    nome,
-    tipoUnidade: tipo,
-    unidadeBase: UNIDADE_BASE_POR_TIPO_INGREDIENTE[tipo],
-    quantidadeCompraExibicao: quantidade,
-    unidadeCompraExibicao: unidade,
-    quantidadeBaseCompra: quantidade * fator,
-    precoCompra: preco,
-    categoria,
-    ativo,
-  };
-
-  try {
-    if (id) {
-      await atualizarIngredienteNoSupabase(id, dados);
-    } else {
-      await criarIngredienteNoSupabase(dados);
-    }
-  } catch (erro) {
-    mostrarToast('Não foi possível salvar o ingrediente. ' + erro.message, 'erro');
-    return;
-  }
-
-  mostrarToast('Ingrediente salvo.', 'sucesso');
-  fecharModalIngrediente();
-
-  try {
-    ingredientesCache = await buscarIngredientesDoSupabase();
-  } catch (erroRecarregar) {
-    console.error('Erro ao recarregar ingredientes:', erroRecarregar);
-  }
-  renderizarTabelaIngredientes();
 }
 
 // =============================================================================
