@@ -10,13 +10,16 @@
  *
  * Etapa J5: o CRUD de Ingredientes em producao.html/producao.js foi
  * removido — criação/edição de ingredient acontece hoje só em Compras
- * (save_purchase_item/finalize_purchase_item, Etapas J3/J4). Por isso
+ * (save_purchase_item/finalize_purchase_item, Etapas J3/J4). Etapa J6:
+ * o GRANT INSERT/UPDATE/DELETE de authenticated na tabela ingredients
+ * também foi revogado (migration 20260818340000) — as RPCs SECURITY
+ * DEFINER continuam escrevendo normalmente (checam privilégio contra o
+ * dono da função, não contra o chamador). Por isso
  * criarIngredienteNoSupabase/atualizarIngredienteNoSupabase/
- * alternarStatusIngredienteNoSupabase/excluirIngredienteNoSupabase ficam
- * sem nenhum chamador nesta versão do projeto — mantidas como escrita
- * direta legada, sem UI, não removidas de propósito (mesmo padrão adotado
- * para production-supplies-service.js na Etapa I4). buscarIngredientesDoSupabase
- * continua em uso ativo (producao.js carrega ingredientesCache com ela).
+ * alternarStatusIngredienteNoSupabase/excluirIngredienteNoSupabase estão
+ * sem UI e sem permissão direta no banco desde J6; mantidas apenas por
+ * compatibilidade histórica. buscarIngredientesDoSupabase continua em uso
+ * ativo (producao.js carrega ingredientesCache com ela).
  */
 
 /** Converte uma linha crua do Supabase (snake_case) pro formato pt-BR usado no restante do projeto. */
