@@ -24,7 +24,13 @@
  * ('supply','packaging') sem vínculo enviado, as duas RPCs criam/vinculam
  * um production_supply automaticamente (unifica o cadastro de Insumos de
  * Produção dentro de Itens de Compra); cleaning fica de propósito fora
- * dessa auto-criação. lots/lot_movements são só-leitura pra authenticated (nenhuma
+ * dessa auto-criação. Desde a Etapa J3, category='ingredient' recebe o
+ * mesmo tratamento pra public.ingredients (_resolve_ingredient_link);
+ * desde a Etapa J4, as duas RPCs também recebem p_ingredient_category e
+ * gravam/atualizam ingredients.category a partir dele (obrigatório sempre
+ * que a categoria do item for 'ingredient' — nunca mais NULL numa nova
+ * auto-criação via Compras; também permite corrigir a categoria de um
+ * Ingredient legado já vinculado). lots/lot_movements são só-leitura pra authenticated (nenhuma
  * escrita direta em hipótese nenhuma). Exclusão de compra passa pela RPC
  * delete_purchase (migration 20260818240000) — só permitida se nenhum
  * lote da compra já teve movimentação real (production_use/sale/waste/
@@ -198,6 +204,7 @@ async function _salvarItemCompraViaRpc(id, dados) {
     p_base_unit: dados.unidadeBase || null,
     p_product_id: dados.produtoId || null,
     p_ingredient_id: dados.ingredienteId || null,
+    p_ingredient_category: dados.ingredienteCategoria || null,
     p_production_supply_id: dados.insumoId || null,
     p_active: dados.ativo !== false,
   });
@@ -234,6 +241,7 @@ async function finalizarItemCompraNoSupabase(id, dados) {
     p_base_unit: dados.unidadeBase || null,
     p_product_id: dados.produtoId || null,
     p_ingredient_id: dados.ingredienteId || null,
+    p_ingredient_category: dados.ingredienteCategoria || null,
     p_production_supply_id: dados.insumoId || null,
     p_active: dados.ativo !== false,
   });

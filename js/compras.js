@@ -457,6 +457,12 @@ function atualizarVisibilidadeVinculoItemCompra() {
     // grupo-referencia-vinculo-item-compra continua controlado por
     // popularOpcoesVinculoItemCompra (depende do Tipo de vínculo escolhido).
   }
+
+  // Etapa J4: visível independente do sub-estado acima (auto-criação
+  // pendente OU já vinculado) — o valor em si é preenchido por
+  // abrirModalItemCompra/abrirModalNovoItemCompra, nunca aqui (esta função
+  // só alterna visibilidade, roda de novo a cada troca de Categoria).
+  document.getElementById('grupo-categoria-ingrediente-item-compra').style.display = elegivelIngredient ? '' : 'none';
 }
 
 function abrirModalNovoItemCompra() {
@@ -469,6 +475,7 @@ function abrirModalNovoItemCompra() {
   document.getElementById('campo-controla-estoque-item-compra').value = 'true';
   document.getElementById('campo-unidade-base-item-compra').value = '';
   document.getElementById('campo-tipo-vinculo-item-compra').value = '';
+  document.getElementById('campo-categoria-ingrediente-item-compra').value = '';
   document.getElementById('campo-status-item-compra').value = 'ativo';
   document.getElementById('dica-item-compra-erro').style.display = 'none';
   document.getElementById('dica-item-compra-pendente').style.display = 'none';
@@ -500,6 +507,15 @@ function abrirModalItemCompra(id) {
   const vinculoId = item.produtoId || item.ingredienteId || item.insumoId || null;
   document.getElementById('campo-tipo-vinculo-item-compra').value = tipoVinculo;
   popularOpcoesVinculoItemCompra(vinculoId);
+
+  // Etapa J4: se já há um Ingredient vinculado, carrega a categoria ATUAL
+  // dele (de ingredientesCache, já carregado — zero query nova) — cobre o
+  // caso de um Ingredient auto-criado antes da J4 (ex. "Cebola Teste J3"),
+  // cuja category ainda é NULL: o select fica no placeholder vazio,
+  // obrigando escolher antes de salvar de novo (validado no backend).
+  const ingredienteVinculado = item.ingredienteId ? ingredientesCache.find((i) => i.id === item.ingredienteId) : null;
+  document.getElementById('campo-categoria-ingrediente-item-compra').value = ingredienteVinculado ? ingredienteVinculado.categoria || '' : '';
+
   atualizarVisibilidadeVinculoItemCompra();
 
   abrirModal('modal-overlay-item-compra');
@@ -520,6 +536,7 @@ async function salvarFormularioItemCompra(evento) {
   const unidadeBase = document.getElementById('campo-unidade-base-item-compra').value || null;
   const tipoVinculo = document.getElementById('campo-tipo-vinculo-item-compra').value;
   const referenciaVinculo = document.getElementById('campo-referencia-vinculo-item-compra').value || null;
+  const ingredienteCategoria = document.getElementById('campo-categoria-ingrediente-item-compra').value || null;
   const ativo = document.getElementById('campo-status-item-compra').value === 'ativo';
 
   const dicaErro = document.getElementById('dica-item-compra-erro');
@@ -534,6 +551,14 @@ async function salvarFormularioItemCompra(evento) {
     dicaErro.style.display = '';
     return;
   }
+  // Etapa J4: mesma mensagem exata da validação server-side
+  // (save_purchase_item/finalize_purchase_item) — feedback mais rápido, o
+  // backend continua sendo a barreira real.
+  if (categoria === 'ingredient' && !ingredienteCategoria) {
+    dicaErro.textContent = 'Selecione a categoria do ingrediente.';
+    dicaErro.style.display = '';
+    return;
+  }
   dicaErro.style.display = 'none';
 
   const dados = {
@@ -545,6 +570,7 @@ async function salvarFormularioItemCompra(evento) {
     produtoId: tipoVinculo === 'product' ? referenciaVinculo : null,
     ingredienteId: tipoVinculo === 'ingredient' ? referenciaVinculo : null,
     insumoId: tipoVinculo === 'supply' ? referenciaVinculo : null,
+    ingredienteCategoria: categoria === 'ingredient' ? ingredienteCategoria : null,
   };
 
   const itemAtual = id ? itemCompraPorId(id) : null;

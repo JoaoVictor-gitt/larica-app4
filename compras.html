@@ -411,6 +411,32 @@
             <span class="compras-vinculo-travado" id="texto-vinculo-supply-existente">—</span>
           </div>
 
+          <!-- Etapa J4: só para category='ingredient' — visível independente
+               do sub-estado do vínculo acima (auto-criação pendente OU já
+               vinculado a um Ingredient existente), porque o usuário precisa
+               poder editar a categoria mesmo depois de vinculado (ex. um
+               Ingredient auto-criado antes da J4, com category=NULL).
+               Taxonomia reaproveitada literalmente do datalist já existente
+               em producao.html (#lista-categorias-ingrediente) — mesmos 8
+               valores, validados também no backend (save_purchase_item/
+               finalize_purchase_item). Este campo grava em
+               ingredients.category, nunca em purchase_items.category (são
+               taxonomias diferentes). -->
+          <div class="form-grupo" id="grupo-categoria-ingrediente-item-compra" style="display:none;">
+            <label for="campo-categoria-ingrediente-item-compra">Categoria do ingrediente</label>
+            <select id="campo-categoria-ingrediente-item-compra" class="input">
+              <option value="">— Selecione —</option>
+              <option value="Hortifruti">Hortifruti</option>
+              <option value="Carnes">Carnes</option>
+              <option value="Laticínios">Laticínios</option>
+              <option value="Secos">Secos</option>
+              <option value="Temperos">Temperos</option>
+              <option value="Molhos">Molhos</option>
+              <option value="Bebidas">Bebidas</option>
+              <option value="Outros">Outros</option>
+            </select>
+          </div>
+
           <div class="form-grupo">
             <label for="campo-status-item-compra">Status</label>
             <select id="campo-status-item-compra" class="input">
