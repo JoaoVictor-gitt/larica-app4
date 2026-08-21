@@ -137,6 +137,18 @@
             </div>
 
             <div class="form-grupo">
+              <label for="campo-origem-estoque">Origem do estoque</label>
+              <select id="campo-origem-estoque" class="input">
+                <option value="untracked">Sem controle de estoque</option>
+                <option value="purchased">Comprado pronto para venda</option>
+                <option value="produced">Produzido internamente</option>
+              </select>
+              <p class="dica-campo" id="dica-origem-purchased" style="display:none;">O estoque será abastecido pelas Compras.</p>
+              <p class="dica-campo" id="dica-origem-produced" style="display:none;">O estoque será abastecido pela Produção.</p>
+              <p class="dica-campo" id="dica-origem-untracked" style="display:none;">Não possui quantidade própria.</p>
+            </div>
+
+            <div class="form-grupo">
               <label for="campo-descricao">Descrição</label>
               <textarea id="campo-descricao" class="input" rows="3"></textarea>
             </div>

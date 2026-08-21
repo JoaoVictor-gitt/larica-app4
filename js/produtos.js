@@ -267,6 +267,7 @@ function ligarEventosModal() {
   document.getElementById('botao-remover-foto').addEventListener('click', removerFotoSelecionada);
 
   document.getElementById('form-produto').addEventListener('submit', salvarFormularioProduto);
+  document.getElementById('campo-origem-estoque').addEventListener('change', atualizarDicaOrigemEstoque);
   ligarEventoCategoria();
 }
 
@@ -276,11 +277,13 @@ function abrirModalCriacao() {
   document.getElementById('campo-id').value = '';
   document.getElementById('campo-estoque').value = 0;
   document.getElementById('campo-status').value = 'ativo';
+  document.getElementById('campo-origem-estoque').value = 'untracked';
   document.getElementById('campo-ordem').value = 0;
   document.getElementById('campo-qtd-espetos').value = 1;
   document.getElementById('campo-qtd-acompanhamentos').value = 1;
   definirFotoPreview('');
   atualizarVisibilidadeCamposPorCategoria();
+  atualizarDicaOrigemEstoque();
   abrirModal();
 }
 
@@ -296,6 +299,7 @@ function abrirModalEdicao(id) {
   document.getElementById('campo-estoque').value = produto.quantidadeEstoque;
   document.getElementById('campo-descricao').value = produto.descricao || '';
   document.getElementById('campo-status').value = produto.status;
+  document.getElementById('campo-origem-estoque').value = produto.stockMode || 'untracked';
   // Custo (Etapa 2): combo nunca mostra valor aqui (ver custoUnitarioDoProduto) —
   // atualizarVisibilidadeCamposPorCategoria(), chamada mais abaixo, cuida de
   // desabilitar/limpar o campo pra combo e pra quem não é admin.
@@ -309,10 +313,19 @@ function abrirModalEdicao(id) {
   document.getElementById('campo-qtd-acompanhamentos').value = combo ? combo.allowedSides : 1;
 
   atualizarVisibilidadeCamposPorCategoria();
+  atualizarDicaOrigemEstoque();
   renderizarListaItensInclusos(combo ? combo.includedItems : []);
   renderizarListaAcrescimosEspetos(combo ? combo.skewerExtraPrices : {});
 
   abrirModal();
+}
+
+/** Mostra só a dica correspondente à origem de estoque selecionada — Etapa K2, mesmo padrão de atualizarEstadoCampoCusto(). */
+function atualizarDicaOrigemEstoque() {
+  const origem = document.getElementById('campo-origem-estoque').value;
+  document.getElementById('dica-origem-purchased').style.display = origem === 'purchased' ? '' : 'none';
+  document.getElementById('dica-origem-produced').style.display = origem === 'produced' ? '' : 'none';
+  document.getElementById('dica-origem-untracked').style.display = origem === 'untracked' ? '' : 'none';
 }
 
 // ---------------------------------------------------------------------------
@@ -546,6 +559,7 @@ async function salvarFormularioProduto(evento) {
     descricao: document.getElementById('campo-descricao').value.trim(),
     foto: fotoSelecionadaBase64,
     status: document.getElementById('campo-status').value,
+    stockMode: document.getElementById('campo-origem-estoque').value,
     comboConfig: ehCombo
       ? {
           ordem: Math.max(0, Number(document.getElementById('campo-ordem').value) || 0),

@@ -36,6 +36,7 @@ function _linhaSupabaseParaProduto(linha) {
     foto: linha.image_url || '',
     status: linha.active ? 'ativo' : 'inativo',
     disponivel: linha.is_available !== false, // disponibilidade operacional — distinta de active/status (ver comentário no schema)
+    stockMode: linha.stock_mode || 'untracked', // Etapa K2 — só classificação, nenhuma automação de estoque ainda
     comboConfig: null, // preenchido por buscarProdutosDoSupabase() quando for combo
     criadoEm: linha.created_at || '',
     atualizadoEm: linha.updated_at || '',
@@ -52,6 +53,7 @@ function _produtoParaLinhaSupabase(produto) {
     stock_quantity: Math.max(0, Number(produto.quantidadeEstoque) || 0),
     image_url: produto.foto || '',
     active: produto.status === 'ativo',
+    stock_mode: produto.stockMode || 'untracked',
     display_order: produto.comboConfig ? Math.max(0, Number(produto.comboConfig.ordem) || 0) : 0,
   };
 }
