@@ -67,6 +67,12 @@ let lotesMostrandoHistoricoCompleto = false;
 
 let itemLinhaCompraSelecionadoId = null;
 let indiceSugestaoItemLinhaCompraAtiva = -1;
+// Etapa K3.2: índice (em linhasCompraEmEdicao) da linha sendo editada em
+// lugar — null quando o formulário está no modo normal de "adicionar".
+// Preserva linhaId (nunca remove+adiciona uma linha só pra mudar
+// quantidade/preço/validade, o que geraria uma purchase_line NOVA no
+// backend e perderia a reconciliação de estoque da linha original).
+let indiceLinhaCompraEmEdicao = null;
 let filtroItensCompraSomentePendentes = false;
 /** Etapa I4: '' = todas; 'insumos_embalagens' (sintético) = supply+packaging; ou uma categoria real (ver itemCompraPassaFiltroCategoria). */
 let filtroItensCompraCategoria = '';
@@ -1279,16 +1285,30 @@ function adicionarLinhaCompra() {
   }
   dicaErro.style.display = 'none';
 
-  linhasCompraEmEdicao.push({
-    linhaId: null,
-    itemCompraId: item ? item.id : null,
-    itemNome: item ? null : textoDigitado,
-    nome: item ? item.nome : textoDigitado,
-    quantidade,
-    unidade,
-    precoTotal: preco,
-    validade: item ? validade : null,
-  });
+  if (indiceLinhaCompraEmEdicao !== null) {
+    // Etapa K3.2: atualiza a linha existente NO MESMO índice — preserva
+    // linhaId/itemCompraId/nome (item imutável durante a edição, campo
+    // travado abaixo em editarLinhaCompra()). Nunca splice+push (isso
+    // equivaleria a remover+adicionar, gerando uma purchase_line nova no
+    // backend e perdendo a reconciliação de estoque da linha original).
+    const linhaExistente = linhasCompraEmEdicao[indiceLinhaCompraEmEdicao];
+    linhaExistente.quantidade = quantidade;
+    linhaExistente.unidade = unidade;
+    linhaExistente.precoTotal = preco;
+    linhaExistente.validade = item ? validade : null;
+    cancelarEdicaoLinhaCompra();
+  } else {
+    linhasCompraEmEdicao.push({
+      linhaId: null,
+      itemCompraId: item ? item.id : null,
+      itemNome: item ? null : textoDigitado,
+      nome: item ? item.nome : textoDigitado,
+      quantidade,
+      unidade,
+      precoTotal: preco,
+      validade: item ? validade : null,
+    });
+  }
 
   document.getElementById('campo-item-linha-compra-texto').value = '';
   itemLinhaCompraSelecionadoId = null;
@@ -1310,6 +1330,9 @@ function renderizarListaLinhasCompra() {
   } else {
     vazio.style.display = 'none';
     lista.innerHTML = linhasCompraEmEdicao.map(linhaLinhaCompraHtml).join('');
+    lista.querySelectorAll('[data-acao-editar-linha-compra]').forEach((botao) => {
+      botao.addEventListener('click', () => editarLinhaCompra(Number(botao.dataset.acaoEditarLinhaCompra)));
+    });
     lista.querySelectorAll('[data-acao-remover-linha-compra]').forEach((botao) => {
       botao.addEventListener('click', () => removerLinhaCompra(Number(botao.dataset.acaoRemoverLinhaCompra)));
     });
@@ -1320,7 +1343,7 @@ function renderizarListaLinhasCompra() {
 
 function linhaLinhaCompraHtml(linha) {
   const indice = linhasCompraEmEdicao.indexOf(linha);
-  const podeRemover = souAdminCompras && !compraTemConsumo;
+  const podeEditar = souAdminCompras && !compraTemConsumo;
   const badgeNovo = linha.itemCompraId ? '' : ' <span class="compras-badge-novo-item">Novo item</span>';
 
   return `
@@ -1329,12 +1352,71 @@ function linhaLinhaCompraHtml(linha) {
       <span class="compras-linha-linha-compra-quantidade">${formatarQuantidadeCompra(linha.quantidade)} ${linha.unidade}</span>
       <span class="compras-linha-linha-compra-preco">${formatarMoeda(linha.precoTotal)}</span>
       <span class="compras-linha-linha-compra-validade">${linha.validade ? formatarDataCompra(linha.validade) : ''}</span>
-      <button type="button" class="btn-icone" data-acao-remover-linha-compra="${indice}" title="Remover" ${podeRemover ? '' : 'disabled'}>🗑️</button>
+      <button type="button" class="btn-icone" data-acao-editar-linha-compra="${indice}" title="Editar" ${podeEditar ? '' : 'disabled'}>✏️</button>
+      <button type="button" class="btn-icone" data-acao-remover-linha-compra="${indice}" title="Remover" ${podeEditar ? '' : 'disabled'}>🗑️</button>
     </div>`;
+}
+
+/**
+ * Etapa K3.2: carrega uma linha já adicionada nos campos do formulário
+ * pra edição em lugar — nunca remove a linha do array (só marca o índice
+ * em edição). Item travado (disabled) durante a edição: o backend já
+ * proíbe trocar purchase_item_id de uma linha existente (save_purchase),
+ * então trocar de item aqui exigiria remover a linha e adicionar outra,
+ * nunca editar.
+ */
+function editarLinhaCompra(indice) {
+  if (!souAdminCompras || compraTemConsumo) return;
+  const linha = linhasCompraEmEdicao[indice];
+  if (!linha) return;
+
+  indiceLinhaCompraEmEdicao = indice;
+  itemLinhaCompraSelecionadoId = linha.itemCompraId || null;
+
+  const campoTexto = document.getElementById('campo-item-linha-compra-texto');
+  campoTexto.value = linha.nome;
+  campoTexto.disabled = true;
+  fecharSugestoesItemLinhaCompra();
+
+  document.getElementById('campo-quantidade-linha-compra').value = linha.quantidade;
+  atualizarUnidadeLinhaCompra();
+  document.getElementById('campo-unidade-linha-compra').value = linha.unidade;
+  document.getElementById('campo-preco-linha-compra').value = linha.precoTotal;
+  document.getElementById('campo-validade-linha-compra').value = linha.validade || '';
+  atualizarPreviewLinhaCompra();
+
+  document.getElementById('botao-adicionar-linha-compra').textContent = 'Salvar alteração';
+  document.getElementById('botao-cancelar-edicao-linha-compra').style.display = '';
+}
+
+/** Só limpa o estado de "modo edição" — quem chama decide se também limpa os campos do formulário (ver aoClicarCancelarEdicaoLinhaCompra). */
+function cancelarEdicaoLinhaCompra() {
+  indiceLinhaCompraEmEdicao = null;
+  document.getElementById('campo-item-linha-compra-texto').disabled = false;
+  document.getElementById('botao-adicionar-linha-compra').textContent = '+ Adicionar item';
+  document.getElementById('botao-cancelar-edicao-linha-compra').style.display = 'none';
+}
+
+function aoClicarCancelarEdicaoLinhaCompra() {
+  cancelarEdicaoLinhaCompra();
+  document.getElementById('campo-item-linha-compra-texto').value = '';
+  itemLinhaCompraSelecionadoId = null;
+  document.getElementById('campo-quantidade-linha-compra').value = '';
+  document.getElementById('campo-preco-linha-compra').value = '';
+  document.getElementById('campo-validade-linha-compra').value = '';
+  document.getElementById('preview-linha-compra').textContent = '';
+  atualizarUnidadeLinhaCompra();
 }
 
 function removerLinhaCompra(indice) {
   if (!souAdminCompras || compraTemConsumo) return;
+  // Remover qualquer linha enquanto uma edição está em andamento invalidaria
+  // o índice guardado em indiceLinhaCompraEmEdicao — mais seguro cancelar a
+  // edição (usuário pode reabrir depois) do que arriscar salvar por cima da
+  // linha errada.
+  if (indiceLinhaCompraEmEdicao !== null) {
+    aoClicarCancelarEdicaoLinhaCompra();
+  }
   linhasCompraEmEdicao.splice(indice, 1);
   renderizarListaLinhasCompra();
 }
@@ -1362,6 +1444,7 @@ function prepararNovaCompra() {
   compraTemConsumo = false;
   linhasCompraEmEdicao = [];
   itemLinhaCompraSelecionadoId = null;
+  cancelarEdicaoLinhaCompra();
 
   document.getElementById('titulo-secao-registrar-compra').textContent = 'Registrar Compra';
   popularOpcoesFornecedorCompra();
@@ -1392,6 +1475,7 @@ function abrirCompraParaEdicao(compraId) {
   compraEmEdicaoId = compraId;
   compraTemConsumo = compraTemConsumoReal(compraId);
   itemLinhaCompraSelecionadoId = null;
+  cancelarEdicaoLinhaCompra();
   linhasCompraEmEdicao = linhasDaCompra(compraId).map((linha) => {
     const lote = lotesCache.find((l) => l.linhaCompraId === linha.id);
     return {
@@ -1525,6 +1609,7 @@ function ligarEventosRegistrarCompra() {
   document.getElementById('campo-unidade-linha-compra').addEventListener('change', atualizarPreviewLinhaCompra);
   document.getElementById('campo-preco-linha-compra').addEventListener('input', atualizarPreviewLinhaCompra);
   document.getElementById('botao-adicionar-linha-compra').addEventListener('click', adicionarLinhaCompra);
+  document.getElementById('botao-cancelar-edicao-linha-compra').addEventListener('click', aoClicarCancelarEdicaoLinhaCompra);
   document.getElementById('botao-cancelar-registrar-compra').addEventListener('click', () => {
     prepararNovaCompra();
     fecharSecaoCompras();
