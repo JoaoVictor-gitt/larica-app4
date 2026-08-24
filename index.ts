@@ -198,8 +198,23 @@ const ROTAS_VALIDAS = new Set(['/api/delivery', '/api/coupon', '/api/order']);
 
 // L2.4B — headers básicos de segurança, aplicados a TODA resposta (assets e /api/*), num único
 // lugar. Preserva todos os headers já existentes na resposta (Content-Type, Allow, etc.) — só
-// adiciona os 4 abaixo. CSP/HSTS/COOP/CORP ficam para uma etapa posterior.
-function aplicarSecurityHeaders(response: Response): Response {
+// adiciona os headers abaixo. HSTS/COOP/CORP e a CSP de enforcement ficam para etapas
+// posteriores. L2.4C: CSP em Content-Security-Policy-Report-Only, só nas respostas de assets
+// (documentos/CSS/JS consumidos pelo navegador) — nunca nas respostas JSON de /api/*. Sem
+// report-uri/report-to/Reporting-Endpoints ainda (sem endpoint de coleta configurado).
+const CSP_REPORT_ONLY =
+  "default-src 'self'; " +
+  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://challenges.cloudflare.com https://cdnjs.cloudflare.com; " +
+  "style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data:; " +
+  "font-src 'self'; " +
+  "connect-src 'self' https://ghntpyqdbgxaisfgytto.supabase.co wss://ghntpyqdbgxaisfgytto.supabase.co https://challenges.cloudflare.com; " +
+  "frame-src https://challenges.cloudflare.com; " +
+  "frame-ancestors 'none'; " +
+  "base-uri 'self'; " +
+  "form-action 'self';";
+
+function aplicarSecurityHeaders(response: Response, opts: { cspReportOnly: boolean }): Response {
   const headers = new Headers(response.headers);
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -208,6 +223,9 @@ function aplicarSecurityHeaders(response: Response): Response {
     'Permissions-Policy',
     'camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()'
   );
+  if (opts.cspReportOnly) {
+    headers.set('Content-Security-Policy-Report-Only', CSP_REPORT_ONLY);
+  }
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -278,10 +296,10 @@ export default {
 
     if (!path.startsWith('/api/')) {
       const respostaAsset = await env.ASSETS.fetch(request);
-      return aplicarSecurityHeaders(respostaAsset);
+      return aplicarSecurityHeaders(respostaAsset, { cspReportOnly: true });
     }
 
     const resposta = await tratarRotaApi(request, env, path);
-    return aplicarSecurityHeaders(resposta);
+    return aplicarSecurityHeaders(resposta, { cspReportOnly: false });
   },
 };
