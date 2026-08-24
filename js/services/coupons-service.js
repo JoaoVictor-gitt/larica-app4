@@ -87,15 +87,28 @@ async function atualizarCupomNoSupabase(id, dados) {
 }
 
 /**
- * Valida um código de cupom pro checkout (cliente anônimo) — chama só a RPC
- * pública validate_coupon, nunca consulta a tabela coupons diretamente. A
- * RPC é a única fonte de verdade da validade/valor do desconto; erro
- * (cupom inválido/inativo/fora da janela de datas/abaixo do mínimo) sempre
- * vem como RAISE EXCEPTION no banco — nunca reimplementar essas regras aqui.
+ * Valida um código de cupom pro checkout (cliente anônimo) — L2.3H: chama
+ * a rota /api/coupon do Worker (proxy pra RPC pública validate_coupon, com
+ * rate limiting; sem Turnstile nesta rota), nunca consulta a tabela coupons
+ * diretamente. A RPC continua a única fonte de verdade da validade/valor do
+ * desconto; erro (cupom inválido/inativo/fora da janela de datas/abaixo do
+ * mínimo) sempre vem como RAISE EXCEPTION no banco — nunca reimplementar
+ * essas regras aqui. Sem fallback: se /api/coupon falhar, nunca cai de
+ * volta pra chamar a RPC direto.
  */
 async function validarCupomNoSupabase(codigo, subtotal) {
-  const { data, error } = await supabaseClient.rpc('validate_coupon', { p_code: codigo, p_subtotal: subtotal });
-  if (error) throw new Error(error.message);
+  const resposta = await fetch('/api/coupon', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: codigo, subtotal: subtotal }),
+  });
+  const corpo = await resposta.json().catch(() => null);
+
+  if (!resposta.ok) {
+    throw new Error(_mensagemErroRotaApiCoupon(resposta.status, corpo));
+  }
+
+  const data = corpo;
   return {
     valido: data.valid,
     cupomId: data.coupon_id,
@@ -104,4 +117,14 @@ async function validarCupomNoSupabase(codigo, subtotal) {
     valorDesconto: Number(data.discount_value),
     valorDescontoCalculado: Number(data.discount_amount),
   };
+}
+
+/** Mapeia status HTTP de /api/coupon pra mensagem amigável — preserva mensagem de negócio do Supabase quando houver. */
+function _mensagemErroRotaApiCoupon(status, corpo) {
+  if (status === 403) return 'Não foi possível validar a verificação de segurança. Tente novamente.';
+  if (status === 429) return 'Muitas tentativas. Aguarde alguns instantes e tente novamente.';
+  if (status === 502 || status === 503) return 'Serviço temporariamente indisponível. Tente novamente.';
+  if (corpo && typeof corpo.message === 'string') return corpo.message;
+  if (corpo && typeof corpo.error === 'string') return corpo.error;
+  return 'Não foi possível completar a operação. Tente novamente.';
 }

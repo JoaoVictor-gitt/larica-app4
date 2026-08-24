@@ -32,6 +32,79 @@
 
 const CHAVE_PEDIDO_EM_ANDAMENTO = 'caju_pedido_em_andamento';
 
+// ---------------------------------------------------------------------------
+// Turnstile (L2.3H) — protege /api/delivery e /api/order (cupom fica só com
+// rate limiting, sem Turnstile). Widget invisível, execução sob demanda: só
+// gera token quando obterTokenTurnstile() é chamado, nunca sozinho. Token
+// fica só em memória (variáveis abaixo) — nunca localStorage/sessionStorage
+// — e é descartado (invalidarTokenTurnstileUsado) logo depois de cada uso,
+// pra nunca ser reaproveitado. Fail closed: se o widget não carregar/não
+// gerar token, obterTokenTurnstile() rejeita e quem chamou NÃO tenta cair
+// de volta pro Supabase direto — só mostra mensagem amigável.
+// ---------------------------------------------------------------------------
+
+// PLACEHOLDER — a site key pública real do Turnstile ainda não foi configurada
+// (L2.3H, item 14 do pedido). Substituir por a site key real antes do deploy;
+// até lá, o widget não vai gerar token de verdade e as operações protegidas
+// vão falhar de forma fail-closed (mensagem amigável, sem fallback).
+const TURNSTILE_SITE_KEY = '0x4AAAAAAEaWTFJFtlmAVWv6';
+
+let turnstileWidgetId = null;
+let turnstileResolverPendente = null;
+let turnstileRejeitarPendente = null;
+
+function inicializarTurnstile() {
+  if (typeof turnstile === 'undefined') return; // script bloqueado/ainda não carregou
+  const container = document.getElementById('turnstile-container');
+  if (!container || turnstileWidgetId !== null) return;
+
+  turnstileWidgetId = turnstile.render(container, {
+    sitekey: TURNSTILE_SITE_KEY,
+    size: 'invisible',
+    execution: 'execute',
+    callback: (token) => {
+      if (turnstileResolverPendente) {
+        turnstileResolverPendente(token);
+        turnstileResolverPendente = null;
+        turnstileRejeitarPendente = null;
+      }
+    },
+    'error-callback': () => {
+      if (turnstileRejeitarPendente) {
+        turnstileRejeitarPendente(new Error('Não foi possível carregar a verificação de segurança. Recarregue a página e tente novamente.'));
+        turnstileResolverPendente = null;
+        turnstileRejeitarPendente = null;
+      }
+    },
+  });
+}
+
+/** Pede um token novo ao Turnstile e aguarda (ou falha fail-closed — nunca resolve com token falso/vazio). */
+function obterTokenTurnstile() {
+  return new Promise((resolve, reject) => {
+    if (typeof turnstile === 'undefined' || turnstileWidgetId === null) {
+      reject(new Error('Verificação de segurança indisponível. Recarregue a página e tente novamente.'));
+      return;
+    }
+    turnstileResolverPendente = resolve;
+    turnstileRejeitarPendente = reject;
+    try {
+      turnstile.execute(turnstileWidgetId);
+    } catch (erro) {
+      turnstileResolverPendente = null;
+      turnstileRejeitarPendente = null;
+      reject(new Error('Não foi possível iniciar a verificação de segurança.'));
+    }
+  });
+}
+
+/** Descarta o token já usado (sucesso ou falha) e prepara o widget pra gerar um novo na próxima operação protegida. */
+function invalidarTokenTurnstileUsado() {
+  if (typeof turnstile !== 'undefined' && turnstileWidgetId !== null) {
+    turnstile.reset(turnstileWidgetId);
+  }
+}
+
 // Realtime da confirmação Revolut (Fase 9/Etapa 5) — canal isolado, criado diretamente aqui (não em
 // orders-service.js: subscribeToOrders() é moldada pro padrão "recarrega tudo" do admin, sem filtro por
 // id). Nunca mais de um canal ativo por vez — ver assinarConfirmacaoRevolut()/cancelarAssinaturaConfirmacaoRevolut().
@@ -87,6 +160,7 @@ function estadoPedidoInicial() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  inicializarTurnstile();
   carregarEstadoPersistido();
   carregarDisponibilidadeNegocio(); // não bloqueia o cardápio — roda em paralelo
 
@@ -1327,11 +1401,23 @@ function exibirResultadoCalculoEntrega() {
   resultado.style.display = '';
 }
 
+/** Mapeia status HTTP de /api/delivery pra mensagem amigável — preserva mensagem de negócio da Edge Function quando houver. */
+function _mensagemErroRotaApiDelivery(status, corpo) {
+  if (status === 403) return 'Não foi possível validar a verificação de segurança. Tente novamente.';
+  if (status === 429) return 'Muitas tentativas. Aguarde alguns instantes e tente novamente.';
+  if (status === 502 || status === 503) return 'Serviço temporariamente indisponível. Tente novamente.';
+  if (corpo && typeof corpo.error === 'string') return corpo.error;
+  if (corpo && typeof corpo.message === 'string') return corpo.message;
+  return 'Não foi possível calcular a entrega para este endereço.';
+}
+
 /**
- * Chama a Edge Function calculate-delivery (rota de bicicleta, origem fixa
- * configurada no próprio Supabase) pelo cliente já existente — nunca cria
- * outro client nem expõe chave do Google. Sem fallback: se falhar, não
- * assume nenhuma taxa, só mostra o erro e mantém a cotação zerada.
+ * Chama a rota /api/delivery do Worker (proxy pra Edge Function
+ * calculate-delivery, com rate limiting + Turnstile — L2.3H) — nunca cria
+ * client próprio nem expõe chave do Google. Sem fallback: se falhar (rede,
+ * Turnstile, rate limit ou erro de negócio), não assume nenhuma taxa, só
+ * mostra o erro e mantém a cotação zerada; nunca cai de volta pra chamar a
+ * Edge Function direto.
  */
 async function calcularEntrega() {
   const { eircode, linha1, linha2, area } = enderecoEntregaDoFormulario();
@@ -1354,14 +1440,24 @@ async function calcularEntrega() {
   botao.textContent = 'Calculando entrega...';
 
   try {
-    const { data, error } = await supabaseClient.functions.invoke('calculate-delivery', {
-      body: { eircode, address_line_1: linha1, address_line_2: linha2, area },
-    });
+    const token = await obterTokenTurnstile(); // fail closed: rejeita (cai no catch) sem chamar /api/delivery se não conseguir token
+
+    let resposta;
+    try {
+      resposta = await fetch('/api/delivery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Turnstile-Token': token },
+        body: JSON.stringify({ eircode, address_line_1: linha1, address_line_2: linha2, area }),
+      });
+    } finally {
+      invalidarTokenTurnstileUsado();
+    }
+
+    const data = await resposta.json().catch(() => null);
     console.log('[Delivery] resposta:', data);
 
-    if (error) {
-      console.error('[Delivery] erro:', error);
-      throw new Error('Não foi possível calcular a entrega para este endereço.');
+    if (!resposta.ok) {
+      throw new Error(_mensagemErroRotaApiDelivery(resposta.status, data));
     }
     if (!data || data.success !== true || typeof data.delivery_fee !== 'number' || typeof data.distance_km !== 'number') {
       throw new Error((data && data.error) || 'Não foi possível calcular a entrega para este endereço.');
@@ -1862,14 +1958,22 @@ async function renderizarRevisao() {
 // ---------------------------------------------------------------------------
 
 /**
- * Cria o pedido no Supabase via RPC create_customer_order (products-service
- * do lado de pedidos: js/services/orders-service.js) — preços e composição
- * do combo são recalculados no banco, não confiamos no que o navegador
- * enviou. Não mexe no carrinho nem no estoque local — quem chama decide o
- * que fazer só depois de confirmado o sucesso.
+ * Cria o pedido via rota /api/order do Worker (proxy pra RPC
+ * create_customer_order, com rate limiting + Turnstile — L2.3H; ver
+ * js/services/orders-service.js) — preços e composição do combo continuam
+ * recalculados no banco, não confiamos no que o navegador enviou. Não mexe
+ * no carrinho nem no estoque local — quem chama decide o que fazer só
+ * depois de confirmado o sucesso. Token obtido aqui (fail closed: se
+ * obterTokenTurnstile() rejeitar, propaga pro catch de confirmarPedido()
+ * sem nunca chamar createOrder/RPC) e sempre invalidado depois do uso.
  */
 async function criarPedido(pedido, itensPedido) {
-  return await createOrder(pedido, itensPedido);
+  const token = await obterTokenTurnstile();
+  try {
+    return await createOrder(pedido, itensPedido, token);
+  } finally {
+    invalidarTokenTurnstileUsado();
+  }
 }
 
 async function confirmarPedido() {

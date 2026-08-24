@@ -173,7 +173,7 @@ async function getOrders() {
  * montar o payload da RPC quanto pra exibir a tela de confirmação (o
  * cliente já escolheu tudo, não precisa buscar de novo).
  */
-async function createOrder(pedido, itensPedido) {
+async function createOrder(pedido, itensPedido, turnstileToken) {
   const payload = {
     customer_name: pedido.cliente.nome,
     customer_phone: pedido.cliente.telefone,
@@ -215,8 +215,25 @@ async function createOrder(pedido, itensPedido) {
   // frontend nunca envia discount_type/discount_value/discount_amount, só o código em texto puro.
   if (pedido.cupomCodigo) payload.coupon_code = pedido.cupomCodigo;
 
-  const { data, error } = await supabaseClient.rpc('create_customer_order', { payload });
-  if (error) throw new Error(error.message);
+  // L2.3H: rota /api/order do Worker (proxy pra RPC create_customer_order, com rate limiting +
+  // Turnstile). O Worker já embrulha o corpo recebido em {payload: ...} antes de repassar ao
+  // Supabase — aqui envia o payload direto, sem embrulhar de novo. Sem fallback: se /api/order
+  // falhar, nunca cai de volta pra chamar a RPC direto.
+  const resposta = await fetch('/api/order', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Turnstile-Token': turnstileToken,
+    },
+    body: JSON.stringify(payload),
+  });
+  const corpo = await resposta.json().catch(() => null);
+
+  if (!resposta.ok) {
+    throw new Error(_mensagemErroRotaApiOrder(resposta.status, corpo));
+  }
+
+  const data = corpo;
 
   return {
     id: data.id,
@@ -237,6 +254,16 @@ async function createOrder(pedido, itensPedido) {
     pagamentoDinheiro: pedido.pagamentoDinheiro,
     itens: itensPedido,
   };
+}
+
+/** Mapeia status HTTP de /api/order pra mensagem amigável — preserva mensagem de negócio do Supabase quando houver. */
+function _mensagemErroRotaApiOrder(status, corpo) {
+  if (status === 403) return 'Não foi possível validar a verificação de segurança. Tente novamente.';
+  if (status === 429) return 'Muitas tentativas. Aguarde alguns instantes e tente novamente.';
+  if (status === 502 || status === 503) return 'Serviço temporariamente indisponível. Tente novamente.';
+  if (corpo && typeof corpo.message === 'string') return corpo.message;
+  if (corpo && typeof corpo.error === 'string') return corpo.error;
+  return 'Não foi possível completar a operação. Tente novamente.';
 }
 
 /** Transição de status via RPC (valida no banco, além do que já é validado no cliente) */
