@@ -19,6 +19,7 @@ interface Env {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
   TURNSTILE_SECRET_KEY: string;
+  WHATSAPP_VERIFY_TOKEN: string;
   ASSETS: { fetch(request: Request): Promise<Response> };
   RATE_LIMIT_DELIVERY: RateLimitBinding;
   RATE_LIMIT_COUPON: RateLimitBinding;
@@ -291,10 +292,65 @@ async function tratarRotaApi(request: Request, env: Env, path: string): Promise<
   });
 }
 
+// Rotas /webhooks/* — separadas de /api/* (ROTAS_VALIDAS/tratarRotaApi):
+// não herdam Turnstile nem os rate limiters de /api/*, porque a origem
+// (Meta) é infraestrutura server-to-server compartilhada, não um
+// navegador humano — aplicar esses controles pensados pra tráfego de
+// browser arriscaria limitar entrega legítima da própria Meta. Só o
+// caminho exato /webhooks/whatsapp existe; qualquer outro sob /webhooks/
+// é 404 — mesma filosofia de "sem proxy genérico" já documentada no topo
+// do arquivo pras rotas /api/*. POST retorna 501 nesta etapa: o
+// recebimento de eventos reais (verificação de assinatura, dedup,
+// sessão) é escopo de uma etapa futura — 501 explícito evita que um
+// evento real da Meta seja processado incorretamente antes disso existir.
+async function tratarRotaWebhook(request: Request, env: Env, path: string): Promise<Response> {
+  if (path !== '/webhooks/whatsapp') {
+    return jsonResponse({ error: 'Rota não encontrada.' }, 404);
+  }
+
+  if (request.method === 'GET') {
+    return tratarHandshakeWhatsapp(request, env);
+  }
+
+  if (request.method === 'POST') {
+    return jsonResponse({ error: 'Webhook ainda não implementado.' }, 501);
+  }
+
+  return jsonResponse({ error: 'Método não permitido.' }, 405);
+}
+
+// Handshake de verificação da Meta (GET). hub.challenge só é ecoado como
+// texto puro (nunca dentro de JSON — a Meta exige o valor literal) quando
+// hub.mode/hub.verify_token batem exatamente com o esperado.
+function tratarHandshakeWhatsapp(request: Request, env: Env): Response {
+  if (!env.WHATSAPP_VERIFY_TOKEN) {
+    return jsonResponse({ error: 'Configuração do servidor ausente.' }, 500);
+  }
+
+  const url = new URL(request.url);
+  const mode = url.searchParams.get('hub.mode');
+  const token = url.searchParams.get('hub.verify_token');
+  const challenge = url.searchParams.get('hub.challenge');
+
+  if (mode !== 'subscribe' || token !== env.WHATSAPP_VERIFY_TOKEN || !challenge) {
+    return jsonResponse({ error: 'Verificação não autorizada.' }, 403);
+  }
+
+  return new Response(challenge, {
+    status: 200,
+    headers: { 'Content-Type': 'text/plain; charset=UTF-8' },
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    if (path.startsWith('/webhooks/')) {
+      const respostaWebhook = await tratarRotaWebhook(request, env, path);
+      return aplicarSecurityHeaders(respostaWebhook, { cspReportOnly: false });
+    }
 
     if (!path.startsWith('/api/')) {
       const respostaAsset = await env.ASSETS.fetch(request);
