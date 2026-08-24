@@ -1,7 +1,8 @@
 {
-  "name": "larica-app",
+  "name": "larica",
   "compatibility_date": "2026-08-24",
   "main": "worker/index.ts",
+  "keep_vars": true,
   "assets": {
     "directory": ".",
     "binding": "ASSETS",
