@@ -71,9 +71,13 @@ type ConfigSupabase =
   | { ok: true; url: string; key: string }
   | { ok: false; response: Response };
 
+// L2.3H.3 — diagnóstico temporário: nomeia qual variável está ausente (nunca o valor), pra achar a causa do 500 em produção sem expor secret nenhum.
 function obterConfigSupabase(env: Env): ConfigSupabase {
-  if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY) {
-    return { ok: false, response: jsonResponse({ error: 'Configuração do servidor ausente.' }, 500) };
+  if (!env.SUPABASE_URL) {
+    return { ok: false, response: jsonResponse({ error: 'Configuração ausente: SUPABASE_URL' }, 500) };
+  }
+  if (!env.SUPABASE_PUBLISHABLE_KEY) {
+    return { ok: false, response: jsonResponse({ error: 'Configuração ausente: SUPABASE_PUBLISHABLE_KEY' }, 500) };
   }
   return { ok: true, url: env.SUPABASE_URL, key: env.SUPABASE_PUBLISHABLE_KEY };
 }
@@ -165,7 +169,7 @@ async function processarRotaProtegida(opts: {
   const config = obterConfigSupabase(env);
   if (!config.ok) return config.response;
   if (exigeTurnstile && !env.TURNSTILE_SECRET_KEY) {
-    return jsonResponse({ error: 'Configuração do servidor ausente.' }, 500);
+    return jsonResponse({ error: 'Configuração ausente: TURNSTILE_SECRET_KEY' }, 500);
   }
 
   // (3) rate limit — binding nativo do Workers, nunca contador em memória
