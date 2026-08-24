@@ -412,14 +412,16 @@
     </div>
   </div>
 
-  <!-- Turnstile (L2.3H): widget invisível, execução sob demanda (turnstile.execute()) antes de
-       calcular entrega / confirmar pedido — ver js/pedido.js. Nunca dispara sozinho. -->
-  <div id="turnstile-container" style="display:none;"></div>
+  <!-- Turnstile (L2.3H/L2.3H.2): widget invisível, execução sob demanda (turnstile.execute()) antes
+       de calcular entrega / confirmar pedido — ver js/pedido.js. Nunca dispara sozinho. Sem
+       display:none — o modo size:'invisible' já se auto-dimensiona como 0x0; display:none impede o
+       desafio de completar (elemento nunca ganha layout). -->
+  <div id="turnstile-container"></div>
 
   <script src="js/utils.js"></script>
   <script src="js/storage.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
   <script src="js/supabase.js"></script>
   <script src="js/services/products-service.js"></script>
   <script src="js/services/orders-service.js"></script>

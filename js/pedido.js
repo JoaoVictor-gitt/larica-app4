@@ -33,59 +33,111 @@
 const CHAVE_PEDIDO_EM_ANDAMENTO = 'caju_pedido_em_andamento';
 
 // ---------------------------------------------------------------------------
-// Turnstile (L2.3H) — protege /api/delivery e /api/order (cupom fica só com
-// rate limiting, sem Turnstile). Widget invisível, execução sob demanda: só
-// gera token quando obterTokenTurnstile() é chamado, nunca sozinho. Token
-// fica só em memória (variáveis abaixo) — nunca localStorage/sessionStorage
-// — e é descartado (invalidarTokenTurnstileUsado) logo depois de cada uso,
-// pra nunca ser reaproveitado. Fail closed: se o widget não carregar/não
-// gerar token, obterTokenTurnstile() rejeita e quem chamou NÃO tenta cair
-// de volta pro Supabase direto — só mostra mensagem amigável.
+// Turnstile (L2.3H, robustecido em L2.3H.2) — protege /api/delivery e
+// /api/order (cupom fica só com rate limiting, sem Turnstile). Widget
+// invisível, execução sob demanda: só gera token quando obterTokenTurnstile()
+// é chamado, nunca sozinho. Token fica só em memória (variáveis abaixo) —
+// nunca localStorage/sessionStorage — e é descartado
+// (invalidarTokenTurnstileUsado) logo depois de cada uso, pra nunca ser
+// reaproveitado. Fail closed: se o widget não carregar/não gerar token,
+// obterTokenTurnstile() rejeita e quem chamou NÃO tenta cair de volta pro
+// Supabase direto — só mostra mensagem amigável.
+//
+// L2.3H.2 — causa raiz do "Verificação de segurança indisponível" em
+// produção: o <script> do Turnstile tem async+defer (async prevalece), então
+// podia terminar de carregar DEPOIS do DOMContentLoaded já ter disparado —
+// inicializarTurnstile() rodava, via typeof turnstile === 'undefined', e
+// desistia pra sempre (sem retry). Corrigido com espera limitada
+// (aguardarTurnstileDisponivel) antes de renderizar, e obterTokenTurnstile()
+// agora também espera essa mesma inicialização terminar antes de agir.
 // ---------------------------------------------------------------------------
 
-// PLACEHOLDER — a site key pública real do Turnstile ainda não foi configurada
-// (L2.3H, item 14 do pedido). Substituir por a site key real antes do deploy;
-// até lá, o widget não vai gerar token de verdade e as operações protegidas
-// vão falhar de forma fail-closed (mensagem amigável, sem fallback).
+// Site Key pública do Turnstile (configurada em L2.3H.1) — pública por
+// design, pode ficar no frontend. A Secret Key correspondente nunca aparece
+// aqui, só como env do Worker (TURNSTILE_SECRET_KEY, worker/index.ts).
 const TURNSTILE_SITE_KEY = '0x4AAAAAAEaWTFJFtlmAVWv6';
 
 let turnstileWidgetId = null;
+let turnstileInicializacaoPromise = null;
 let turnstileResolverPendente = null;
 let turnstileRejeitarPendente = null;
 
-function inicializarTurnstile() {
-  if (typeof turnstile === 'undefined') return; // script bloqueado/ainda não carregou
-  const container = document.getElementById('turnstile-container');
-  if (!container || turnstileWidgetId !== null) return;
-
-  turnstileWidgetId = turnstile.render(container, {
-    sitekey: TURNSTILE_SITE_KEY,
-    size: 'invisible',
-    execution: 'execute',
-    callback: (token) => {
-      if (turnstileResolverPendente) {
-        turnstileResolverPendente(token);
-        turnstileResolverPendente = null;
-        turnstileRejeitarPendente = null;
+/** Aguarda window.turnstile existir (script async pode carregar depois do DOMContentLoaded) — polling limitado via setTimeout (nunca setInterval), até timeoutMs. */
+function aguardarTurnstileDisponivel(timeoutMs) {
+  return new Promise((resolve, reject) => {
+    if (typeof turnstile !== 'undefined') {
+      resolve();
+      return;
+    }
+    const inicio = Date.now();
+    (function tentar() {
+      if (typeof turnstile !== 'undefined') {
+        resolve();
+        return;
       }
-    },
-    'error-callback': () => {
-      if (turnstileRejeitarPendente) {
-        turnstileRejeitarPendente(new Error('Não foi possível carregar a verificação de segurança. Recarregue a página e tente novamente.'));
-        turnstileResolverPendente = null;
-        turnstileRejeitarPendente = null;
+      if (Date.now() - inicio >= timeoutMs) {
+        reject(new Error('Verificação de segurança indisponível. Recarregue a página e tente novamente.'));
+        return;
       }
-    },
+      setTimeout(tentar, 100);
+    })();
   });
 }
 
-/** Pede um token novo ao Turnstile e aguarda (ou falha fail-closed — nunca resolve com token falso/vazio). */
-function obterTokenTurnstile() {
-  return new Promise((resolve, reject) => {
-    if (typeof turnstile === 'undefined' || turnstileWidgetId === null) {
-      reject(new Error('Verificação de segurança indisponível. Recarregue a página e tente novamente.'));
-      return;
+/**
+ * Aguarda a API do Turnstile carregar (até 5s) e renderiza o widget UMA
+ * única vez. Cacheia a Promise — chamadas concorrentes (DOMContentLoaded +
+ * um clique do usuário antes da API terminar de carregar) reaproveitam a
+ * mesma inicialização, nunca renderizam duas vezes.
+ */
+function inicializarTurnstile() {
+  if (turnstileInicializacaoPromise) return turnstileInicializacaoPromise;
+
+  turnstileInicializacaoPromise = aguardarTurnstileDisponivel(5000).then(() => {
+    if (turnstileWidgetId !== null) return; // já renderizado
+
+    const container = document.getElementById('turnstile-container');
+    if (!container) {
+      throw new Error('Verificação de segurança indisponível. Recarregue a página e tente novamente.');
     }
+
+    try {
+      turnstileWidgetId = turnstile.render(container, {
+        sitekey: TURNSTILE_SITE_KEY,
+        size: 'invisible',
+        execution: 'execute',
+        callback: (token) => {
+          if (turnstileResolverPendente) {
+            turnstileResolverPendente(token);
+            turnstileResolverPendente = null;
+            turnstileRejeitarPendente = null;
+          }
+        },
+        'error-callback': () => {
+          if (turnstileRejeitarPendente) {
+            turnstileRejeitarPendente(new Error('Não foi possível carregar a verificação de segurança. Recarregue a página e tente novamente.'));
+            turnstileResolverPendente = null;
+            turnstileRejeitarPendente = null;
+          }
+        },
+      });
+    } catch (erro) {
+      throw new Error('Não foi possível carregar a verificação de segurança. Recarregue a página e tente novamente.');
+    }
+  });
+
+  return turnstileInicializacaoPromise;
+}
+
+/** Garante a inicialização concluída, pede um token novo ao Turnstile e aguarda (ou falha fail-closed — nunca resolve com token falso/vazio). */
+async function obterTokenTurnstile() {
+  await inicializarTurnstile(); // propaga o erro fail-closed se a API nunca carregar dentro do timeout
+
+  if (typeof turnstile === 'undefined' || turnstileWidgetId === null) {
+    throw new Error('Verificação de segurança indisponível. Recarregue a página e tente novamente.');
+  }
+
+  return new Promise((resolve, reject) => {
     turnstileResolverPendente = resolve;
     turnstileRejeitarPendente = reject;
     try {
