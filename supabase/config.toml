@@ -8,3 +8,10 @@ project_id = "ghntpyqdbgxaisfgytto"
 # Verificação de JWT do próprio runtime do Supabase, além da checagem de
 # is_admin() feita dentro da function — camadas complementares, não redundantes.
 verify_jwt = true
+
+[functions.calculate-delivery]
+# Já deployada e chamada publicamente pelo checkout (js/pedido.js) sem
+# sessão autenticada — o código da function não checa Authorization/JWT em
+# nenhum ponto, então verify_jwt=false aqui só torna explícito o
+# comportamento que já existe hoje, sem mudar nada.
+verify_jwt = false

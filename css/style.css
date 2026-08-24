@@ -649,6 +649,7 @@ input[type="checkbox"] { accent-color: var(--cor-terracota); }
   border: 2px solid var(--cor-borda);
   border-radius: var(--raio-md);
   background: var(--cor-branco);
+  color: var(--cor-texto); /* <button> não herda a cor de texto do body por padrão — sem isso, o navegador usa a cor padrão de controle de formulário (preta), independente do tema */
   font-weight: 600;
   font-size: 0.95rem;
   text-align: left;

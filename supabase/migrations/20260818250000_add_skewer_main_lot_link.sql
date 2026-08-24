@@ -1,0 +1,90 @@
+-- Integração do Lote de Compra da Carne Principal na Produção de Espetos —
+-- ETAPA H1 (schema).
+--
+-- Adiciona lot_id nullable em skewer_production_batches — vínculo com o
+-- lote de compra que forneceu a carne principal (gross_weight_g/
+-- usable_weight_g/total_cost, campos já existentes no header). Diagnóstico
+-- aprovado: a carne principal continua no header, NÃO vira
+-- skewer_batch_component — o consumo de lote da carne (Etapa H2, futura)
+-- vai debitar o lote pelo gross_weight_g inteiro (peso bruto retirado do
+-- estoque), nunca pelo usable_weight_g (perda de limpeza é característica
+-- da produção, não do lote).
+--
+-- NÃO altera RPCs (save_skewer_production_batch, delete_skewer_production_
+-- batch, save_side_production_batch, delete_side_production_batch,
+-- apply_skewer_production_cost, apply_side_production_cost) — assinatura e
+-- corpo idênticos aos já executados; consumo/derivação de custo a partir
+-- do lote fica inteiramente para a Etapa H2. NÃO altera UI/services
+-- (producao.html/producao.js/producao.css, skewer-production-service.js)
+-- — isso é a Etapa H3. NÃO altera skewer_batch_components.lot_id (G1, já
+-- existe, é um mecanismo distinto — componente vs. carne principal do
+-- header continuam dois lugares separados). NÃO altera lots/lot_movements
+-- — schema, enums, RLS e GRANTs já são suficientes (mesma conclusão do
+-- diagnóstico: delete_skewer_production_batch já reverte por lot_id de
+-- forma genérica, sem precisar saber se o consumo veio de um componente ou
+-- do header). NÃO altera total_cost/gross_weight_g/usable_weight_g/
+-- skewer_weight_g/actual_quantity — permanecem exatamente como estão,
+-- nenhum CHECK/DEFAULT novo, total_cost continua coluna normal (nunca
+-- GENERATED). NÃO altera RLS nem GRANTs de skewer_production_batches — a
+-- coluna nova segue o mesmo controle já existente na tabela. Nenhuma baixa
+-- de estoque ocorre nesta etapa — nenhum lot_movement é inserido, nenhum
+-- saldo de lots é alterado. Migrations já executadas não são editadas.
+
+-- =============================================================
+-- 1. skewer_production_batches.lot_id
+--
+-- Sem ON DELETE CASCADE nem SET NULL — NO ACTION (default): excluir um
+-- lote referenciado por uma produção de espetos deve falhar por violação
+-- de FK, nunca desvincular silenciosamente. Mesma disciplina já usada em
+-- skewer_batch_components.lot_id/side_batch_components.lot_id (Etapa G1)
+-- e em lots.purchase_line_id (Etapa C) — na prática isso nunca chega a ser
+-- testado por um DELETE real, porque lots já não tem GRANT DELETE pra
+-- authenticated em nenhuma hipótese (confirmado nas rodadas de
+-- diagnóstico anteriores) — a FK é uma segunda camada de proteção,
+-- puramente defensiva.
+--
+-- Sem CHECK cruzando lot_id com ingredient_id — ingredient_id do header
+-- continua um campo independente/vestigial (nunca exposto na UI,
+-- confirmado no diagnóstico), a validação real de "este lote pertence ao
+-- ingrediente certo" é responsabilidade da RPC (Etapa H2), não do schema.
+-- =============================================================
+
+ALTER TABLE public.skewer_production_batches
+  ADD COLUMN lot_id uuid NULL REFERENCES public.lots(id);
+
+-- Justificativa: auditoria futura, reconciliação e consulta de histórico
+-- por lote (ex. "quais produções usaram este lote de Contra Filé") —
+-- mesmo padrão já usado nos índices de lot_id de skewer_batch_components/
+-- side_batch_components (Etapa G1).
+CREATE INDEX idx_skewer_production_batches_lot_id
+  ON public.skewer_production_batches (lot_id);
+
+-- =============================================================
+-- FIM — ETAPA H1
+-- =============================================================
+--
+-- Todas as linhas já existentes em skewer_production_batches ficam com
+-- lot_id=NULL automaticamente (ADD COLUMN sem DEFAULT não-nulo) — nenhum
+-- backfill, produções históricas continuam válidas e inalteradas. Uma
+-- produção nova sem lote continua válida durante a transição (lot_id=NULL
+-- é o estado normal até a Etapa H3 oferecer o seletor na UI).
+--
+-- total_cost, gross_weight_g, usable_weight_g, skewer_weight_g,
+-- actual_quantity: intocados — mesmos tipos, mesmos CHECKs, mesmo NOT
+-- NULL de antes desta migration.
+--
+-- RLS: policies de skewer_production_batches não são tocadas (continuam:
+-- staff SELECT via is_staff(), admin INSERT/UPDATE/DELETE via policy).
+--
+-- GRANTs: não tocados. skewer_production_batches mantém exatamente o
+-- estado atual já validado: authenticated possui somente SELECT;
+-- INSERT/UPDATE são feitos pela save_skewer_production_batch e DELETE
+-- pela delete_skewer_production_batch, ambas SECURITY DEFINER.
+-- A coluna nova simplesmente não é gravável diretamente pelo client,
+-- e a save_skewer_production_batch ainda não sabe que ela existe até H2.
+--
+-- skewer_batch_components.lot_id (G1), lots/lot_movements (schema, RLS,
+-- GRANTs), save_skewer_production_batch, delete_skewer_production_batch,
+-- save_side_production_batch, delete_side_production_batch,
+-- apply_skewer_production_cost, apply_side_production_cost: inalterados —
+-- lot_id existe na tabela mas nenhuma RPC ainda sabe que ele existe.

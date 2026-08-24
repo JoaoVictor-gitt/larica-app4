@@ -64,13 +64,21 @@ function validarPayload(payload: any): string | null {
   if (typeof payload.username !== 'string' || !username || !/^[a-z0-9._-]+$/.test(username)) {
     return 'Nome de usuário inválido. Use apenas letras minúsculas, números, ponto, underline ou hífen.';
   }
-
-  if (typeof payload.password !== 'string' || payload.password.length < 8) {
-    return 'A senha precisa ter no mínimo 8 caracteres.';
+  if (username.length < 3 || username.length > 50) {
+    return 'Nome de usuário deve ter entre 3 e 50 caracteres.';
   }
 
-  if (payload.fullName !== undefined && payload.fullName !== null && typeof payload.fullName !== 'string') {
-    return 'Nome inválido.';
+  if (typeof payload.password !== 'string' || payload.password.length < 12 || payload.password.length > 128) {
+    return 'A senha precisa ter entre 12 e 128 caracteres.';
+  }
+
+  if (payload.fullName !== undefined && payload.fullName !== null) {
+    if (typeof payload.fullName !== 'string') {
+      return 'Nome inválido.';
+    }
+    if (payload.fullName.trim().length > 100) {
+      return 'Nome não pode exceder 100 caracteres.';
+    }
   }
 
   if (payload.role !== 'admin' && payload.role !== 'employee') {
@@ -83,6 +91,14 @@ function validarPayload(payload: any): string | null {
 
   if (!Array.isArray(payload.permissions)) {
     return "O campo 'permissions' precisa ser uma lista.";
+  }
+
+  if (payload.permissions.length > PERMISSOES_VALIDAS.size) {
+    return 'Lista de permissões inválida.';
+  }
+
+  if (payload.role === 'admin' && payload.permissions.length > 0) {
+    return 'Administradores não podem receber permissions — deixe a lista vazia.';
   }
 
   for (const permissao of payload.permissions) {
