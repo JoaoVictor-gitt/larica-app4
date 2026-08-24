@@ -198,9 +198,11 @@ const ROTAS_VALIDAS = new Set(['/api/delivery', '/api/coupon', '/api/order']);
 
 // L2.4B — headers básicos de segurança, aplicados a TODA resposta (assets e /api/*), num único
 // lugar. Preserva todos os headers já existentes na resposta (Content-Type, Allow, etc.) — só
-// adiciona os headers abaixo. HSTS/COOP/CORP e a CSP de enforcement ficam para etapas
-// posteriores. L2.4C: CSP em Content-Security-Policy-Report-Only, só nas respostas de assets
-// (documentos/CSS/JS consumidos pelo navegador) — nunca nas respostas JSON de /api/*. Sem
+// adiciona os headers abaixo. HSTS/COOP/CORP ficam para etapas posteriores. L2.4C validou esta
+// política em Content-Security-Policy-Report-Only em produção sem violações nos fluxos
+// testados; L2.4D promoveu para Content-Security-Policy real (enforcement) — mesma política,
+// só o nome do header mudou. Continua só nas respostas de assets (documentos/CSS/JS
+// consumidos pelo navegador) — nunca nas respostas JSON de /api/*. Sem
 // report-uri/report-to/Reporting-Endpoints ainda (sem endpoint de coleta configurado).
 const CSP_REPORT_ONLY =
   "default-src 'self'; " +
@@ -224,7 +226,7 @@ function aplicarSecurityHeaders(response: Response, opts: { cspReportOnly: boole
     'camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()'
   );
   if (opts.cspReportOnly) {
-    headers.set('Content-Security-Policy-Report-Only', CSP_REPORT_ONLY);
+    headers.set('Content-Security-Policy', CSP_REPORT_ONLY);
   }
   return new Response(response.body, {
     status: response.status,
