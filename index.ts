@@ -1,11 +1,15 @@
-// Worker/API proxy — L2.3F + L2.3G (rate limit + Turnstile).
+// Worker/API proxy — L2.3F + L2.3G (rate limit + Turnstile) + L2.4B (headers de segurança).
 //
-// Intercepta só /api/* (via assets.run_worker_first em wrangler.jsonc).
-// Todo o resto (HTML/CSS/JS) continua servido direto pelos Static Assets,
-// sem passar por este arquivo.
+// Desde L2.4B, run_worker_first=true (wrangler.jsonc) faz este Worker rodar
+// em TODA requisição, não só /api/* — necessário para anexar os security
+// headers também às respostas de assets estáticos (HTML/CSS/JS). Caminhos
+// fora de /api/* continuam sendo só repassados pra env.ASSETS.fetch(), sem
+// nenhuma mudança de conteúdo — só os headers da resposta são ajustados
+// (ver aplicarSecurityHeaders).
 //
-// Nenhuma URL é montada a partir de input do cliente: os 3 destinos abaixo
-// são sempre caminhos fixos sob SUPABASE_URL — não existe proxy genérico.
+// Nenhuma URL é montada a partir de input do cliente: os 3 destinos fixos
+// de /api/* são sempre caminhos fixos sob SUPABASE_URL — não existe proxy
+// genérico.
 
 interface RateLimitBinding {
   limit(opts: { key: string }): Promise<{ success: boolean }>;
@@ -192,65 +196,92 @@ async function processarRotaProtegida(opts: {
 
 const ROTAS_VALIDAS = new Set(['/api/delivery', '/api/coupon', '/api/order']);
 
+// L2.4B — headers básicos de segurança, aplicados a TODA resposta (assets e /api/*), num único
+// lugar. Preserva todos os headers já existentes na resposta (Content-Type, Allow, etc.) — só
+// adiciona os 4 abaixo. CSP/HSTS/COOP/CORP ficam para uma etapa posterior.
+function aplicarSecurityHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  headers.set('X-Frame-Options', 'DENY');
+  headers.set(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()'
+  );
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+// Mesma lógica de antes (roteamento /api/*), só extraída do fetch() principal para que
+// aplicarSecurityHeaders possa envolver o resultado num único ponto, sem duplicar em cada return.
+async function tratarRotaApi(request: Request, env: Env, path: string): Promise<Response> {
+  if (!ROTAS_VALIDAS.has(path)) {
+    return jsonResponse({ error: 'Rota não encontrada.' }, 404);
+  }
+
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: { 'Allow': 'POST, OPTIONS' } });
+  }
+
+  if (request.method !== 'POST') {
+    return jsonResponse({ error: 'Método não permitido.' }, 405);
+  }
+
+  if (path === '/api/delivery') {
+    return processarRotaProtegida({
+      request,
+      env,
+      limiteBytes: LIMITE_BYTES[path],
+      rateLimiter: env.RATE_LIMIT_DELIVERY,
+      exigeTurnstile: true,
+      montarChamada: (corpo, config) =>
+        repassarParaSupabase(`${config.url}/functions/v1/calculate-delivery`, config.key, corpo),
+    });
+  }
+
+  if (path === '/api/coupon') {
+    return processarRotaProtegida({
+      request,
+      env,
+      limiteBytes: LIMITE_BYTES[path],
+      rateLimiter: env.RATE_LIMIT_COUPON,
+      exigeTurnstile: false,
+      montarChamada: (corpo, config) => {
+        const c = corpo as { code?: unknown; subtotal?: unknown };
+        return repassarParaSupabase(`${config.url}/rest/v1/rpc/validate_coupon`, config.key, {
+          p_code: c.code,
+          p_subtotal: c.subtotal,
+        });
+      },
+    });
+  }
+
+  // path === '/api/order'
+  return processarRotaProtegida({
+    request,
+    env,
+    limiteBytes: LIMITE_BYTES[path],
+    rateLimiter: env.RATE_LIMIT_ORDER,
+    exigeTurnstile: true,
+    montarChamada: (corpo, config) =>
+      repassarParaSupabase(`${config.url}/rest/v1/rpc/create_customer_order`, config.key, { payload: corpo }),
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
     if (!path.startsWith('/api/')) {
-      return env.ASSETS.fetch(request);
+      const respostaAsset = await env.ASSETS.fetch(request);
+      return aplicarSecurityHeaders(respostaAsset);
     }
 
-    if (!ROTAS_VALIDAS.has(path)) {
-      return jsonResponse({ error: 'Rota não encontrada.' }, 404);
-    }
-
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: { 'Allow': 'POST, OPTIONS' } });
-    }
-
-    if (request.method !== 'POST') {
-      return jsonResponse({ error: 'Método não permitido.' }, 405);
-    }
-
-    if (path === '/api/delivery') {
-      return processarRotaProtegida({
-        request,
-        env,
-        limiteBytes: LIMITE_BYTES[path],
-        rateLimiter: env.RATE_LIMIT_DELIVERY,
-        exigeTurnstile: true,
-        montarChamada: (corpo, config) =>
-          repassarParaSupabase(`${config.url}/functions/v1/calculate-delivery`, config.key, corpo),
-      });
-    }
-
-    if (path === '/api/coupon') {
-      return processarRotaProtegida({
-        request,
-        env,
-        limiteBytes: LIMITE_BYTES[path],
-        rateLimiter: env.RATE_LIMIT_COUPON,
-        exigeTurnstile: false,
-        montarChamada: (corpo, config) => {
-          const c = corpo as { code?: unknown; subtotal?: unknown };
-          return repassarParaSupabase(`${config.url}/rest/v1/rpc/validate_coupon`, config.key, {
-            p_code: c.code,
-            p_subtotal: c.subtotal,
-          });
-        },
-      });
-    }
-
-    // path === '/api/order'
-    return processarRotaProtegida({
-      request,
-      env,
-      limiteBytes: LIMITE_BYTES[path],
-      rateLimiter: env.RATE_LIMIT_ORDER,
-      exigeTurnstile: true,
-      montarChamada: (corpo, config) =>
-        repassarParaSupabase(`${config.url}/rest/v1/rpc/create_customer_order`, config.key, { payload: corpo }),
-    });
+    const resposta = await tratarRotaApi(request, env, path);
+    return aplicarSecurityHeaders(resposta);
   },
 };
