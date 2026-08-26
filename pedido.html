@@ -13,6 +13,7 @@
     })();
   </script>
   <title>Fazer Pedido | Larica Food Truck</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="stylesheet" href="css/style.css" />
   <link rel="stylesheet" href="css/cardapio.css" />
   <link rel="stylesheet" href="css/pedido.css" />
@@ -26,16 +27,17 @@
     </div>
 
     <div class="indicador-etapa-pedido" id="indicador-etapa-pedido"></div>
+    <div class="progresso-etapas-pedido" id="progresso-etapas-pedido"></div>
 
     <div class="aviso-info" id="banner-disponibilidade-pedido" style="display:none;"></div>
 
     <!-- Etapa 1: Cardápio -->
     <section class="etapa-pedido etapa-ativa" data-etapa="cardapio">
       <div class="filtro-categorias" id="filtro-categorias-pedido"></div>
-      <div class="estado-vazio" id="estado-carregando-pedido">Carregando produtos...</div>
-      <div class="estado-vazio" id="estado-erro-pedido" style="display:none;">Não foi possível carregar os produtos.</div>
+      <div class="estado-vazio estado-vazio--carregando" id="estado-carregando-pedido">Carregando produtos...</div>
+      <div class="estado-vazio estado-vazio--erro" id="estado-erro-pedido" style="display:none;">Não foi possível carregar os produtos.</div>
       <div class="grade-cardapio" id="grade-pedido"></div>
-      <div class="estado-vazio" id="estado-vazio-pedido" style="display:none;">Nenhum produto encontrado.</div>
+      <div class="estado-vazio estado-vazio--vazio" id="estado-vazio-pedido" style="display:none;">Nenhum produto encontrado.</div>
     </section>
 
     <!-- Etapa 2: Carrinho -->
@@ -55,7 +57,7 @@
             </thead>
             <tbody id="corpo-tabela-pedido-carrinho"></tbody>
           </table>
-          <div class="estado-vazio" id="estado-vazio-pedido-carrinho" style="display:none;">
+          <div class="estado-vazio estado-vazio--vazio" id="estado-vazio-pedido-carrinho" style="display:none;">
             Seu carrinho está vazio. Volte ao cardápio para adicionar produtos.
           </div>
         </div>
@@ -88,14 +90,18 @@
       <h2>Como você quer receber seu pedido?</h2>
       <div class="opcoes-recebimento">
         <button type="button" class="opcao-pagamento opcao-grande" data-fulfilment="retirada">
-          <span class="icone-pagamento">🏠</span>
+          <span class="icone-pagamento">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>
+          </span>
           <span>
             <strong>Retirada</strong>
             <small>Buscar o pedido no food truck</small>
           </span>
         </button>
         <button type="button" class="opcao-pagamento opcao-grande" data-fulfilment="entrega">
-          <span class="icone-pagamento">🛵</span>
+          <span class="icone-pagamento">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 18l5-9h3l4 9M11 9h3l2 3"/></svg>
+          </span>
           <span>
             <strong>Entrega</strong>
             <small>Receber no endereço informado</small>
@@ -232,10 +238,10 @@
       <h2>Forma de pagamento</h2>
       <div class="opcoes-pagamento" id="opcoes-pagamento-pedido">
         <button type="button" class="opcao-pagamento" data-forma="cartao">
-          <span class="icone-pagamento">💳</span> Cartão na retirada/entrega
+          <span class="icone-pagamento"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg></span> Cartão na retirada/entrega
         </button>
         <button type="button" class="opcao-pagamento" data-forma="dinheiro">
-          <span class="icone-pagamento">💶</span> Dinheiro
+          <span class="icone-pagamento"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="7" width="19" height="10" rx="1.5"/><circle cx="12" cy="12" r="2.3"/></svg></span> Dinheiro
         </button>
 
         <div class="secao-troco" id="secao-troco-dinheiro" style="display:none;">
@@ -253,11 +259,11 @@
         </div>
 
         <button type="button" class="opcao-pagamento" data-forma="revolut">
-          <span class="icone-pagamento">🔵</span> Revolut — pagar agora
+          <span class="icone-pagamento"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 4v4h-4"/><path d="M20 12a8 8 0 0 1-14 5.3M4 20v-4h4"/></svg></span> Revolut — pagar agora
         </button>
 
         <button type="button" class="opcao-pagamento" data-forma="transferencia">
-          <span class="icone-pagamento">🏦</span> Transferência bancária
+          <span class="icone-pagamento"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10l9-6 9 6"/><path d="M5 10v8M9 10v8M15 10v8M19 10v8"/><path d="M3 20h18"/></svg></span> Transferência bancária
         </button>
 
         <!-- Preenchido por atualizarVisibilidadeDadosTransferencia() (js/pedido.js) a partir de business_settings — nunca hardcoded -->

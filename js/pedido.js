@@ -174,6 +174,29 @@ const ROTULOS_ETAPA_PEDIDO = {
   confirmacao: 'Confirmação',
 };
 
+// Barra de progresso visual do checkout (#progresso-etapas-pedido) — só indicativo, derivado do
+// estado já existente (pilhaEtapasPedido/etapaAtualPedido), nenhum estado novo. 'dados-retirada' e
+// 'dados-entrega' contam como o mesmo estágio "recebimento"; some durante o cardápio (não é checkout).
+const ESTAGIOS_PROGRESSO_PEDIDO = ['carrinho', 'recebimento', 'pagamento', 'revisao', 'confirmacao'];
+
+function estagioProgressoPedido(etapa) {
+  return etapa === 'dados-retirada' || etapa === 'dados-entrega' ? 'recebimento' : etapa;
+}
+
+function renderizarProgressoEtapasPedido(etapa) {
+  const container = document.getElementById('progresso-etapas-pedido');
+  if (!container) return;
+  if (etapa === 'cardapio') {
+    container.style.display = 'none';
+    return;
+  }
+  const indiceAtual = ESTAGIOS_PROGRESSO_PEDIDO.indexOf(estagioProgressoPedido(etapa));
+  container.style.display = 'flex';
+  container.innerHTML = ESTAGIOS_PROGRESSO_PEDIDO
+    .map((_, i) => `<span class="ponto-etapa ${i < indiceAtual ? 'concluida' : ''} ${i === indiceAtual ? 'atual' : ''}"></span>`)
+    .join('');
+}
+
 const ORDEM_CATEGORIAS_PEDIDO = ['Combos', 'Espetinhos', 'Acompanhamentos', 'Bebidas'];
 let categoriaSelecionadaPedido = 'Combos';
 let pilhaEtapasPedido = ['cardapio'];
@@ -625,6 +648,7 @@ function mostrarEtapaAtual() {
   });
   document.getElementById('indicador-etapa-pedido').textContent =
     `Etapa ${pilhaEtapasPedido.length} · ${ROTULOS_ETAPA_PEDIDO[etapa] || ''}`;
+  renderizarProgressoEtapasPedido(etapa);
   atualizarBarraCarrinhoFixa();
   window.scrollTo(0, 0);
 }
@@ -638,6 +662,14 @@ function ligarEventosGerais() {
     renderizarCarrinhoPedido();
     irParaEtapaPedido('carrinho');
   });
+
+  const botaoCabecalhoCarrinho = document.getElementById('botao-carrinho-cabecalho');
+  if (botaoCabecalhoCarrinho) {
+    botaoCabecalhoCarrinho.addEventListener('click', () => {
+      renderizarCarrinhoPedido();
+      irParaEtapaPedido('carrinho');
+    });
+  }
 
   document.getElementById('botao-continuar-carrinho').addEventListener('click', () => {
     if (obterCarrinho().length === 0) return;
@@ -865,6 +897,10 @@ function renderizarCarrinhoPedido() {
   document.getElementById('pedido-valor-taxa').textContent = 'A definir na próxima etapa';
 }
 
+// Ícone de remover (linha de carrinho simples e de combo) — SVG inline em vez de emoji cru,
+// herda a cor do .btn-icone via currentColor, sem CSS adicional.
+const ICONE_LIXEIRA_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M10 11v6M14 11v6"/></svg>';
+
 function linhaCarrinhoPedidoHtml(item, moeda) {
   const produto = obterProdutoPorId(item.produtoId);
   const nome = produto ? produto.nome : '(produto removido)';
@@ -880,11 +916,14 @@ function linhaCarrinhoPedidoHtml(item, moeda) {
       <td>${escaparHtml(nome)}</td>
       <td>${formatarMoeda(item.precoUnitario, moeda)}</td>
       <td>
-        <input type="number" class="quantidade-pedido-carrinho" data-id="${item.produtoId}"
-          min="1" max="${Math.max(1, estoqueMaximo)}" value="${item.quantidade}" />
+        <div class="stepper-combo">
+          <button type="button" class="stepper-combo-botao" data-acao="diminuir-item-pedido" data-id="${item.produtoId}" ${item.quantidade <= 1 ? 'disabled' : ''}>−</button>
+          <span class="stepper-combo-valor">${item.quantidade}</span>
+          <button type="button" class="stepper-combo-botao" data-acao="aumentar-item-pedido" data-id="${item.produtoId}" ${item.quantidade >= Math.max(1, estoqueMaximo) ? 'disabled' : ''}>+</button>
+        </div>
       </td>
       <td>${formatarMoeda(subtotalItem, moeda)}</td>
-      <td><button class="btn-icone" data-acao="remover-pedido" data-id="${item.produtoId}" title="Remover">🗑️</button></td>
+      <td><button class="btn-icone" data-acao="remover-pedido" data-id="${item.produtoId}" title="Remover">${ICONE_LIXEIRA_SVG}</button></td>
     </tr>`;
 }
 
@@ -919,7 +958,7 @@ function linhaComboCarrinhoHtml(item, moeda) {
           </div>
           <div class="resumo-combo-carrinho-acoes">
             <button type="button" class="btn btn-secundario" data-acao="editar-combo" data-item-id="${item.itemId}">Editar escolhas</button>
-            <button type="button" class="btn-icone" data-acao="remover-combo" data-item-id="${item.itemId}" title="Remover">🗑️</button>
+            <button type="button" class="btn-icone" data-acao="remover-combo" data-item-id="${item.itemId}" title="Remover">${ICONE_LIXEIRA_SVG}</button>
           </div>
         </div>
       </td>
@@ -927,12 +966,23 @@ function linhaComboCarrinhoHtml(item, moeda) {
 }
 
 function ligarEventosLinhasPedido() {
-  document.querySelectorAll('.quantidade-pedido-carrinho').forEach((campo) => {
-    campo.addEventListener('change', () => {
-      const maximo = Number(campo.max) || 1;
-      let quantidade = Math.floor(Number(campo.value)) || 1;
-      quantidade = Math.max(1, Math.min(quantidade, maximo));
-      atualizarQuantidadeCarrinho(campo.dataset.id, quantidade);
+  document.querySelectorAll('[data-acao="diminuir-item-pedido"]').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      const item = obterCarrinho().find((i) => i.produtoId === botao.dataset.id && !i.combo);
+      if (!item) return;
+      atualizarQuantidadeCarrinho(item.produtoId, Math.max(1, item.quantidade - 1));
+      atualizarContadorCarrinho();
+      renderizarCarrinhoPedido();
+    });
+  });
+
+  document.querySelectorAll('[data-acao="aumentar-item-pedido"]').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      const item = obterCarrinho().find((i) => i.produtoId === botao.dataset.id && !i.combo);
+      if (!item) return;
+      const produto = obterProdutoPorId(item.produtoId);
+      const maximo = produto ? produto.quantidadeEstoque : item.quantidade;
+      atualizarQuantidadeCarrinho(item.produtoId, Math.min(maximo, item.quantidade + 1));
       atualizarContadorCarrinho();
       renderizarCarrinhoPedido();
     });

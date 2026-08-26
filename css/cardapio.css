@@ -12,12 +12,24 @@
 
 .filtro-categorias {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
   gap: var(--espaco-sm);
-  margin-bottom: var(--espaco-lg);
+  position: sticky;
+  top: 56px; /* altura de .cabecalho-pedido (css/pedido.css) */
+  z-index: 15;
+  background: var(--cor-fundo);
+  padding: var(--espaco-sm) var(--espaco-lg);
+  margin: 0 calc(-1 * var(--espaco-lg)) var(--espaco-lg);
+  border-bottom: 1px solid var(--cor-borda);
 }
 
+.filtro-categorias::-webkit-scrollbar { display: none; }
+
 .filtro-categoria-botao {
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: var(--espaco-xs) var(--espaco-md);
   border: 1px solid var(--cor-borda);
   border-radius: var(--raio-pill);
@@ -49,6 +61,7 @@
 
 .card-produto {
   background: var(--cor-branco);
+  border: 1px solid var(--cor-borda);
   border-radius: var(--raio-md);
   box-shadow: var(--sombra-sm);
   overflow: hidden;
@@ -75,8 +88,8 @@
   width: 76px;
   height: 76px;
   border-radius: 50%;
-  background: var(--cor-branco);
-  box-shadow: var(--sombra-sm);
+  background: var(--cor-acento-sutil);
+  border: 1px solid var(--cor-borda);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -86,7 +99,7 @@
 .selo-esgotado {
   position: absolute;
   inset: 0;
-  background: rgba(42, 38, 34, 0.55);
+  background: rgba(20, 16, 14, 0.62);
   color: var(--cor-sobre-acento);
   display: flex;
   align-items: center;
@@ -123,6 +136,10 @@
   color: var(--cor-texto-secundario);
   line-height: 1.4;
   flex: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .card-produto-rodape {
@@ -135,7 +152,7 @@
   border-top: 1px solid var(--cor-borda);
 }
 
-.card-produto-preco { font-weight: 700; color: var(--cor-terracota); font-size: 1.15rem; }
+.card-produto-preco { font-weight: 800; color: var(--cor-terracota); font-size: 1.2rem; }
 
 .card-produto-estoque { font-size: 0.75rem; color: var(--cor-texto-secundario); }
 
@@ -157,3 +174,16 @@
 }
 
 .botao-adicionar { flex: 1; }
+
+.card-produto-acao .seletor-quantidade { min-height: 44px; font-size: 0.95rem; }
+.card-produto-acao .botao-adicionar { min-height: 44px; }
+
+@media (max-width: 768px) {
+  .filtro-categorias {
+    top: 52px; /* altura de .cabecalho-pedido no breakpoint de celular */
+    margin-left: calc(-1 * var(--espaco-md));
+    margin-right: calc(-1 * var(--espaco-md));
+    padding-left: var(--espaco-md);
+    padding-right: var(--espaco-md);
+  }
+}

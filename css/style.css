@@ -43,6 +43,14 @@ a { color: inherit; text-decoration: none; }
   --cor-status-vermelho: #D46262;
   --cor-status-cinza: #857E72;
 
+  /* Marca — acento secundário "chama", usado com moderação (logo, ícones pontuais de fogo) */
+  --cor-chama-amarelo: #FFB300; /* tokeniza o amarelo já usado no gradiente do wordmark (.logo-larica) — mesmo valor, zero mudança visual */
+  --cor-chama-vermelho: #C43B14; /* tom brasa, novo — só usado pelos assets de marca (assets/brand/*.svg) e CSS público */
+
+  /* Anel de foco (acessibilidade) — não redefine .input:focus/.btn globais; só consumido em
+     regras escopadas body[data-area="pedido"] (ver fim do arquivo) */
+  --anel-foco: 0 0 0 3px var(--cor-acento-sutil);
+
   /* Espaçamento */
   --espaco-xs: 4px;
   --espaco-sm: 8px;
@@ -142,7 +150,7 @@ body {
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--cor-terracota); /* fallback caso background-clip: text não seja suportado */
-  background: linear-gradient(135deg, var(--cor-terracota) 0%, #FFB300 100%);
+  background: linear-gradient(135deg, var(--cor-terracota) 0%, var(--cor-chama-amarelo) 100%);
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -646,7 +654,7 @@ input[type="checkbox"] { accent-color: var(--cor-terracota); }
   align-items: center;
   gap: var(--espaco-sm);
   padding: var(--espaco-md);
-  border: 2px solid var(--cor-borda);
+  border: 1.5px solid var(--cor-borda);
   border-radius: var(--raio-md);
   background: var(--cor-branco);
   color: var(--cor-texto); /* <button> não herda a cor de texto do body por padrão — sem isso, o navegador usa a cor padrão de controle de formulário (preta), independente do tema */
@@ -721,3 +729,29 @@ body[data-area="admin"]:not(.autenticado) {
 .opcao-area-icone { font-size: 2.2rem; }
 .opcao-area h2 { margin: var(--espaco-xs) 0 0; font-size: 1.05rem; }
 .opcao-area p { margin: 0; font-size: 0.85rem; color: var(--cor-texto-secundario); }
+
+.marca-inicial-logo-img { width: 220px; max-width: 60vw; height: auto; margin: 0 auto; }
+
+/* ---------------------------------------------------------------------- */
+/* Ajustes de tokens só para a área pública (Fazer Pedido + tela inicial). */
+/* Escopado por body[data-area="pedido"] — nunca casa com body[data-area=  */
+/* "admin"], então nunca pode afetar nenhuma página do painel. index.html  */
+/* não roda js/app.js, mas ganha data-area="pedido" no <body> só como hook */
+/* de CSS (ver pedido.html/index.html).                                    */
+/* ---------------------------------------------------------------------- */
+body[data-area="pedido"] {
+  --raio-md: 10px;   /* cards/inputs um pouco menos "arredondados" que o padrão do admin (12px) */
+  --raio-lg: 16px;   /* idem para modais/cards grandes (padrão admin: 20px) */
+  --anel-foco: 0 0 0 3px var(--cor-acento-sutil);
+  --altura-header: 56px; /* alinha o sticky de .resumo-carrinho com .cabecalho-pedido (css/pedido.css) — não afeta --altura-header (64px) do .header admin */
+}
+
+body[data-area="pedido"] .input:focus,
+body[data-area="pedido"] select.input:focus,
+body[data-area="pedido"] textarea.input:focus {
+  box-shadow: var(--anel-foco);
+}
+
+@media (max-width: 480px) {
+  body[data-area="pedido"] { --altura-header: 52px; }
+}

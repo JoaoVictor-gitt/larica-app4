@@ -139,9 +139,15 @@ function montarShell(contextoPermissoes) {
   const conteudo = document.querySelector('.conteudo-pagina');
   if (!placeholder || !conteudo) return;
 
-  // Admin (área protegida): só os itens que o contexto realmente autoriza. Área "pedido" (checkout do
-  // cliente) não passa por permissão nenhuma — MENU_PEDIDO já é [] hoje, sem mudança de comportamento.
-  const itensMenu = area === 'admin' ? MENU_ADMIN.filter((p) => temAcesso(contextoPermissoes, p.permissao)) : MENUS_POR_AREA[area];
+  // Área pública "Fazer Pedido": cabeçalho compacto próprio (logo + carrinho), sem sidebar/menu
+  // administrativo — sai daqui antes de qualquer código do shell admin abaixo.
+  if (area === 'pedido') {
+    montarShellPedido(placeholder);
+    return;
+  }
+
+  // Admin (área protegida): só os itens que o contexto realmente autoriza.
+  const itensMenu = MENU_ADMIN.filter((p) => temAcesso(contextoPermissoes, p.permissao));
 
   const linksMenu = itensMenu
     .map(
@@ -189,6 +195,24 @@ function montarShell(contextoPermissoes) {
   document.body.classList.add('app-shell');
 }
 
+/** Monta o cabeçalho compacto da área pública "Fazer Pedido" (logo + acesso ao carrinho) */
+function montarShellPedido(placeholder) {
+  placeholder.outerHTML = `
+    <header class="cabecalho-pedido">
+      <a class="cabecalho-pedido-marca" href="index.html" aria-label="Larica — início">
+        <img src="assets/brand/larica-logo-dark.svg" alt="Larica" class="cabecalho-pedido-logo" />
+      </a>
+      <button type="button" class="cabecalho-pedido-carrinho" id="botao-carrinho-cabecalho" aria-label="Ver carrinho">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="9" cy="20" r="1.4" /><circle cx="18" cy="20" r="1.4" />
+          <path d="M2 3h2l2.2 12.2a2 2 0 0 0 2 1.8h8.6a2 2 0 0 0 2-1.6L21 8H6" />
+        </svg>
+        <span class="badge-contador" id="badge-contador-carrinho" style="display:none;">0</span>
+      </button>
+    </header>
+  `;
+}
+
 /** Liga o botão hambúrguer (mobile) para abrir/fechar a sidebar */
 function ligarMenuMobile() {
   const botao = document.getElementById('botao-menu-mobile');
@@ -217,9 +241,9 @@ function ligarBotaoSair() {
 }
 
 /**
- * Atualiza o número de itens no badge do carrinho no header — hoje nenhuma
- * página tem esse badge (a Loja foi removida), então isso é um no-op seguro.
- * Mantida porque js/pedido.js ainda chama essa função em vários pontos.
+ * Atualiza o número de itens no badge do carrinho no header (#badge-contador-carrinho,
+ * injetado por montarShellPedido() na área "pedido"). No-op seguro em qualquer outra
+ * página (admin), onde esse elemento não existe.
  */
 function atualizarContadorCarrinho() {
   const badge = document.getElementById('badge-contador-carrinho');

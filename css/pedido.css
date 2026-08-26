@@ -33,14 +33,59 @@
   color: var(--cor-terracota);
 }
 
-.quantidade-pedido-carrinho {
-  width: 64px;
-  padding: 6px;
-  border: 1px solid var(--cor-borda);
-  border-radius: var(--raio-sm);
-  text-align: center;
+#tabela-pedido-carrinho td:nth-child(4) { text-align: center; }
+
+/* Cabeçalho compacto da área pública (injetado por montarShellPedido(), js/app.js) */
+.cabecalho-pedido {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  padding: 0 var(--espaco-lg);
   background: var(--cor-branco);
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+.cabecalho-pedido-logo { height: 28px; width: auto; }
+
+.cabecalho-pedido-carrinho {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--raio-pill);
+  border: none;
+  background: var(--cor-cinza-claro);
   color: var(--cor-texto);
+}
+
+.cabecalho-pedido-carrinho:hover { background: var(--cor-borda); }
+
+.cabecalho-pedido-carrinho .badge-contador {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--cor-terracota);
+  color: var(--cor-sobre-acento);
+  font-size: 0.65rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: var(--raio-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+@media (max-width: 480px) {
+  .cabecalho-pedido { padding: 0 var(--espaco-md); height: 52px; }
+  .cabecalho-pedido-logo { height: 24px; }
 }
 
 /* Navegação por etapas: cada <section> vira uma "tela" dentro da mesma página */
@@ -59,17 +104,35 @@
 }
 
 .indicador-etapa-pedido {
-  display: inline-block;
+  display: block;
   font-size: 0.72rem;
   font-weight: 700;
   color: var(--cor-terracota);
-  background: var(--cor-acento-sutil);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  padding: var(--espaco-xs) var(--espaco-md);
-  border-radius: var(--raio-pill);
+  margin-bottom: var(--espaco-sm);
+}
+
+.progresso-etapas-pedido {
+  display: flex;
+  gap: 4px;
   margin-bottom: var(--espaco-lg);
 }
+
+.progresso-etapas-pedido .ponto-etapa {
+  flex: 1;
+  height: 4px;
+  border-radius: var(--raio-pill);
+  background: var(--cor-borda);
+  transition: background var(--transicao-padrao);
+}
+
+.progresso-etapas-pedido .ponto-etapa.concluida,
+.progresso-etapas-pedido .ponto-etapa.atual {
+  background: var(--cor-terracota);
+}
+
+.etapa-pedido h2 { font-size: 1.25rem; margin: 0 0 var(--espaco-md); }
 
 .etapa-pedido-acoes {
   display: flex;
@@ -83,6 +146,9 @@
   padding-bottom: var(--espaco-md);
   font-size: 1rem;
 }
+
+.etapa-pedido-acoes .btn-secundario { flex: 0.8; }
+.etapa-pedido-acoes .btn-primario { flex: 1.2; }
 
 /* Cards grandes de seleção (retirada/entrega) — reaproveita .opcao-pagamento como base */
 .opcoes-recebimento {
@@ -140,6 +206,8 @@
   border-left-color: var(--cor-status-vermelho);
 }
 
+.opcao-pagamento:active { transform: scale(0.98); }
+
 /* Opção de recebimento (Retirada/Entrega) desativada nas configurações do negócio */
 .opcao-pagamento.opcao-indisponivel {
   opacity: 0.5;
@@ -166,9 +234,16 @@
 }
 
 /* Resumo do carrinho — o Total é o elemento visual mais forte do card (Etapa 2 e Etapa 6 reaproveitam a mesma classe) */
+.resumo-carrinho .linha-resumo-total {
+  border-top: 2px solid var(--cor-borda);
+  padding-top: var(--espaco-md);
+  margin-top: var(--espaco-xs);
+}
+
 .resumo-carrinho .linha-resumo-total span:last-child {
   color: var(--cor-terracota);
-  font-size: 1.3rem;
+  font-size: 1.6rem;
+  font-weight: 800;
 }
 
 /* Dentro do modal de Combo, o Total fica no mesmo tamanho dos outros modais (Pedidos/Histórico, .modal-pedido) —
@@ -212,10 +287,13 @@
   margin-bottom: var(--espaco-lg);
 }
 
-/* Cupom de desconto (Etapa 6) */
+/* Cupom de desconto (Etapa 6) — fica visualmente secundário, não compete com o total/CTA principal */
 .cartao-cupom-titulo {
   margin-top: 0;
-  font-size: 1.05rem;
+  font-size: 0.95rem;
+  color: var(--cor-texto-secundario);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .cupom-input-linha {
@@ -246,15 +324,16 @@
   text-align: center;
   max-width: 480px;
   margin: 0 auto;
+  padding-top: var(--espaco-lg);
 }
 
 .icone-confirmacao {
-  font-size: 3rem;
+  font-size: 2.75rem;
   margin-bottom: var(--espaco-sm);
 }
 
 .numero-pedido {
-  font-size: 1.4rem;
+  font-size: 1.5rem;
   font-weight: 700;
   color: var(--cor-terracota);
   margin: var(--espaco-md) 0;
@@ -566,6 +645,7 @@
 
 .secao-troco {
   background: var(--cor-cinza-claro);
+  border: 1px solid var(--cor-borda);
   border-radius: var(--raio-md);
   padding: var(--espaco-md);
   display: flex;
@@ -597,3 +677,9 @@
   color: var(--cor-terracota);
   font-size: 0.9rem;
 }
+
+/* Estados vazio/carregando/erro do fluxo público — .estado-vazio (style.css) é compartilhado com o
+   admin, então essas variações ficam aqui (só pedido.html usa estas classes) */
+.estado-vazio--carregando { color: var(--cor-texto-secundario); }
+.estado-vazio--erro { color: var(--cor-status-vermelho); }
+.estado-vazio--vazio { color: var(--cor-texto-secundario); font-style: italic; }
