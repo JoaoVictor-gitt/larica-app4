@@ -45,7 +45,7 @@
   justify-content: space-between;
   height: 56px;
   padding: 0 var(--espaco-lg);
-  background: var(--cor-branco);
+  background: #000000; /* casa com o fundo preto sólido de logo.png (marca oficial) */
   border-bottom: 1px solid var(--cor-borda);
 }
 

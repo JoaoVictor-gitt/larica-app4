@@ -45,7 +45,7 @@ a { color: inherit; text-decoration: none; }
 
   /* Marca — acento secundário "chama", usado com moderação (logo, ícones pontuais de fogo) */
   --cor-chama-amarelo: #FFB300; /* tokeniza o amarelo já usado no gradiente do wordmark (.logo-larica) — mesmo valor, zero mudança visual */
-  --cor-chama-vermelho: #C43B14; /* tom brasa, novo — só usado pelos assets de marca (assets/brand/*.svg) e CSS público */
+  --cor-chama-vermelho: #C43B14; /* tom brasa reservado — sem consumidor ativo no momento (logo/favicon oficiais são PNG, fora do sistema de tokens) */
 
   /* Anel de foco (acessibilidade) — não redefine .input:focus/.btn globais; só consumido em
      regras escopadas body[data-area="pedido"] (ver fim do arquivo) */
@@ -744,6 +744,12 @@ body[data-area="pedido"] {
   --raio-lg: 16px;   /* idem para modais/cards grandes (padrão admin: 20px) */
   --anel-foco: 0 0 0 3px var(--cor-acento-sutil);
   --altura-header: 56px; /* alinha o sticky de .resumo-carrinho com .cabecalho-pedido (css/pedido.css) — não afeta --altura-header (64px) do .header admin */
+}
+
+/* Tela inicial (index.html) — login.html também usa .tela-inicial-body mas nunca tem
+   data-area, então este seletor composto nunca o atinge (confirmado por grep). */
+body[data-area="pedido"].tela-inicial-body {
+  background: #000000; /* casa com o fundo preto sólido de logo.png (marca oficial) */
 }
 
 body[data-area="pedido"] .input:focus,

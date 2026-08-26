@@ -200,7 +200,7 @@ function montarShellPedido(placeholder) {
   placeholder.outerHTML = `
     <header class="cabecalho-pedido">
       <a class="cabecalho-pedido-marca" href="index.html" aria-label="Larica — início">
-        <img src="assets/brand/larica-logo-dark.svg" alt="Larica" class="cabecalho-pedido-logo" />
+        <img src="logo.png" alt="Larica" class="cabecalho-pedido-logo" />
       </a>
       <button type="button" class="cabecalho-pedido-carrinho" id="botao-carrinho-cabecalho" aria-label="Ver carrinho">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
