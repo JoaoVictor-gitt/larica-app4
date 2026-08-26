@@ -29,6 +29,9 @@ interface Env {
   SUPABASE_SERVICE_ROLE_KEY: string;
   OPENAI_API_KEY: string;
   OPENAI_MODEL: string;
+  // W6.7D — endpoint temporário de diagnóstico (remover junto com a rota
+  // /internal/whatsapp/ai-preview quando a Meta for desbloqueada e o W6.8 existir).
+  AI_TEST_TOKEN: string;
   ASSETS: { fetch(request: Request): Promise<Response> };
   RATE_LIMIT_DELIVERY: RateLimitBinding;
   RATE_LIMIT_COUPON: RateLimitBinding;
@@ -817,6 +820,109 @@ async function tratarWebhookPost(request: Request, env: Env): Promise<Response> 
   return jsonResponse({ ok: true }, 200);
 }
 
+// ---------------------------------------------------------------------
+// W6.7D — POST /internal/whatsapp/ai-preview: endpoint TEMPORÁRIO de
+// diagnóstico, criado só porque o Meta for Developers está bloqueado
+// (verificação de conta) e precisamos testar a OpenAI real sem depender
+// do webhook. Reutiliza EXATAMENTE interpretWhatsAppMessageWithAI (mesma
+// função que o webhook real usa) — nunca chama dispatchWhatsAppIntent/
+// dispatchWhatsAppActions nem nenhuma RPC mutante diretamente. Só devolve
+// o preview das intents interpretadas, nunca executa nada. Remover esta
+// seção (e o campo AI_TEST_TOKEN em Env) quando a Meta for desbloqueada e
+// o W6.8 (envio real de resposta) existir.
+// ---------------------------------------------------------------------
+
+function validarTokenAiPreview(request: Request, env: Env): { ok: true } | { ok: false; response: Response } {
+  if (!env.AI_TEST_TOKEN) {
+    return { ok: false, response: jsonResponse({ error: 'Configuração do servidor ausente.' }, 500) };
+  }
+
+  // Só header — nunca query string. Token nunca é ecoado em nenhuma resposta.
+  const token = request.headers.get('X-AI-Test-Token');
+  if (!token || !compararEmTempoConstante(token, env.AI_TEST_TOKEN)) {
+    return { ok: false, response: jsonResponse({ error: 'Não autorizado.' }, 401) };
+  }
+
+  return { ok: true };
+}
+
+interface PayloadAiPreview {
+  message: string;
+  language: WhatsAppLanguage;
+  state: WhatsAppSessionState;
+}
+
+// Allowlist estrita: exatamente {message, language, state}. Qualquer campo
+// fora disso (session_id, phone, customer_name, product_id, price, total,
+// delivery_fee, order_id, rpc, sql, etc.) rejeita o payload inteiro — nunca
+// ignora silenciosamente um campo desconhecido.
+function validarPayloadAiPreview(corpo: unknown): PayloadAiPreview | null {
+  if (typeof corpo !== 'object' || corpo === null) return null;
+
+  const chaves = Object.keys(corpo as Record<string, unknown>);
+  const chavesPermitidas = new Set(['message', 'language', 'state']);
+  if (chaves.length !== 3 || chaves.some((k) => !chavesPermitidas.has(k))) return null;
+
+  const d = corpo as Record<string, unknown>;
+  if (typeof d.message !== 'string' || d.message.trim().length === 0) return null;
+  if (d.language !== 'pt' && d.language !== 'en') return null;
+  if (typeof d.state !== 'string' || !ESTADOS_WHATSAPP_VALIDOS.has(d.state as WhatsAppSessionState)) return null;
+
+  return { message: d.message, language: d.language, state: d.state as WhatsAppSessionState };
+}
+
+// sessionId fictício/reservado (nunca gerado por gen_random_uuid()) — toda
+// RPC do projeto segue o padrão "lock → valida existência → muta", então
+// apply_whatsapp_cart_intent (chamada internamente por
+// interpretWhatsAppMessageWithAI pra buscar o carrinho) levanta exceção pra
+// sessão inexistente ANTES de qualquer leitura/mutação. chamarRpcWhatsapp
+// devolve {ok:false} nesse caso, e interpretWhatsAppMessageWithAI já
+// degrada pra carrinho vazio (comportamento existente, sem alteração em
+// ai.ts) — carrinho vazio de verdade, zero sessão real tocada.
+const SESSION_ID_DIAGNOSTICO_AI_PREVIEW = '00000000-0000-0000-0000-000000000000';
+
+async function tratarAiPreviewWhatsapp(request: Request, env: Env): Promise<Response> {
+  const auth = validarTokenAiPreview(request, env);
+  if (!auth.ok) return auth.response;
+
+  const leitura = await lerCorpoComLimite(request, 4 * 1024);
+  if (!leitura.ok) return leitura.response;
+
+  const payload = validarPayloadAiPreview(leitura.body);
+  if (!payload) {
+    return jsonResponse({ error: 'Payload inválido.' }, 400);
+  }
+
+  const acoes = await interpretWhatsAppMessageWithAI(
+    {
+      message: payload.message,
+      language: payload.language,
+      state: payload.state,
+      sessionId: SESSION_ID_DIAGNOSTICO_AI_PREVIEW,
+    },
+    env
+  ).catch(() => null);
+
+  // null (IA indisponível/timeout/schema inválido) e [{intent:'unknown'}]
+  // (IA respondeu mas não entendeu a mensagem) contam como o mesmo
+  // resultado de diagnóstico "sem interpretação útil".
+  if (acoes === null || (acoes.length === 1 && acoes[0].intent === 'unknown')) {
+    return jsonResponse({ ok: false, reason: 'ai_unavailable_or_invalid' }, 200);
+  }
+
+  return jsonResponse({ ok: true, actions: acoes }, 200);
+}
+
+async function tratarRotaInternal(request: Request, env: Env, path: string): Promise<Response> {
+  if (path !== '/internal/whatsapp/ai-preview') {
+    return jsonResponse({ error: 'Rota não encontrada.' }, 404);
+  }
+  if (request.method !== 'POST') {
+    return jsonResponse({ error: 'Método não permitido.' }, 405);
+  }
+  return tratarAiPreviewWhatsapp(request, env);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -825,6 +931,11 @@ export default {
     if (path.startsWith('/webhooks/')) {
       const respostaWebhook = await tratarRotaWebhook(request, env, path);
       return aplicarSecurityHeaders(respostaWebhook, { cspReportOnly: false });
+    }
+
+    if (path.startsWith('/internal/')) {
+      const respostaInternal = await tratarRotaInternal(request, env, path);
+      return aplicarSecurityHeaders(respostaInternal, { cspReportOnly: false });
     }
 
     if (!path.startsWith('/api/')) {
