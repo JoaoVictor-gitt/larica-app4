@@ -24,6 +24,7 @@
     <div class="pagina-titulo">
       <h1>Acompanhar pedido</h1>
     </div>
+    <p class="subtitulo-acompanhar-pedido">Veja em que etapa seu pedido está.</p>
 
     <!-- Formulário de busca — mostrado quando não há número na URL, ou o pedido não foi encontrado -->
     <div class="card" id="form-busca-pedido">
@@ -41,7 +42,7 @@
     <div id="resultado-acompanhamento" style="display:none;">
       <div class="card cartao-status-pedido">
         <p class="rotulo-numero-pedido" id="numero-pedido-acompanhado"></p>
-        <div class="status-atual-pedido" id="status-atual-pedido"></div>
+        <div class="status-atual-pedido" id="status-atual-pedido" aria-live="polite"></div>
       </div>
 
       <div class="timeline-pedido" id="timeline-pedido"></div>

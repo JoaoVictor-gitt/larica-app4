@@ -4,16 +4,65 @@
  * (acompanhar-pedido.html). Reaproveita os tokens de css/style.css
  * (cores, espaçamentos, raios, sombras) e os componentes genéricos
  * (.card, .btn*, .input, .form-grupo, .campo-erro, .estado-vazio) — aqui
- * só entra o que ainda não existia: timeline de status e cartão de ETA.
+ * só entra o que ainda não existia: cabeçalho desta página, timeline de
+ * status e cartão de ETA.
  */
 
+/* ---------------------------------------------------------------------- */
+/* Cabeçalho — esta página NUNCA carrega css/pedido.css (evitar puxar     */
+/* estilos de carrinho/pagamento/combo que não têm nada a ver com         */
+/* tracking), então as classes do cabeçalho compartilhado (injetado por   */
+/* montarShellPedido(), js/app.js) são estilizadas aqui, isoladas.        */
+/* ---------------------------------------------------------------------- */
+
+.cabecalho-pedido {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center; /* sem carrinho nesta página — logo sozinha, centralizada */
+  height: 56px;
+  padding: 0 var(--espaco-lg);
+  background: #000000;
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+.cabecalho-pedido-logo { height: 26px; width: auto; }
+
+/* Carrinho não faz sentido aqui (não há fluxo de compra nesta página) —
+   "Voltar ao cardápio" já cobre a navegação. Some visualmente; o listener
+   que js/acompanhar-pedido.js já liga nele fica só sem efeito prático,
+   nunca removido (nenhuma alteração de JS nesta etapa). */
+.cabecalho-pedido-carrinho { display: none; }
+
+@media (max-width: 480px) {
+  .cabecalho-pedido { padding: 0 var(--espaco-md); height: 52px; }
+  .cabecalho-pedido-logo { height: 22px; }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Container principal + título                                           */
+/* ---------------------------------------------------------------------- */
+
 .conteudo-acompanhar-pedido {
-  max-width: 480px;
+  max-width: 560px;
   margin: 0 auto;
 }
 
+.subtitulo-acompanhar-pedido {
+  margin: calc(-1 * var(--espaco-md)) 0 var(--espaco-lg);
+  color: var(--cor-texto-secundario);
+  font-size: 0.92rem;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Card do pedido — número / status / detalhe                             */
+/* ---------------------------------------------------------------------- */
+
 .cartao-status-pedido {
   text-align: center;
+  border-left: 3px solid transparent;
 }
 
 .rotulo-numero-pedido {
@@ -26,13 +75,43 @@
 }
 
 .status-atual-pedido {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
+  color: var(--cor-texto-secundario);
   line-height: 1.5;
 }
 
 .status-atual-pedido strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 1.3rem;
+  font-weight: 800;
   color: var(--cor-terracota);
 }
+
+/* Cancelado: #timeline-pedido só fica vazio nesse caso (renderizarResultado()
+   nunca a preenche) — sinal confiável pra um acento de alerta discreto, sem
+   precisar de nenhuma classe nova no JS. Mesmo padrão visual já usado em
+   .aviso-info.aviso-atencao (borda esquerda colorida, fundo neutro). */
+#resultado-acompanhamento:has(#timeline-pedido:empty) .cartao-status-pedido {
+  border-left-color: var(--cor-status-vermelho);
+}
+#resultado-acompanhamento:has(#timeline-pedido:empty) .status-atual-pedido strong {
+  color: var(--cor-status-vermelho);
+}
+
+/* Finalizado: a última etapa da timeline só recebe --concluida quando o
+   status real é 'finalizado' (única forma de o índice 4/"Finalizado" ser
+   marcado concluído em renderizarTimeline()) — sinal confiável de conclusão. */
+#resultado-acompanhamento:has(.etapa-timeline:last-child.etapa-timeline--concluida) .cartao-status-pedido {
+  border-left-color: var(--cor-status-verde);
+}
+#resultado-acompanhamento:has(.etapa-timeline:last-child.etapa-timeline--concluida) .status-atual-pedido strong {
+  color: var(--cor-status-verde);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Timeline                                                                */
+/* ---------------------------------------------------------------------- */
 
 .timeline-pedido {
   display: flex;
@@ -42,6 +121,7 @@
 }
 
 .etapa-timeline {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--espaco-sm);
@@ -49,6 +129,22 @@
   border-radius: var(--raio-sm);
   color: var(--cor-texto-secundario);
   transition: background var(--transicao-padrao), color var(--transicao-padrao);
+}
+
+/* Linha fina conectando os círculos, preenchendo o gap até a próxima etapa —
+   decorativo, não interfere na lógica que já define concluída/atual/futura. */
+.etapa-timeline:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--espaco-md) + 12px - 1px);
+  top: 100%;
+  width: 2px;
+  height: var(--espaco-sm);
+  background: var(--cor-borda);
+}
+
+.etapa-timeline--concluida:not(:last-child)::before {
+  background: var(--cor-terracota);
 }
 
 .etapa-timeline-marcador {
@@ -61,6 +157,7 @@
   border: 2px solid var(--cor-borda);
   flex-shrink: 0;
   color: var(--cor-sobre-acento);
+  background: var(--cor-branco);
 }
 
 .etapa-timeline-rotulo {
@@ -86,9 +183,14 @@
   border-color: var(--cor-terracota);
 }
 
+/* ---------------------------------------------------------------------- */
+/* ETA                                                                     */
+/* ---------------------------------------------------------------------- */
+
 .cartao-previsao-pedido {
   text-align: center;
   background: var(--cor-acento-sutil);
+  padding: var(--espaco-lg);
 }
 
 .previsao-rotulo {
@@ -102,7 +204,7 @@
 
 .previsao-horario {
   margin: var(--espaco-xs) 0;
-  font-size: 1.6rem;
+  font-size: 1.9rem;
   font-weight: 800;
   color: var(--cor-terracota);
 }
@@ -114,7 +216,7 @@
 }
 
 @media (max-width: 480px) {
-  .status-atual-pedido { font-size: 1rem; }
-  .previsao-horario { font-size: 1.4rem; }
+  .status-atual-pedido strong { font-size: 1.1rem; }
+  .previsao-horario { font-size: 1.6rem; }
   .etapa-timeline-rotulo { font-size: 0.88rem; }
 }
