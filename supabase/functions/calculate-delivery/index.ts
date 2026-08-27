@@ -371,7 +371,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
           "X-Goog-Api-Key": googleApiKey,
           "X-Goog-FieldMask":
-            "routes.distanceMeters,routes.duration,routes.staticDuration",
+            "routes.distanceMeters,routes.duration",
         },
 
         body: JSON.stringify({
@@ -424,16 +424,6 @@ Deno.serve(async (req) => {
     }
 
     const route = googleData?.routes?.[0];
-
-    // TEMP DEBUG (remover depois de confirmar o formato real de duration) —
-    // nunca loga API key, headers, endereço ou a resposta bruta inteira.
-    console.log("Google route duration debug", {
-      durationType: typeof route?.duration,
-      duration: route?.duration ?? null,
-      staticDurationType: typeof route?.staticDuration,
-      staticDuration: route?.staticDuration ?? null,
-      routeKeys: Object.keys(route ?? {}),
-    });
 
     if (
       !route ||
@@ -620,12 +610,6 @@ Deno.serve(async (req) => {
 
         bicycle_route_warning:
           "A rota de bicicleta é uma estimativa e pode não refletir todas as condições ou infraestruturas cicláveis locais.",
-
-        // TEMP DEBUG (remover depois de confirmar o formato real de duration) —
-        // nunca inclui endereço/coordenadas/API key/headers/resposta bruta da Google.
-        debug_duration: route?.duration ?? null,
-        debug_static_duration: route?.staticDuration ?? null,
-        debug_route_keys: Object.keys(route ?? {}),
       }),
       {
         status: 200,
