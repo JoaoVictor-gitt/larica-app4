@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    // Aplica o tema salvo antes da primeira renderização, para não piscar claro→escuro
+    (function () {
+      try {
+        var config = JSON.parse(localStorage.getItem('caju_configuracoes') || '{}');
+        document.documentElement.setAttribute('data-tema', config.tema === 'claro' ? 'claro' : 'escuro');
+      } catch (erro) {}
+    })();
+  </script>
+  <title>Acompanhar Pedido | Larica Food Truck</title>
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/acompanhar-pedido.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body data-pagina="acompanhar-pedido" data-area="pedido">
+  <div id="layout-shell"></div>
+  <main class="conteudo-pagina conteudo-acompanhar-pedido">
+    <div class="pagina-titulo">
+      <h1>Acompanhar pedido</h1>
+    </div>
+
+    <!-- Formulário de busca — mostrado quando não há número na URL, ou o pedido não foi encontrado -->
+    <div class="card" id="form-busca-pedido">
+      <div class="form-grupo">
+        <label for="campo-numero-pedido">Número do pedido</label>
+        <input type="text" class="input" id="campo-numero-pedido" placeholder="LARICA-31" autocomplete="off" />
+        <span class="campo-erro" id="erro-busca-pedido"></span>
+      </div>
+      <button type="button" class="btn btn-primario" id="botao-buscar-pedido" style="width:100%;">Buscar pedido</button>
+    </div>
+
+    <div class="estado-vazio" id="estado-carregando-acompanhamento" style="display:none;">Buscando pedido...</div>
+
+    <!-- Resultado -->
+    <div id="resultado-acompanhamento" style="display:none;">
+      <div class="card cartao-status-pedido">
+        <p class="rotulo-numero-pedido" id="numero-pedido-acompanhado"></p>
+        <div class="status-atual-pedido" id="status-atual-pedido"></div>
+      </div>
+
+      <div class="timeline-pedido" id="timeline-pedido"></div>
+
+      <div class="card cartao-previsao-pedido" id="cartao-previsao-pedido" style="display:none;">
+        <p class="previsao-rotulo">Previsão aproximada</p>
+        <p class="previsao-horario" id="previsao-horario-pedido"></p>
+        <p class="previsao-aviso">Os horários são estimados e podem variar.</p>
+      </div>
+
+      <button type="button" class="btn btn-secundario" id="botao-buscar-outro-pedido" style="width:100%;">Buscar outro pedido</button>
+    </div>
+
+    <a href="pedido.html" class="btn btn-secundario" id="link-voltar-cardapio" style="width:100%; margin-top:16px; display:block; text-align:center; box-sizing:border-box;">Voltar ao cardápio</a>
+  </main>
+
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/acompanhar-pedido.js"></script>
+</body>
+</html>

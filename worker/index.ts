@@ -42,6 +42,7 @@ const LIMITE_BYTES: Record<string, number> = {
   '/api/delivery': 8 * 1024,
   '/api/coupon': 2 * 1024,
   '/api/order': 64 * 1024,
+  '/api/track-order': 256,
 };
 
 function jsonResponse(body: unknown, status: number): Response {
@@ -207,7 +208,7 @@ async function processarRotaProtegida(opts: {
   return montarChamada(leitura.body, config);
 }
 
-const ROTAS_VALIDAS = new Set(['/api/delivery', '/api/coupon', '/api/order']);
+const ROTAS_VALIDAS = new Set(['/api/delivery', '/api/coupon', '/api/order', '/api/track-order']);
 
 // L2.4B — headers básicos de segurança, aplicados a TODA resposta (assets e /api/*), num único
 // lugar. Preserva todos os headers já existentes na resposta (Content-Type, Allow, etc.) — só
@@ -287,6 +288,26 @@ async function tratarRotaApi(request: Request, env: Env, path: string): Promise<
         return repassarParaSupabase(`${config.url}/rest/v1/rpc/validate_coupon`, config.key, {
           p_code: c.code,
           p_subtotal: c.subtotal,
+        });
+      },
+    });
+  }
+
+  if (path === '/api/track-order') {
+    // Sem Turnstile: leitura pública de status, não é uma ação sensível/custosa
+    // como criar pedido ou calcular rota. Reaproveita RATE_LIMIT_COUPON (mesmo
+    // padrão de "consulta pública de baixo risco, mas com enumeração possível")
+    // em vez de provisionar um rate limiter novo.
+    return processarRotaProtegida({
+      request,
+      env,
+      limiteBytes: LIMITE_BYTES[path],
+      rateLimiter: env.RATE_LIMIT_COUPON,
+      exigeTurnstile: false,
+      montarChamada: (corpo, config) => {
+        const c = corpo as { order_number?: unknown };
+        return repassarParaSupabase(`${config.url}/rest/v1/rpc/get_public_order_tracking`, config.key, {
+          p_order_number: c.order_number,
         });
       },
     });

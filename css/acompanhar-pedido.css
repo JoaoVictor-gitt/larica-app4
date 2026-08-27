@@ -1,0 +1,120 @@
+/*
+ * acompanhar-pedido.css
+ * Estilos exclusivos da página pública de acompanhamento de pedido
+ * (acompanhar-pedido.html). Reaproveita os tokens de css/style.css
+ * (cores, espaçamentos, raios, sombras) e os componentes genéricos
+ * (.card, .btn*, .input, .form-grupo, .campo-erro, .estado-vazio) — aqui
+ * só entra o que ainda não existia: timeline de status e cartão de ETA.
+ */
+
+.conteudo-acompanhar-pedido {
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.cartao-status-pedido {
+  text-align: center;
+}
+
+.rotulo-numero-pedido {
+  margin: 0 0 var(--espaco-sm);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--cor-texto-secundario);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.status-atual-pedido {
+  font-size: 1.1rem;
+  line-height: 1.5;
+}
+
+.status-atual-pedido strong {
+  color: var(--cor-terracota);
+}
+
+.timeline-pedido {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-sm);
+  margin: var(--espaco-lg) 0;
+}
+
+.etapa-timeline {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  border-radius: var(--raio-sm);
+  color: var(--cor-texto-secundario);
+  transition: background var(--transicao-padrao), color var(--transicao-padrao);
+}
+
+.etapa-timeline-marcador {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--raio-pill);
+  border: 2px solid var(--cor-borda);
+  flex-shrink: 0;
+  color: var(--cor-sobre-acento);
+}
+
+.etapa-timeline-rotulo {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.etapa-timeline--concluida {
+  color: var(--cor-texto);
+}
+
+.etapa-timeline--concluida .etapa-timeline-marcador {
+  border-color: var(--cor-terracota);
+  background: var(--cor-terracota);
+}
+
+.etapa-timeline--atual {
+  color: var(--cor-texto);
+  background: var(--cor-acento-sutil);
+}
+
+.etapa-timeline--atual .etapa-timeline-marcador {
+  border-color: var(--cor-terracota);
+}
+
+.cartao-previsao-pedido {
+  text-align: center;
+  background: var(--cor-acento-sutil);
+}
+
+.previsao-rotulo {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cor-texto-secundario);
+}
+
+.previsao-horario {
+  margin: var(--espaco-xs) 0;
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--cor-terracota);
+}
+
+.previsao-aviso {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--cor-texto-secundario);
+}
+
+@media (max-width: 480px) {
+  .status-atual-pedido { font-size: 1rem; }
+  .previsao-horario { font-size: 1.4rem; }
+  .etapa-timeline-rotulo { font-size: 0.88rem; }
+}

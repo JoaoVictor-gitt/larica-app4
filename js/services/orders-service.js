@@ -238,6 +238,7 @@ async function createOrder(pedido, itensPedido, turnstileToken) {
   return {
     id: data.id,
     numero: '#LARICA-' + data.order_number,
+    numeroPedido: data.order_number,
     status: ENUM_PARA_STATUS[data.status] || data.status,
     criadoEm: data.created_at,
     subtotal: Number(data.subtotal) || 0,

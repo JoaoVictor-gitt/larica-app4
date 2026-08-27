@@ -673,6 +673,13 @@ input[type="checkbox"] { accent-color: var(--cor-terracota); }
 
 .opcao-pagamento .icone-pagamento { font-size: 1.3rem; }
 
+/* Selo "Disponível somente para retirada" (cartão em delivery) — alinha à direita na mesma
+   linha do ícone+texto, sem mudar a altura do botão (público, #opcoes-pagamento-pedido). */
+#opcoes-pagamento-pedido .opcao-pagamento .selo-indisponivel {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Proteção de rota do Painel Administrativo — evita "piscar" o conteúdo   */
 /* antes da checagem assíncrona de sessão (requireStaffAuth, js/app.js)    */

@@ -373,6 +373,7 @@ async function carregarDisponibilidadeNegocio() {
     invalidarFulfilmentSeIndisponivel();
     aplicarDisponibilidadeRevolut();
     aplicarDisponibilidadeTransferencia();
+    aplicarDisponibilidadeCartao();
     invalidarFormaPagamentoSeIndisponivel();
     atualizarBannerDisponibilidade();
   }
@@ -409,6 +410,15 @@ function transferenciaDisponivel() {
     !!configuracoesNegocio.transferenciaIban &&
     !!configuracoesNegocio.transferenciaBic
   );
+}
+
+/**
+ * Cartão não funciona pra entrega (sem maquininha) — disponível só quando
+ * fulfilment é retirada. Diferente de revolutDisponivel()/transferenciaDisponivel(),
+ * não depende de business_settings — é regra fixa de fulfilment.
+ */
+function cartaoDisponivel() {
+  return estadoPedido.fulfilment !== 'entrega';
 }
 
 /** Dia da semana em Dublin (0=domingo...6=sábado, mesma convenção de business_hours.day_of_week) */
@@ -599,7 +609,26 @@ function aplicarDisponibilidadeTransferencia() {
   botao.classList.toggle('opcao-indisponivel', !disponivel);
 }
 
-/** Se Revolut ou Transferência estavam selecionados (restaurado do localStorage) e não estão mais disponíveis, obriga nova escolha */
+/** Mesmo padrão de aplicarDisponibilidadeRevolut()/aplicarDisponibilidadeTransferencia(), pro botão de Cartão — mostra o motivo (seção 15 do pedido) */
+function aplicarDisponibilidadeCartao() {
+  const botao = document.querySelector('#opcoes-pagamento-pedido .opcao-pagamento[data-forma="cartao"]');
+  if (!botao) return;
+  const disponivel = cartaoDisponivel();
+  botao.disabled = !disponivel;
+  botao.classList.toggle('opcao-indisponivel', !disponivel);
+
+  let selo = botao.querySelector('.selo-indisponivel');
+  if (!disponivel && !selo) {
+    selo = document.createElement('small');
+    selo.className = 'selo-indisponivel';
+    selo.textContent = 'Disponível somente para retirada';
+    botao.appendChild(selo);
+  } else if (disponivel && selo) {
+    selo.remove();
+  }
+}
+
+/** Se Revolut, Transferência ou Cartão estavam selecionados (restaurado do localStorage, ou fulfilment trocado) e não estão mais disponíveis, obriga nova escolha */
 function invalidarFormaPagamentoSeIndisponivel() {
   if (estadoPedido.formaPagamento === 'revolut' && !revolutDisponivel()) {
     estadoPedido.formaPagamento = '';
@@ -617,6 +646,15 @@ function invalidarFormaPagamentoSeIndisponivel() {
     document.getElementById('botao-continuar-pagamento').disabled = true;
     salvarProgressoPedido();
     mostrarToast('Pagamento via transferência bancária temporariamente indisponível. Escolha outra forma de pagamento.', 'erro');
+    return;
+  }
+
+  if (estadoPedido.formaPagamento === 'cartao' && !cartaoDisponivel()) {
+    estadoPedido.formaPagamento = '';
+    document.querySelectorAll('#opcoes-pagamento-pedido .opcao-pagamento[data-forma]').forEach((b) => b.classList.remove('selecionada'));
+    document.getElementById('botao-continuar-pagamento').disabled = true;
+    salvarProgressoPedido();
+    mostrarToast('Cartão disponível apenas para retirada. Escolha outra forma de pagamento.', 'erro');
   }
 }
 
@@ -692,6 +730,11 @@ function ligarEventosGerais() {
   ligarEventosCupom();
   document.getElementById('botao-confirmar-pedido').addEventListener('click', confirmarPedido);
   document.getElementById('botao-novo-pedido').addEventListener('click', reiniciarPedido);
+
+  document.getElementById('botao-acompanhar-pedido').addEventListener('click', () => {
+    const numero = ultimoPedidoConfirmado && ultimoPedidoConfirmado.numeroPedido;
+    window.location.href = numero ? `acompanhar-pedido.html?pedido=${encodeURIComponent(numero)}` : 'acompanhar-pedido.html';
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1331,6 +1374,10 @@ function ligarEventosRecebimento() {
       document.querySelectorAll('.opcoes-recebimento .opcao-pagamento[data-fulfilment]').forEach((b) => b.classList.remove('selecionada'));
       botao.classList.add('selecionada');
       document.getElementById('botao-continuar-recebimento').disabled = false;
+      // Cartão só vale pra retirada — reage imediatamente a uma troca ao vivo entre
+      // retirada/entrega, não só a uma restauração de localStorage (item 16 do pedido).
+      aplicarDisponibilidadeCartao();
+      invalidarFormaPagamentoSeIndisponivel();
       salvarProgressoPedido();
     });
   });
@@ -1628,6 +1675,10 @@ function ligarEventosPagamento() {
       }
       if (botao.dataset.forma === 'transferencia' && !transferenciaDisponivel()) {
         mostrarToast('Pagamento via transferência bancária temporariamente indisponível.', 'erro');
+        return;
+      }
+      if (botao.dataset.forma === 'cartao' && !cartaoDisponivel()) {
+        mostrarToast('Cartão disponível apenas para retirada.', 'erro');
         return;
       }
 
