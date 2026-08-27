@@ -620,6 +620,12 @@ Deno.serve(async (req) => {
 
         bicycle_route_warning:
           "A rota de bicicleta é uma estimativa e pode não refletir todas as condições ou infraestruturas cicláveis locais.",
+
+        // TEMP DEBUG (remover depois de confirmar o formato real de duration) —
+        // nunca inclui endereço/coordenadas/API key/headers/resposta bruta da Google.
+        debug_duration: route?.duration ?? null,
+        debug_static_duration: route?.staticDuration ?? null,
+        debug_route_keys: Object.keys(route ?? {}),
       }),
       {
         status: 200,
