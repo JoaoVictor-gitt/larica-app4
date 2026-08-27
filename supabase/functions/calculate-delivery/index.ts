@@ -489,6 +489,18 @@ Deno.serve(async (req) => {
         Date.now() + 30 * 60 * 1000,
       ).toISOString();
 
+    // route.duration vem da Google Routes API como "<segundos>s" (ex.: "312s"),
+    // convenção protobuf Duration — mesma técnica de parse já usada em
+    // worker/whatsapp/dispatcher.ts (extrairDuracaoSegundosWhatsapp). Nunca
+    // inventa: formato inesperado vira null, nunca um número chutado.
+    const duracaoMatch =
+      typeof route.duration === "string"
+        ? route.duration.match(/^(\d+(?:\.\d+)?)s$/)
+        : null;
+    const duracaoSegundos = duracaoMatch
+      ? Math.round(Number(duracaoMatch[1]))
+      : null;
+
     const {
       data: quote,
       error: quoteError,
@@ -511,6 +523,9 @@ Deno.serve(async (req) => {
 
         delivery_fee:
           deliveryFee,
+
+        duration_seconds:
+          duracaoSegundos,
 
         travel_mode:
           "BICYCLE",
