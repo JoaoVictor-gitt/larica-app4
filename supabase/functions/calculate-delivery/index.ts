@@ -371,7 +371,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
           "X-Goog-Api-Key": googleApiKey,
           "X-Goog-FieldMask":
-            "routes.distanceMeters,routes.duration",
+            "routes.distanceMeters,routes.duration,routes.staticDuration",
         },
 
         body: JSON.stringify({
@@ -424,6 +424,16 @@ Deno.serve(async (req) => {
     }
 
     const route = googleData?.routes?.[0];
+
+    // TEMP DEBUG (remover depois de confirmar o formato real de duration) —
+    // nunca loga API key, headers, endereço ou a resposta bruta inteira.
+    console.log("Google route duration debug", {
+      durationType: typeof route?.duration,
+      duration: route?.duration ?? null,
+      staticDurationType: typeof route?.staticDuration,
+      staticDuration: route?.staticDuration ?? null,
+      routeKeys: Object.keys(route ?? {}),
+    });
 
     if (
       !route ||
