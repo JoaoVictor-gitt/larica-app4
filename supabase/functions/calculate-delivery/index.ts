@@ -524,8 +524,7 @@ Deno.serve(async (req) => {
         delivery_fee:
           deliveryFee,
 
-        duration_seconds:
-          duracaoSegundos,
+        duration_seconds: duracaoSegundos,
 
         travel_mode:
           "BICYCLE",
@@ -588,8 +587,7 @@ Deno.serve(async (req) => {
         distance_km:
           roundedDistanceKm,
 
-        duration:
-          route.duration ?? null,
+        duration: route.duration ?? null,
 
         delivery_fee:
           deliveryFee,
