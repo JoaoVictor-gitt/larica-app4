@@ -87,12 +87,24 @@
         xhr.addEventListener('readystatechange', function () {
           if (xhr.readyState === 4) {
             var decorridoMs = meta.startedAt ? Math.round(performance.now() - meta.startedAt) : null;
+            var corpoPreview = '';
+            try {
+              corpoPreview = (xhr.responseText || '').substring(0, 300);
+            } catch (e) {
+              corpoPreview = '(responseText inacessível: ' + e.message + ')';
+            }
             logDiag(
               '[XHR] readystatechange readyState=4 status=' + xhr.status +
                 (decorridoMs !== null ? ' (' + decorridoMs + 'ms)' : '') +
-                ' url=' + meta.url,
+                ' url=' + meta.url +
+                ' | body(300): ' + corpoPreview,
               xhr.status >= 200 && xhr.status < 300 ? 'sucesso' : 'erro'
             );
+            // Destaque específico: a sondagem de fallback do ePOSDevice pro endpoint clássico —
+            // se aparecer aqui, confirma que o connect_failed do Socket.IO já disparou.
+            if (meta.url && meta.url.indexOf('/cgi-bin/epos/service.cgi') !== -1) {
+              logDiag('>>> Esta é a sondagem de fallback probeWebServiceIF (POST /cgi-bin/epos/service.cgi) — status=' + xhr.status, 'erro');
+            }
           }
         });
         xhr.addEventListener('error', function () {
@@ -123,6 +135,10 @@
         var ws = protocols !== undefined ? new OriginalWS(url, protocols) : new OriginalWS(url);
         ws.addEventListener('open', function () {
           logDiag('[WebSocket] open — ' + url, 'sucesso');
+        });
+        ws.addEventListener('message', function (evento) {
+          var dado = typeof evento.data === 'string' ? evento.data : '(dado binário, ' + (evento.data.byteLength || evento.data.size || '?') + ' bytes)';
+          logDiag('[WebSocket] message → ' + dado.substring(0, 300), 'sucesso');
         });
         ws.addEventListener('error', function () {
           logDiag('[WebSocket] evento "error" — ' + url, 'erro');
