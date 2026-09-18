@@ -241,7 +241,7 @@ function renderizarColunaKanban(status, pedidosDaColuna) {
     botao.addEventListener('click', () => abrirModalDetalhesPedido(botao.dataset.id));
   });
   lista.querySelectorAll('[data-acao="imprimir"]').forEach((botao) => {
-    botao.addEventListener('click', () => imprimirComanda(botao));
+    botao.addEventListener('click', () => iniciarImpressaoPedido(botao.dataset.id));
   });
   lista.querySelectorAll('[data-acao="aceitar"]').forEach((botao) => {
     botao.addEventListener('click', () => executarAcaoPedido(botao, aceitarPedido, 'Pedido aceito — em preparo.'));
@@ -303,41 +303,88 @@ async function executarAcaoPedido(botao, funcaoTransicao, mensagemSucesso) {
 // ---------------------------------------------------------------------------
 // Impressão de comanda
 // ---------------------------------------------------------------------------
+//
+// Lock global (_impressaoEmAndamento) — não é "desabilitar o botão clicado":
+// enquanto true, TODO botão Imprimir/Reimprimir nasce desabilitado, mesmo os
+// recriados por um re-render do Kanban (setInterval de 30s ou Realtime) ou
+// reabertos no modal — porque cardPedidoHtml() e aplicarBloqueioBotoesImpressao()
+// leem esta variável a cada desenho, em vez de depender de um estado por-botão
+// que um re-render apagaria. iniciarImpressaoPedido() recebe só o id (nunca um
+// elemento de botão), então duas chamadas concorrentes — clique duplo, clique
+// em outro pedido, ou chamada programática — são resolvidas pelo mesmo guard,
+// sem depender do atributo disabled do HTML.
 
+let _impressaoEmAndamento = false;
 let _pedidoIdImpressaoPendente = null;
-let _botaoImpressaoPendente = null;
 
-function imprimirComanda(botao) {
-  const id = botao.dataset.id;
+function iniciarImpressaoPedido(id) {
+  if (_impressaoEmAndamento) {
+    mostrarToast('Já existe uma impressão em andamento.', 'erro');
+    return;
+  }
+
   const pedido = obterPedidoClientePorId(id);
   if (!pedido) return;
 
-  renderizarComandaParaImpressao(pedido);
+  // Snapshot próprio, desconectado do cache — o Realtime pode substituir
+  // _cachePedidosClientes inteiro enquanto o diálogo de impressão estiver
+  // aberto; a comanda já impressa e o id confirmado depois no afterprint
+  // nunca dependem desse objeto mutável de novo.
+  const snapshot = JSON.parse(JSON.stringify(pedido));
+
+  _impressaoEmAndamento = true;
   _pedidoIdImpressaoPendente = id;
-  _botaoImpressaoPendente = botao;
-  botao.disabled = true;
+
+  renderizarComandaParaImpressao(snapshot);
+  aplicarBloqueioBotoesImpressao();
   window.print();
 }
 
-// Único listener global — o navegador nunca dispara duas impressões em
-// paralelo (window.print() é modal), então uma variável módulo-level basta
-// pra correlacionar o afterprint com o pedido/botão certos.
+// Único listener global, registrado uma única vez — nunca duplicado por
+// render. Como _pedidoIdImpressaoPendente só é lido aqui (nunca escrito por
+// mais ninguém enquanto _impressaoEmAndamento é true), o id confirmado é
+// exatamente o capturado no início deste job.
 window.addEventListener('afterprint', () => {
-  if (!_pedidoIdImpressaoPendente) return;
-  const botao = _botaoImpressaoPendente;
-  _pedidoIdImpressaoPendente = null;
-  _botaoImpressaoPendente = null;
+  if (!_impressaoEmAndamento) return;
+  const id = _pedidoIdImpressaoPendente;
 
   // O navegador não informa se o trabalho chegou na impressora física —
-  // afterprint só diz que a folha de impressão fechou. Confirmação humana
-  // é o sinal mais confiável disponível nessa arquitetura (sem bridge local).
+  // afterprint só diz que a folha de impressão fechou (inclusive se o
+  // usuário cancelou). Confirmação humana é o sinal mais confiável
+  // disponível nessa arquitetura (sem bridge local).
   if (confirm('A comanda foi impressa corretamente?')) {
-    executarAcaoPedido(botao, registrarImpressaoPedido, 'Impressão registrada.');
+    registrarImpressaoPedido(id)
+      .then(() => mostrarToast('Impressão registrada.', 'sucesso'))
+      .catch((erro) => mostrarToast(erro.message || 'Não foi possível registrar a impressão.', 'erro'))
+      .finally(finalizarImpressaoPedido);
   } else {
-    botao.disabled = false;
     mostrarToast('Impressão não registrada. Toque em Imprimir/Reimprimir pra tentar de novo.', 'erro');
+    finalizarImpressaoPedido();
   }
 });
+
+/**
+ * Único ponto de liberação do lock — roda sempre (RPC ok, RPC falhou, ou
+ * usuário respondeu "Não"). Nunca depende da referência do botão original:
+ * redesenha o Kanban inteiro (cardPedidoHtml() já nasce com o disabled certo,
+ * pois lê _impressaoEmAndamento) e reaplica o estado no botão do modal à
+ * parte, porque o modal não é recriado por renderizarQuadroPedidos().
+ */
+function finalizarImpressaoPedido() {
+  _impressaoEmAndamento = false;
+  _pedidoIdImpressaoPendente = null;
+  aplicarBloqueioBotoesImpressao();
+  renderizarQuadroPedidos();
+}
+
+/** Aplica o lock atual ao botão de imprimir do modal "Ver pedido" — os botões do Kanban se resolvem sozinhos em cardPedidoHtml() a cada render. */
+function aplicarBloqueioBotoesImpressao() {
+  const botaoModal = document.getElementById('botao-imprimir-pedido-detalhe');
+  if (!botaoModal) return;
+  botaoModal.disabled = _impressaoEmAndamento;
+  const pedidoModal = obterPedidoClientePorId(botaoModal.dataset.id);
+  if (pedidoModal) botaoModal.textContent = pedidoModal.qtdImpressoes > 0 ? '🖨️ Reimprimir' : '🖨️ Imprimir';
+}
 
 function renderizarComandaParaImpressao(pedido) {
   const cliente = pedido.cliente || {};
@@ -423,7 +470,7 @@ function cardPedidoHtml(pedido) {
       </div>
       <div class="card-pedido-acoes">
         <button type="button" class="btn btn-secundario" data-acao="ver" data-id="${pedido.id}">Ver pedido</button>
-        <button type="button" class="btn btn-secundario" data-acao="imprimir" data-id="${pedido.id}">${pedido.qtdImpressoes > 0 ? '🖨️ Reimprimir' : '🖨️ Imprimir'}</button>
+        <button type="button" class="btn btn-secundario" data-acao="imprimir" data-id="${pedido.id}" ${_impressaoEmAndamento ? 'disabled' : ''}>${pedido.qtdImpressoes > 0 ? '🖨️ Reimprimir' : '🖨️ Imprimir'}</button>
         ${botaoPrincipalPedidoHtml(pedido)}
       </div>
       ${pedidoPodeSerCancelado(pedido) ? `<button type="button" class="link-cancelar-pedido" data-acao="cancelar" data-id="${pedido.id}">Cancelar pedido</button>` : ''}
@@ -675,7 +722,7 @@ function ligarEventosModalPedido() {
     abrirModalCancelamento(id);
   });
   document.getElementById('botao-imprimir-pedido-detalhe').addEventListener('click', (evento) => {
-    imprimirComanda(evento.currentTarget);
+    iniciarImpressaoPedido(evento.currentTarget.dataset.id);
   });
 }
 
@@ -706,7 +753,7 @@ function abrirModalDetalhesPedido(id) {
   const botaoImprimirDetalhe = document.getElementById('botao-imprimir-pedido-detalhe');
   botaoImprimirDetalhe.dataset.id = pedido.id;
   botaoImprimirDetalhe.textContent = pedido.qtdImpressoes > 0 ? '🖨️ Reimprimir' : '🖨️ Imprimir';
-  botaoImprimirDetalhe.disabled = false;
+  botaoImprimirDetalhe.disabled = _impressaoEmAndamento;
 
   const blocoTipo = ehEntrega
     ? `

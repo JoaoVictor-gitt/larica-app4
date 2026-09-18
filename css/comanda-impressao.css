@@ -10,18 +10,17 @@
 }
 
 @media print {
-  body * {
-    visibility: hidden;
+  /* Remove TUDO que não é a comanda do fluxo de impressão (display:none,
+     não visibility:hidden) — isso zera a altura do resto do dashboard, em
+     vez de só escondê-lo, evitando avanço de papel em branco na impressora
+     térmica depois da comanda. #comanda-impressao é irmã direta de
+     #layout-shell/<main>/os 2 modal-overlay dentro de <body> (pedidos.html). */
+  body > *:not(#comanda-impressao) {
+    display: none !important;
   }
-  #comanda-impressao,
-  #comanda-impressao * {
-    visibility: visible;
-  }
+
   #comanda-impressao {
     display: block;
-    position: absolute;
-    top: 0;
-    left: 0;
     width: 58mm;
     padding: 2mm;
     color: #000;
