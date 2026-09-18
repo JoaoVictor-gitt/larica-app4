@@ -9,6 +9,7 @@
     #info { background: #eee; padding: 8px; margin-bottom: 12px; white-space: pre-wrap; word-break: break-all; }
     #passos, #diagnostico { padding-left: 20px; }
     #diagnostico li { font-family: monospace; font-size: 12px; margin-bottom: 4px; }
+    button { font-size: 16px; padding: 10px 16px; margin-right: 8px; margin-bottom: 12px; }
   </style>
 </head>
 <body>
@@ -17,26 +18,38 @@
 
   <div id="info"></div>
 
+  <button id="botao-teste-limpo" type="button">Teste limpo Epson</button>
+  <button id="botao-teste-diagnostico" type="button">Teste com diagnóstico</button>
+
   <h2>Passos do teste</h2>
   <ol id="passos"></ol>
 
-  <h2>Diagnóstico bruto (XHR / WebSocket / erros globais)</h2>
+  <h2>Diagnóstico bruto (XHR / WebSocket / erros globais) — só aparece no "Teste com diagnóstico"</h2>
   <ol id="diagnostico"></ol>
 
+  <script src="vendor/epson/epos-2.27.0.js"></script>
   <script>
     // ------------------------------------------------------------------
-    // INSTRUMENTAÇÃO — tudo nesta seção roda ANTES de carregar epos-2.27.0.js,
-    // e não modifica esse arquivo em nenhum byte. Só observa (addEventListener),
-    // nunca substitui os handlers que o próprio SDK vai instalar via propriedade
-    // (.onreadystatechange etc.) — os dois convivem sem conflito.
+    // Nenhum patch de XMLHttpRequest/WebSocket é instalado por padrão —
+    // "Teste limpo Epson" roda 100% contra os objetos nativos do navegador,
+    // exatamente como o printer_sample.html oficial. Só "Teste com
+    // diagnóstico" instala a instrumentação, e só depois de clicado.
     // ------------------------------------------------------------------
 
-    function logDiag(texto, tipo) {
-      var li = document.createElement('li');
-      li.textContent = texto;
-      li.style.color = tipo === 'erro' ? 'red' : tipo === 'sucesso' ? 'green' : '#333';
-      document.getElementById('diagnostico').appendChild(li);
-      console.log('[diag]', texto);
+    var HOSTNAME = '6mab5o3v6up2v5ueyws25tzr5o5njduk4dldd5rxes2y6mby45bq.omnilinkcert.epson.biz';
+    var PORTA = '8043'; // string, mesma convenção do sample oficial
+    var DEVICE_ID = 'local_printer';
+
+    var instrumentacaoInstalada = false;
+
+    document.getElementById('info').textContent =
+      'origin: ' + window.location.origin + '\n' +
+      'userAgent: ' + navigator.userAgent + '\n' +
+      'carregado em: ' + new Date().toISOString();
+
+    function limparListas() {
+      document.getElementById('passos').innerHTML = '';
+      document.getElementById('diagnostico').innerHTML = '';
     }
 
     function logPasso(texto, tipo) {
@@ -47,23 +60,28 @@
       console.log('[teste-epson]', texto);
     }
 
-    // Info de ambiente, visível na tela (não depende de console remoto)
-    document.getElementById('info').textContent =
-      'origin: ' + window.location.origin + '\n' +
-      'userAgent: ' + navigator.userAgent + '\n' +
-      'carregado em: ' + new Date().toISOString();
+    function logDiag(texto, tipo) {
+      var li = document.createElement('li');
+      li.textContent = texto;
+      li.style.color = tipo === 'erro' ? 'red' : tipo === 'sucesso' ? 'green' : '#333';
+      document.getElementById('diagnostico').appendChild(li);
+      console.log('[diag]', texto);
+    }
 
-    // Erros globais — captura qualquer exceção/rejeição não tratada em qualquer script da página
-    window.onerror = function (mensagem, origem, linha, coluna, erro) {
-      logDiag('[window.onerror] ' + mensagem + ' (' + origem + ':' + linha + ':' + coluna + ')', 'erro');
-      return false;
-    };
-    window.onunhandledrejection = function (evento) {
-      logDiag('[window.onunhandledrejection] ' + (evento.reason && evento.reason.message ? evento.reason.message : evento.reason), 'erro');
-    };
+    // Instala os wrappers de XHR/WebSocket UMA vez, só quando "Teste com diagnóstico" é clicado.
+    // Continuam observando via addEventListener (nunca substituem .onX), então convivem com o SDK.
+    function instalarInstrumentacao() {
+      if (instrumentacaoInstalada) return;
+      instrumentacaoInstalada = true;
 
-    // --- Instrumentação de XMLHttpRequest (usada pelo handshake do Socket.IO embutido no SDK) ---
-    (function () {
+      window.onerror = function (mensagem, origem, linha, coluna) {
+        logDiag('[window.onerror] ' + mensagem + ' (' + origem + ':' + linha + ':' + coluna + ')', 'erro');
+        return false;
+      };
+      window.onunhandledrejection = function (evento) {
+        logDiag('[window.onunhandledrejection] ' + (evento.reason && evento.reason.message ? evento.reason.message : evento.reason), 'erro');
+      };
+
       var OriginalXHR = window.XMLHttpRequest;
       function InstrumentedXHR() {
         var xhr = new OriginalXHR();
@@ -100,76 +118,47 @@
                 ' | body(300): ' + corpoPreview,
               xhr.status >= 200 && xhr.status < 300 ? 'sucesso' : 'erro'
             );
-            // Destaque específico: a sondagem de fallback do ePOSDevice pro endpoint clássico —
-            // se aparecer aqui, confirma que o connect_failed do Socket.IO já disparou.
             if (meta.url && meta.url.indexOf('/cgi-bin/epos/service.cgi') !== -1) {
-              logDiag('>>> Esta é a sondagem de fallback probeWebServiceIF (POST /cgi-bin/epos/service.cgi) — status=' + xhr.status, 'erro');
+              logDiag('>>> Sondagem de fallback probeWebServiceIF (POST /cgi-bin/epos/service.cgi) — status=' + xhr.status, 'erro');
             }
           }
         });
-        xhr.addEventListener('error', function () {
-          logDiag('[XHR] evento "error" — url=' + meta.url, 'erro');
-        });
-        xhr.addEventListener('timeout', function () {
-          logDiag('[XHR] evento "timeout" — url=' + meta.url, 'erro');
-        });
-        xhr.addEventListener('abort', function () {
-          logDiag('[XHR] evento "abort" — url=' + meta.url, 'erro');
-        });
+        xhr.addEventListener('error', function () { logDiag('[XHR] evento "error" — url=' + meta.url, 'erro'); });
+        xhr.addEventListener('timeout', function () { logDiag('[XHR] evento "timeout" — url=' + meta.url, 'erro'); });
+        xhr.addEventListener('abort', function () { logDiag('[XHR] evento "abort" — url=' + meta.url, 'erro'); });
 
         return xhr;
       }
       InstrumentedXHR.prototype = OriginalXHR.prototype;
       window.XMLHttpRequest = InstrumentedXHR;
-    })();
 
-    // --- Instrumentação de WebSocket (caso o SDK chegue a tentar o upgrade) ---
-    (function () {
       var OriginalWS = window.WebSocket;
-      if (!OriginalWS) {
-        logDiag('WebSocket não existe neste navegador (inesperado em Safari/iPad).', 'erro');
-        return;
+      if (OriginalWS) {
+        function InstrumentedWS(url, protocols) {
+          logDiag('[WebSocket] criando conexão para ' + url);
+          var ws = protocols !== undefined ? new OriginalWS(url, protocols) : new OriginalWS(url);
+          ws.addEventListener('open', function () { logDiag('[WebSocket] open — ' + url, 'sucesso'); });
+          ws.addEventListener('message', function (evento) {
+            var dado = typeof evento.data === 'string' ? evento.data : '(dado binário, ' + (evento.data.byteLength || evento.data.size || '?') + ' bytes)';
+            logDiag('[WebSocket] message → ' + dado.substring(0, 300), 'sucesso');
+          });
+          ws.addEventListener('error', function () { logDiag('[WebSocket] evento "error" — ' + url, 'erro'); });
+          ws.addEventListener('close', function (evento) {
+            logDiag('[WebSocket] close — code=' + evento.code + ' reason="' + evento.reason + '" — ' + url, 'erro');
+          });
+          return ws;
+        }
+        InstrumentedWS.prototype = OriginalWS.prototype;
+        InstrumentedWS.CONNECTING = OriginalWS.CONNECTING;
+        InstrumentedWS.OPEN = OriginalWS.OPEN;
+        InstrumentedWS.CLOSING = OriginalWS.CLOSING;
+        InstrumentedWS.CLOSED = OriginalWS.CLOSED;
+        window.WebSocket = InstrumentedWS;
       }
-      function InstrumentedWS(url, protocols) {
-        logDiag('[WebSocket] criando conexão para ' + url);
-        var ws = protocols !== undefined ? new OriginalWS(url, protocols) : new OriginalWS(url);
-        ws.addEventListener('open', function () {
-          logDiag('[WebSocket] open — ' + url, 'sucesso');
-        });
-        ws.addEventListener('message', function (evento) {
-          var dado = typeof evento.data === 'string' ? evento.data : '(dado binário, ' + (evento.data.byteLength || evento.data.size || '?') + ' bytes)';
-          logDiag('[WebSocket] message → ' + dado.substring(0, 300), 'sucesso');
-        });
-        ws.addEventListener('error', function () {
-          logDiag('[WebSocket] evento "error" — ' + url, 'erro');
-        });
-        ws.addEventListener('close', function (evento) {
-          logDiag('[WebSocket] close — code=' + evento.code + ' reason="' + evento.reason + '" — ' + url, 'erro');
-        });
-        return ws;
-      }
-      InstrumentedWS.prototype = OriginalWS.prototype;
-      InstrumentedWS.CONNECTING = OriginalWS.CONNECTING;
-      InstrumentedWS.OPEN = OriginalWS.OPEN;
-      InstrumentedWS.CLOSING = OriginalWS.CLOSING;
-      InstrumentedWS.CLOSED = OriginalWS.CLOSED;
-      window.WebSocket = InstrumentedWS;
-    })();
 
-    logDiag('Instrumentação instalada — carregando epos-2.27.0.js em seguida.');
-  </script>
+      logDiag('Instrumentação instalada.');
+    }
 
-  <script src="vendor/epson/epos-2.27.0.js"></script>
-  <script>
-    // Hostname já calculado e testado fisicamente (conexão + TLS confirmados no iPad) —
-    // este teste não recalcula o hostname, só valida connect()/createDevice() a partir dele.
-    var HOSTNAME = '6mab5o3v6up2v5ueyws25tzr5o5njduk4dldd5rxes2y6mby45bq.omnilinkcert.epson.biz';
-    var PORTA = '8043'; // string, mesma convenção do sample oficial (printer_sample.html: ePosDev.connect(target, "8043", Callback_connect))
-    var DEVICE_ID = 'local_printer';
-
-    // --- Sonda de controle: um XHR cru, feito por FORA do SDK, pro MESMO endpoint de handshake.
-    // Objetivo: separar "o SDK tem um bug de not-handling" de "a requisição em si não completa".
-    // Já sai instrumentada pelo wrapper de XMLHttpRequest acima, então aparece no diagnóstico também.
     function sondaControle() {
       var url = 'https://' + HOSTNAME + ':' + PORTA + '/socket.io/1/?t=' + Date.now();
       logDiag('[Sonda de controle] XHR direto (fora do SDK) para ' + url);
@@ -187,36 +176,33 @@
       xhr.send();
     }
 
-    if (typeof epson === 'undefined' || typeof epson.ePOSDevice === 'undefined') {
-      logPasso('1. SDK NÃO carregou — epos-2.27.0.js não expôs window.epson.ePOSDevice.', 'erro');
-    } else {
+    function rodarTeste(comDiagnostico) {
+      limparListas();
+      logPasso(comDiagnostico ? '=== TESTE COM DIAGNÓSTICO ===' : '=== TESTE LIMPO EPSON (sem nenhuma instrumentação) ===');
+
+      if (comDiagnostico) {
+        instalarInstrumentacao();
+      }
+
+      if (typeof epson === 'undefined' || typeof epson.ePOSDevice === 'undefined') {
+        logPasso('1. SDK NÃO carregou — epos-2.27.0.js não expôs window.epson.ePOSDevice.', 'erro');
+        return;
+      }
       logPasso('1. SDK carregado.', 'sucesso');
 
-      sondaControle();
+      if (comDiagnostico) sondaControle();
 
       logPasso('2. Conectando à Epson (' + HOSTNAME + ':' + PORTA + ')...');
       var inicioConnect = performance.now();
 
       var ePosDev = new epson.ePOSDevice();
 
-      // Mesmos 3 handlers do sample oficial (Callback_connectHostName), só com log — nunca reconectam nem imprimem nada sozinhos.
-      ePosDev.onreconnecting = function () {
-        logDiag('[ePOSDevice] evento onreconnecting');
-        logPasso('Evento onreconnecting recebido.');
-      };
-      ePosDev.onreconnect = function () {
-        logDiag('[ePOSDevice] evento onreconnect');
-        logPasso('Evento onreconnect recebido.');
-      };
-      ePosDev.ondisconnect = function () {
-        logDiag('[ePOSDevice] evento ondisconnect');
-        logPasso('Evento ondisconnect recebido.', 'erro');
-      };
+      ePosDev.onreconnecting = function () { logPasso('Evento onreconnecting recebido.'); };
+      ePosDev.onreconnect = function () { logPasso('Evento onreconnect recebido.'); };
+      ePosDev.ondisconnect = function () { logPasso('Evento ondisconnect recebido.', 'erro'); };
 
-      // Mesma assinatura de Callback_connect do sample oficial: 'OK' (sem SSL) ou 'SSL_CONNECT_OK' (com SSL) = sucesso.
       ePosDev.connect(HOSTNAME, PORTA, function (data) {
         var decorridoMs = Math.round(performance.now() - inicioConnect);
-        logDiag('[ePOSDevice] resultado do connect(): ' + data + ' (' + decorridoMs + 'ms desde a chamada)');
         logPasso('3. Resultado connect(): ' + data + ' (' + decorridoMs + 'ms)');
 
         if (data !== 'OK' && data !== 'SSL_CONNECT_OK') {
@@ -229,9 +215,7 @@
 
         var options = { crypto: true, buffer: false };
 
-        // Mesma assinatura de callbackCreateDevice_printer do sample oficial: (data, code) — data = objeto do dispositivo (null se falhar), code = retcode.
         ePosDev.createDevice(DEVICE_ID, ePosDev.DEVICE_TYPE_PRINTER, options, function (data, code) {
-          logDiag('[ePOSDevice] createDevice — objeto retornado: ' + (data ? 'ok' : 'null') + ' | code: ' + code);
           logPasso('6. Resultado createDevice(): ' + code);
 
           if (data === null) {
@@ -242,13 +226,15 @@
           logPasso('7. ' + DEVICE_ID + ' encontrado.', 'sucesso');
           logPasso('8. TESTE CONCLUÍDO COM SUCESSO — nenhum comando de impressão foi enviado.', 'sucesso');
 
-          // Só observação/log — nunca send()/addText()/addCut() neste arquivo.
           data.onerror = function (erro) {
-            logDiag('[device] onerror: ' + JSON.stringify(erro));
+            console.log('[teste-epson] device.onerror:', erro);
           };
         });
       });
     }
+
+    document.getElementById('botao-teste-limpo').addEventListener('click', function () { rodarTeste(false); });
+    document.getElementById('botao-teste-diagnostico').addEventListener('click', function () { rodarTeste(true); });
   </script>
 </body>
 </html>
