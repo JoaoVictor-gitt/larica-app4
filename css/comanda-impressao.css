@@ -9,7 +9,27 @@
   display: none;
 }
 
+/* Página de impressão = bobina térmica de 58mm, nunca A4/Letter. "auto" na
+   altura deixa a página crescer conforme o conteúdo — bobina contínua não
+   tem comprimento fixo de página. Fica fora de @media print de propósito:
+   @page só produz efeito em contexto de paginação (impressão/preview), não
+   precisa (nem é prática comum) ficar aninhada dentro de @media print. */
+@page {
+  size: 58mm auto;
+  margin: 0;
+}
+
 @media print {
+  /* Sem isso, o navegador ainda aplica sua própria margem de página por
+     cima do que @page já define — html/body em 58mm sem margem/padding
+     evita qualquer respiro extra ou overflow horizontal. */
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 58mm;
+  }
+
   /* Remove TUDO que não é a comanda do fluxo de impressão (display:none,
      não visibility:hidden) — isso zera a altura do resto do dashboard, em
      vez de só escondê-lo, evitando avanço de papel em branco na impressora
