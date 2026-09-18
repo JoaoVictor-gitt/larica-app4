@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Teste de conexão — Epson TM-m30III</title>
+</head>
+<body>
+  <h1>Teste de conexão ePOS — Epson TM-m30III</h1>
+  <p>Página isolada, sem nenhuma relação com o painel de pedidos. Não envia nenhum comando de impressão.</p>
+  <ol id="passos"></ol>
+
+  <script src="vendor/epson/epos-2.27.0.js"></script>
+  <script>
+    // Hostname já calculado e testado fisicamente (conexão + TLS confirmados no iPad) —
+    // este teste não recalcula o hostname, só valida connect()/createDevice() a partir dele.
+    var HOSTNAME = '6mab5o3v6up2v5ueyws25tzr5o5njduk4dldd5rxes2y6mby45bq.omnilinkcert.epson.biz';
+    var PORTA = '8043'; // string, mesma convenção do sample oficial (printer_sample.html: ePosDev.connect(target, "8043", Callback_connect))
+    var DEVICE_ID = 'local_printer';
+
+    function logPasso(texto, tipo) {
+      var li = document.createElement('li');
+      li.textContent = texto;
+      li.style.color = tipo === 'erro' ? 'red' : tipo === 'sucesso' ? 'green' : 'black';
+      document.getElementById('passos').appendChild(li);
+      console.log('[teste-epson]', texto);
+    }
+
+    if (typeof epson === 'undefined' || typeof epson.ePOSDevice === 'undefined') {
+      logPasso('1. SDK NÃO carregou — epos-2.27.0.js não expôs window.epson.ePOSDevice.', 'erro');
+    } else {
+      logPasso('1. SDK carregado.', 'sucesso');
+      logPasso('2. Conectando à Epson (' + HOSTNAME + ':' + PORTA + ')...');
+
+      var ePosDev = new epson.ePOSDevice();
+
+      // Mesmos 3 handlers do sample oficial (Callback_connectHostName), só com log — nunca reconectam nem imprimem nada sozinhos.
+      ePosDev.onreconnecting = function () {
+        console.log('[teste-epson] evento onreconnecting');
+        logPasso('Evento onreconnecting recebido.');
+      };
+      ePosDev.onreconnect = function () {
+        console.log('[teste-epson] evento onreconnect');
+        logPasso('Evento onreconnect recebido.');
+      };
+      ePosDev.ondisconnect = function () {
+        console.log('[teste-epson] evento ondisconnect');
+        logPasso('Evento ondisconnect recebido.', 'erro');
+      };
+
+      // Mesma assinatura de Callback_connect do sample oficial: 'OK' (sem SSL) ou 'SSL_CONNECT_OK' (com SSL) = sucesso.
+      ePosDev.connect(HOSTNAME, PORTA, function (data) {
+        console.log('[teste-epson] resultado do connect():', data);
+        logPasso('3. Resultado connect(): ' + data);
+
+        if (data !== 'OK' && data !== 'SSL_CONNECT_OK') {
+          logPasso('FALHA na conexão ePOS — connect() retornou "' + data + '".', 'erro');
+          return;
+        }
+
+        logPasso('4. Conexão estabelecida.', 'sucesso');
+        logPasso('5. Procurando ' + DEVICE_ID + '...');
+
+        var options = { crypto: true, buffer: false };
+
+        // Mesma assinatura de callbackCreateDevice_printer do sample oficial: (data, code) — data = objeto do dispositivo (null se falhar), code = retcode.
+        ePosDev.createDevice(DEVICE_ID, ePosDev.DEVICE_TYPE_PRINTER, options, function (data, code) {
+          console.log('[teste-epson] createDevice — objeto retornado:', data, '| code:', code);
+          logPasso('6. Resultado createDevice(): ' + code);
+
+          if (data === null) {
+            logPasso('FALHA ao acessar ' + DEVICE_ID + ' — código: ' + code, 'erro');
+            return;
+          }
+
+          logPasso('7. ' + DEVICE_ID + ' encontrado.', 'sucesso');
+          logPasso('8. TESTE CONCLUÍDO COM SUCESSO — nenhum comando de impressão foi enviado.', 'sucesso');
+
+          // Só observação/log — nunca send()/addText()/addCut() neste arquivo.
+          data.onerror = function (erro) {
+            console.log('[teste-epson] device.onerror:', erro);
+          };
+        });
+      });
+    }
+  </script>
+</body>
+</html>

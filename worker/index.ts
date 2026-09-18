@@ -224,7 +224,12 @@ const CSP_REPORT_ONLY =
   "style-src 'self' 'unsafe-inline'; " +
   "img-src 'self' data:; " +
   "font-src 'self'; " +
-  "connect-src 'self' https://ghntpyqdbgxaisfgytto.supabase.co wss://ghntpyqdbgxaisfgytto.supabase.co https://challenges.cloudflare.com; " +
+  // Epson TM-m30III (teste de conexão ePOS, epson-connection-test.html) — hostname fixo do
+  // Automatic Certificate Update (SHA-256+Base32 do serial, confirmado contra o sample oficial
+  // da Epson), porta 8043. O SDK (epos-2.27.0.js) embute Socket.IO 0.8.7, que faz handshake por
+  // HTTPS e pode fazer upgrade pra WebSocket — confirmado lendo o arquivo real (ocorrências
+  // literais de "WebSocket"/"wss"), por isso os dois esquemas abaixo, nunca connect-src *.
+  "connect-src 'self' https://ghntpyqdbgxaisfgytto.supabase.co wss://ghntpyqdbgxaisfgytto.supabase.co https://challenges.cloudflare.com https://6mab5o3v6up2v5ueyws25tzr5o5njduk4dldd5rxes2y6mby45bq.omnilinkcert.epson.biz:8043 wss://6mab5o3v6up2v5ueyws25tzr5o5njduk4dldd5rxes2y6mby45bq.omnilinkcert.epson.biz:8043; " +
   "frame-src https://challenges.cloudflare.com; " +
   "frame-ancestors 'none'; " +
   "base-uri 'self'; " +
