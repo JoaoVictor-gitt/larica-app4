@@ -622,6 +622,17 @@ async function confirmarPagamentoPedido(id) {
   return atualizado;
 }
 
+/**
+ * Registra a impressão da comanda via RPC register_order_print — não passa por
+ * _atualizarStatusPedido() de propósito, pois imprimir não é status operacional
+ * (orders.status não muda). Mesmo padrão de recarregar o cache depois da mudança.
+ */
+async function registrarImpressaoPedido(id) {
+  const atualizado = await registerOrderPrintNoSupabase(id);
+  await carregarPedidosClientesCache();
+  return atualizado;
+}
+
 // Acompanhamentos e combos não são mais coleções próprias — são produtos
 // (categoria "Acompanhamentos" ou "Combos", esta última com `comboConfig`).
 // Use pesquisarProdutos()/obterProdutoPorId()/salvarProduto() normalmente.

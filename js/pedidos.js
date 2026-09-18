@@ -240,6 +240,9 @@ function renderizarColunaKanban(status, pedidosDaColuna) {
   lista.querySelectorAll('[data-acao="ver"]').forEach((botao) => {
     botao.addEventListener('click', () => abrirModalDetalhesPedido(botao.dataset.id));
   });
+  lista.querySelectorAll('[data-acao="imprimir"]').forEach((botao) => {
+    botao.addEventListener('click', () => imprimirComanda(botao));
+  });
   lista.querySelectorAll('[data-acao="aceitar"]').forEach((botao) => {
     botao.addEventListener('click', () => executarAcaoPedido(botao, aceitarPedido, 'Pedido aceito — em preparo.'));
   });
@@ -298,6 +301,95 @@ async function executarAcaoPedido(botao, funcaoTransicao, mensagemSucesso) {
 }
 
 // ---------------------------------------------------------------------------
+// Impressão de comanda
+// ---------------------------------------------------------------------------
+
+let _pedidoIdImpressaoPendente = null;
+let _botaoImpressaoPendente = null;
+
+function imprimirComanda(botao) {
+  const id = botao.dataset.id;
+  const pedido = obterPedidoClientePorId(id);
+  if (!pedido) return;
+
+  renderizarComandaParaImpressao(pedido);
+  _pedidoIdImpressaoPendente = id;
+  _botaoImpressaoPendente = botao;
+  botao.disabled = true;
+  window.print();
+}
+
+// Único listener global — o navegador nunca dispara duas impressões em
+// paralelo (window.print() é modal), então uma variável módulo-level basta
+// pra correlacionar o afterprint com o pedido/botão certos.
+window.addEventListener('afterprint', () => {
+  if (!_pedidoIdImpressaoPendente) return;
+  const botao = _botaoImpressaoPendente;
+  _pedidoIdImpressaoPendente = null;
+  _botaoImpressaoPendente = null;
+
+  // O navegador não informa se o trabalho chegou na impressora física —
+  // afterprint só diz que a folha de impressão fechou. Confirmação humana
+  // é o sinal mais confiável disponível nessa arquitetura (sem bridge local).
+  if (confirm('A comanda foi impressa corretamente?')) {
+    executarAcaoPedido(botao, registrarImpressaoPedido, 'Impressão registrada.');
+  } else {
+    botao.disabled = false;
+    mostrarToast('Impressão não registrada. Toque em Imprimir/Reimprimir pra tentar de novo.', 'erro');
+  }
+});
+
+function renderizarComandaParaImpressao(pedido) {
+  const cliente = pedido.cliente || {};
+  const endereco = pedido.endereco || {};
+  const ehEntrega = pedido.fulfilment === 'entrega';
+  const moeda = obterConfiguracoes().moeda;
+  const horarioSolicitado = !ehEntrega && pedido.retirada && pedido.retirada.modo === 'horario' ? pedido.retirada.horario : null;
+
+  document.getElementById('comanda-impressao').innerHTML = `
+    <div class="comanda-cabecalho">
+      <div class="comanda-marca">LARICA</div>
+      <div class="comanda-subtitulo">ORDEM DE PEDIDO</div>
+    </div>
+    <div class="comanda-numero">${escaparHtml(pedido.numero)}</div>
+    <div class="comanda-linha-info">${formatarData(pedido.criadoEm)} - ${formatarHora(pedido.criadoEm)}</div>
+    <div class="comanda-tipo">${ehEntrega ? 'ENTREGA' : 'RETIRADA'}</div>
+    <hr/>
+    <div class="comanda-itens">${linhasItensPedidoHtml(pedido)}</div>
+    ${
+      ehEntrega && endereco.instrucoes
+        ? `<hr/><div class="comanda-observacoes">
+             <div class="comanda-observacoes-titulo">OBSERVAÇÕES DE ENTREGA</div>
+             <div>${escaparHtml(endereco.instrucoes)}</div>
+           </div>`
+        : ''
+    }
+    <hr/>
+    ${
+      ehEntrega
+        ? `<div class="comanda-endereco">
+             <div>${escaparHtml(endereco.eircode || '')}</div>
+             <div>${escaparHtml(endereco.linha1 || '')}${endereco.linha2 ? ', ' + escaparHtml(endereco.linha2) : ''}</div>
+             <div>${escaparHtml(endereco.area || '')}</div>
+             <div>${escaparHtml(cliente.nome || '')} · ${escaparHtml(cliente.telefone || '')}</div>
+           </div>`
+        : `<div class="comanda-cliente">${escaparHtml(cliente.nome || '')} · ${escaparHtml(cliente.telefone || '')}</div>`
+    }
+    <hr/>
+    <div class="comanda-total">TOTAL: ${formatarMoeda(pedido.total, moeda)}</div>
+    <div class="comanda-pagamento">Pagamento: ${escaparHtml((ROTULOS_FORMA_PAGAMENTO[pedido.formaPagamento] || '').toUpperCase())}</div>
+    ${
+      horarioSolicitado
+        ? `<hr/><div class="comanda-horario-solicitado">
+             <div class="comanda-horario-rotulo">HORÁRIO SOLICITADO</div>
+             <div class="comanda-horario-valor">${escaparHtml(horarioSolicitado)}</div>
+           </div>`
+        : ''
+    }
+  `;
+}
+
+// ---------------------------------------------------------------------------
 // Card do pedido
 // ---------------------------------------------------------------------------
 
@@ -331,6 +423,7 @@ function cardPedidoHtml(pedido) {
       </div>
       <div class="card-pedido-acoes">
         <button type="button" class="btn btn-secundario" data-acao="ver" data-id="${pedido.id}">Ver pedido</button>
+        <button type="button" class="btn btn-secundario" data-acao="imprimir" data-id="${pedido.id}">${pedido.qtdImpressoes > 0 ? '🖨️ Reimprimir' : '🖨️ Imprimir'}</button>
         ${botaoPrincipalPedidoHtml(pedido)}
       </div>
       ${pedidoPodeSerCancelado(pedido) ? `<button type="button" class="link-cancelar-pedido" data-acao="cancelar" data-id="${pedido.id}">Cancelar pedido</button>` : ''}
@@ -581,6 +674,9 @@ function ligarEventosModalPedido() {
     fecharModalPedido();
     abrirModalCancelamento(id);
   });
+  document.getElementById('botao-imprimir-pedido-detalhe').addEventListener('click', (evento) => {
+    imprimirComanda(evento.currentTarget);
+  });
 }
 
 function fecharModalPedido() {
@@ -606,6 +702,11 @@ function abrirModalDetalhesPedido(id) {
     botaoCancelarDetalhe.style.display = 'none';
     delete botaoCancelarDetalhe.dataset.id;
   }
+
+  const botaoImprimirDetalhe = document.getElementById('botao-imprimir-pedido-detalhe');
+  botaoImprimirDetalhe.dataset.id = pedido.id;
+  botaoImprimirDetalhe.textContent = pedido.qtdImpressoes > 0 ? '🖨️ Reimprimir' : '🖨️ Imprimir';
+  botaoImprimirDetalhe.disabled = false;
 
   const blocoTipo = ehEntrega
     ? `

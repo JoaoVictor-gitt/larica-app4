@@ -14,6 +14,7 @@
   <title>Pedidos | Larica Food Truck</title>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="stylesheet" href="css/pedidos.css" />
+  <link rel="stylesheet" href="css/comanda-impressao.css" />
   <link rel="stylesheet" href="css/responsive.css" />
 </head>
 <body data-pagina="pedidos" data-area="admin">
@@ -106,6 +107,7 @@
       <div class="modal-corpo" id="pedido-modal-corpo"></div>
       <div class="modal-rodape">
         <button type="button" class="btn btn-perigo" id="botao-cancelar-pedido-detalhe" style="display:none;">Cancelar pedido</button>
+        <button type="button" class="btn btn-secundario" id="botao-imprimir-pedido-detalhe">🖨️ Imprimir</button>
         <button type="button" class="btn btn-secundario" id="botao-fechar-modal-pedido-rodape">Fechar</button>
       </div>
     </div>
@@ -132,6 +134,8 @@
       </div>
     </div>
   </div>
+
+  <div id="comanda-impressao" class="comanda-impressao" aria-hidden="true"></div>
 
   <script src="js/utils.js"></script>
   <script src="js/storage.js"></script>

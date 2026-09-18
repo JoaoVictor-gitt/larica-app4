@@ -39,6 +39,9 @@ function _linhaSupabaseParaPedido(o) {
     statusPagamento: ENUM_PARA_STATUS_PAGAMENTO[o.payment_status] || o.payment_status,
     pagamentoConfirmadoEm: o.payment_confirmed_at,
     pagamentoConfirmadoPor: o.payment_confirmed_by,
+    impressoEm: o.printed_at,
+    qtdImpressoes: o.print_count || 0,
+    ultimaImpressaoEm: o.last_printed_at,
     cliente: { nome: o.customer_name, telefone: o.customer_phone },
     fulfilment: ENUM_PARA_FULFILMENT[o.fulfilment_type] || o.fulfilment_type,
     // pickup_time (coluna `time` do Supabase) vem como "HH:MM:SS" — cortamos os segundos.
@@ -294,6 +297,17 @@ async function cancelOrderNoSupabase(id, motivo) {
  */
 async function confirmOrderPaymentNoSupabase(id) {
   const { data, error } = await supabaseClient.rpc('confirm_order_payment', { p_order_id: id });
+  if (error) throw new Error(error.message);
+  return _linhaSupabaseParaPedido(data);
+}
+
+/**
+ * Registra que a comanda do pedido foi impressa via RPC register_order_print —
+ * toda a lógica de idempotência/contagem roda no banco (UPDATE...RETURNING atômico).
+ * Nunca grava printed_at/print_count/last_printed_at direto na tabela.
+ */
+async function registerOrderPrintNoSupabase(id) {
+  const { data, error } = await supabaseClient.rpc('register_order_print', { p_order_id: id });
   if (error) throw new Error(error.message);
   return _linhaSupabaseParaPedido(data);
 }

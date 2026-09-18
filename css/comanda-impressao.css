@@ -1,0 +1,65 @@
+/*
+ * comanda-impressao.css
+ * Estilos exclusivos da comanda de cozinha (#comanda-impressao, pedidos.html).
+ * Sem cores, sem imagens — só texto grande e alto-contraste, para impressora
+ * térmica de 58mm. Escondida na tela; só aparece via @media print.
+ */
+
+#comanda-impressao {
+  display: none;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #comanda-impressao,
+  #comanda-impressao * {
+    visibility: visible;
+  }
+  #comanda-impressao {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 58mm;
+    padding: 2mm;
+    color: #000;
+    background: #fff;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 12pt;
+    line-height: 1.35;
+  }
+
+  #comanda-impressao hr {
+    border: none;
+    border-top: 1px dashed #000;
+    margin: 2mm 0;
+  }
+
+  .comanda-marca { font-size: 16pt; font-weight: 700; text-align: center; }
+  .comanda-subtitulo { font-size: 10pt; text-align: center; margin-bottom: 2mm; }
+
+  /* Prioridade visual pedida: número do pedido MUITO grande */
+  .comanda-numero { font-size: 26pt; font-weight: 700; text-align: center; margin: 2mm 0; }
+
+  .comanda-linha-info,
+  .comanda-tipo { text-align: center; font-size: 11pt; }
+  .comanda-tipo { font-weight: 700; letter-spacing: 0.05em; }
+
+  /* Itens: reaproveita a estrutura de linhasItensPedidoHtml() — só amplia tipografia pra leitura na cozinha */
+  .comanda-itens { font-size: 13pt; font-weight: 700; }
+
+  .comanda-observacoes-titulo,
+  .comanda-horario-rotulo { font-size: 10pt; font-weight: 700; letter-spacing: 0.05em; }
+  .comanda-observacoes { font-size: 13pt; font-weight: 700; }
+
+  .comanda-total { font-size: 15pt; font-weight: 700; text-align: center; }
+  .comanda-pagamento { font-size: 11pt; text-align: center; }
+
+  .comanda-horario-solicitado { text-align: center; }
+  .comanda-horario-valor { font-size: 18pt; font-weight: 700; }
+
+  .comanda-endereco,
+  .comanda-cliente { font-size: 10pt; }
+}
