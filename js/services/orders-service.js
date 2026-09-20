@@ -259,6 +259,10 @@ async function createOrder(pedido, itensPedido, turnstileToken) {
     retirada: pedido.retirada,
     endereco: pedido.endereco,
     formaPagamento: pedido.formaPagamento,
+    // Limitação conhecida: create_customer_order calcula e persiste cash_amount/change_amount/
+    // needs_change (e também payment_status) em public.orders, mas o jsonb_build_object do RETURN
+    // da RPC não os inclui — "data" (acima) nunca traz esses campos. Por isso troco continua sendo
+    // o valor calculado no cliente antes do envio (nunca recalculado de novo aqui), não o persistido.
     pagamentoDinheiro: pedido.pagamentoDinheiro,
     itens: itensPedido,
   };

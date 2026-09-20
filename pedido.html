@@ -17,7 +17,6 @@
   <link rel="stylesheet" href="css/style.css" />
   <link rel="stylesheet" href="css/cardapio.css" />
   <link rel="stylesheet" href="css/pedido.css" />
-  <link rel="stylesheet" href="css/recibo-cliente-impressao.css" />
   <link rel="stylesheet" href="css/responsive.css" />
 </head>
 <body data-pagina="pedido" data-area="pedido">
@@ -377,11 +376,6 @@
     </section>
   </main>
 
-  <!-- Recibo simples pra impressão do cliente (botão "🖨️ Imprimir pedido" na confirmação) — window.print()
-       nativo do navegador. Nunca visível na tela normal, só via @media print (css/recibo-cliente-impressao.css).
-       Totalmente separado da comanda térmica Epson/impressão automática de /pedidos. -->
-  <div id="recibo-impressao-cliente" aria-hidden="true"></div>
-
   <div class="barra-carrinho-fixa" id="barra-carrinho-fixa" style="display:none;">
     <button type="button" id="botao-ver-carrinho"></button>
   </div>
@@ -450,6 +444,11 @@
   <script src="js/services/settings-service.js"></script>
   <script src="js/services/coupons-service.js"></script>
   <script src="js/app.js"></script>
+  <!-- Impressão direta Epson (ePOS-Print) do recibo do cliente na confirmação — mesma
+       implementação já usada em /pedidos (gerarComandaEposPrintXml -> EpsonPrinterService.imprimir). -->
+  <script src="vendor/epson/epos-2.27.0.js"></script>
+  <script src="js/services/epson-print-builder.js"></script>
+  <script src="js/services/epson-printer-service.js"></script>
   <script src="js/pedido.js"></script>
 </body>
 </html>

@@ -202,6 +202,9 @@ let categoriaSelecionadaPedido = 'Combos';
 let pilhaEtapasPedido = ['cardapio'];
 let estadoPedido = estadoPedidoInicial();
 let ultimoPedidoConfirmado = null;
+// Trava redundante ao disabled do botão "Imprimir pedido" — impede 2 chamadas simultâneas à
+// Epson mesmo que o elemento seja reativado/re-renderizado por engano enquanto uma já está em voo.
+let _impressaoClientePedidoEmAndamento = false;
 
 // Disponibilidade do negócio (business_settings/business_hours) — carregada 1x no início,
 // nunca via polling; ver carregarDisponibilidadeNegocio()/disponibilidadeNegocioAtual().
@@ -740,15 +743,61 @@ function ligarEventosGerais() {
     window.location.href = numero ? `acompanhar-pedido.html?pedido=${encodeURIComponent(numero)}` : 'acompanhar-pedido.html';
   });
 
-  // Impressão nativa do navegador do recibo do cliente — nunca a comanda térmica Epson (fluxo
-  // separado, exclusivo de /pedidos). Não faz claim, não chama register_order_print, não grava
-  // nada no Supabase.
   const botaoImprimirPedidoConfirmacao = document.getElementById('botao-imprimir-pedido-confirmacao');
   if (botaoImprimirPedidoConfirmacao) {
-    botaoImprimirPedidoConfirmacao.addEventListener('click', () => {
-      window.print();
-    });
+    botaoImprimirPedidoConfirmacao.addEventListener('click', () => imprimirPedidoConfirmacaoNaEpson(botaoImprimirPedidoConfirmacao));
   }
+}
+
+/**
+ * Impressão direta na Epson TM-m30III do recibo do cliente, disparada pelo botão "🖨️ Imprimir
+ * pedido" da tela de confirmação — reaproveita exatamente a mesma implementação já usada em
+ * /pedidos (gerarComandaEposPrintXml -> EpsonPrinterService.imprimir), sem window.print() e sem
+ * abrir preview/diálogo do navegador. Primeira validação física: por isso, propositalmente, esta
+ * função NUNCA chama register_order_print/claim_order_auto_print/resolve_order_auto_print, nem
+ * toca printed_at/print_count/auto_print_status/auto_print_claimed_at/auto_print_claimed_by —
+ * isso pertence só ao controle do admin/automação, que fica fora deste primeiro teste.
+ */
+async function imprimirPedidoConfirmacaoNaEpson(botao) {
+  if (_impressaoClientePedidoEmAndamento || !ultimoPedidoConfirmado) return;
+
+  const rotuloOriginal = botao.textContent;
+  _impressaoClientePedidoEmAndamento = true;
+  botao.disabled = true;
+  botao.textContent = '🖨️ Imprimindo...';
+
+  let xml;
+  try {
+    xml = gerarComandaEposPrintXml(ultimoPedidoConfirmado);
+  } catch (erroBuilder) {
+    mostrarToast('Não foi possível montar o recibo para a Epson: ' + (erroBuilder && erroBuilder.message ? erroBuilder.message : erroBuilder), 'erro');
+    botao.disabled = false;
+    botao.textContent = rotuloOriginal;
+    _impressaoClientePedidoEmAndamento = false;
+    return;
+  }
+
+  const resultado = await EpsonPrinterService.imprimir(xml);
+
+  if (resultado.codigo === 'SUCESSO') {
+    botao.textContent = '✓ Pedido impresso';
+    // Permanece desabilitado — já imprimiu e cortou; reimprimir exigiria um novo clique intencional
+    // (não implementado ainda, é só a primeira validação física deste caminho).
+    _impressaoClientePedidoEmAndamento = false;
+    return;
+  }
+
+  // TIMEOUT/ERRO_REDE são ambíguos por definição (ver epson-printer-service.js) — a impressora pode
+  // ter impresso mesmo sem confirmação. Por isso, igual ao admin, nunca reenvia sozinho aqui.
+  const mensagem =
+    resultado.codigo === 'TIMEOUT' || resultado.codigo === 'ERRO_REDE'
+      ? 'Não foi possível confirmar se a Epson imprimiu. Verifique a impressora antes de tentar novamente.'
+      : resultado.mensagem;
+
+  mostrarToast(mensagem, 'erro');
+  botao.disabled = false;
+  botao.textContent = rotuloOriginal;
+  _impressaoClientePedidoEmAndamento = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -2308,80 +2357,6 @@ function renderizarConfirmacao(pedido, moeda) {
     ${linhaCupomResumoHtml(pedido.codigoCupom, pedido.valorDesconto, moeda, null)}
     <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoeda(pedido.total, moeda)}</span></div>
     ${avisoCartao}
-  `;
-
-  renderizarReciboImpressaoCliente(pedido, moeda);
-}
-
-/**
- * Recibo simples pra impressão do cliente (#recibo-impressao-cliente, botão "🖨️ Imprimir
- * pedido" na tela de confirmação padrão) — elemento oculto, só aparece via @media print
- * (css/recibo-cliente-impressao.css), usando window.print() nativo do navegador. Totalmente
- * separado da comanda térmica Epson/impressão automática de /pedidos: não chama
- * EpsonPrinterService, não faz claim, não chama register_order_print, não grava nada no
- * Supabase. Usa exclusivamente campos reais já existentes no pedido confirmado (mesmo objeto
- * de renderizarConfirmacao()) — nenhum campo inventado.
- */
-function renderizarReciboImpressaoCliente(pedido, moeda) {
-  const recibo = document.getElementById('recibo-impressao-cliente');
-  if (!recibo) {
-    console.error('[RECIBO CLIENTE] #recibo-impressao-cliente não encontrado no DOM');
-    return;
-  }
-
-  const cliente = pedido.cliente || {};
-  const endereco = pedido.endereco || {};
-  const ehEntrega = pedido.fulfilment === 'entrega';
-  const ROTULO_FULFILMENT_RECIBO = { entrega: 'ENTREGA', comer_no_local: 'COMER NO LOCAL', retirada: 'RETIRADA' };
-
-  const linhasItens = pedido.itens
-    .map((item) => {
-      const extras = item.combo
-        ? [
-            ...(item.combo.espetos || []).map((e) => `<div class="recibo-extra">${e.quantidade}x ${escaparHtml(e.nome)}</div>`),
-            ...(item.combo.acompanhamentos || []).map((a) => `<div class="recibo-extra">${a.quantidade}x ${escaparHtml(a.nome)}</div>`),
-            ...(item.combo.incluidos || []).map((nome) => `<div class="recibo-extra">${escaparHtml(nome)}</div>`),
-          ].join('')
-        : '';
-      return `<div class="linha-resumo"><span>${item.quantidade}x ${escaparHtml(item.nome)}</span><span>${formatarMoeda(item.valorTotal, moeda)}</span></div>${extras}`;
-    })
-    .join('');
-
-  const linhaTelefone = cliente.telefone
-    ? `<div class="linha-resumo"><span>Telefone</span><span>${escaparHtml(cliente.telefone)}</span></div>`
-    : '';
-
-  // endereco.instrucoes é o único campo de texto livre que realmente existe no modelo — só entrega.
-  const blocoEndereco = ehEntrega
-    ? `<hr/>
-       <div class="linha-resumo"><span>Endereço</span><span></span></div>
-       <p>${escaparHtml(endereco.eircode || '')}<br/>
-       ${escaparHtml(endereco.linha1 || '')}${endereco.linha2 ? ', ' + escaparHtml(endereco.linha2) : ''}<br/>
-       ${escaparHtml(endereco.area || '')}</p>
-       ${endereco.instrucoes ? `<p><em>${escaparHtml(endereco.instrucoes)}</em></p>` : ''}`
-    : '';
-
-  const d = pedido.pagamentoDinheiro;
-  const blocoTroco =
-    pedido.formaPagamento === 'dinheiro' && d && d.precisaTroco
-      ? `<div class="linha-resumo"><span>Troco para</span><span>${formatarMoeda(d.valorPago, moeda)}</span></div>
-         <div class="linha-resumo"><span>Troco necessário</span><span>${formatarMoeda(d.troco, moeda)}</span></div>`
-      : '';
-
-  document.getElementById('recibo-impressao-cliente').innerHTML = `
-    <div class="recibo-marca">LARICA</div>
-    <div class="recibo-numero">PEDIDO ${escaparHtml(pedido.numero)}</div>
-    <div class="recibo-tipo">${ROTULO_FULFILMENT_RECIBO[pedido.fulfilment] || 'RETIRADA'}</div>
-    <hr/>
-    ${linhasItens}
-    <hr/>
-    <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoeda(pedido.total, moeda)}</span></div>
-    <div class="linha-resumo"><span>Pagamento</span><span>${escaparHtml(ROTULOS_FORMA_PAGAMENTO[pedido.formaPagamento] || '')}</span></div>
-    ${blocoTroco}
-    <hr/>
-    <div class="linha-resumo"><span>Cliente</span><span>${escaparHtml(cliente.nome || '')}</span></div>
-    ${linhaTelefone}
-    ${blocoEndereco}
   `;
 }
 
