@@ -361,11 +361,11 @@ async function clearCompletedOrdersNoSupabase() {
 }
 
 /** Assina mudanças em `orders` (INSERT/UPDATE/DELETE). Retorna o canal, pra poder dar unsubscribe depois. */
-function subscribeToOrders(aoMudar) {
+function subscribeToOrders(aoMudar, aoMudarStatus) {
   return supabaseClient
     .channel('pedidos-admin')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, aoMudar)
-    .subscribe();
+    .subscribe(aoMudarStatus);
 }
 
 function unsubscribeFromOrders(canal) {

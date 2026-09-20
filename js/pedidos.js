@@ -32,6 +32,12 @@ let metaPreparoMinutos = null;
 let _impressaoAutomaticaAtiva = false;
 let _impressaoAutomaticaAtivadaEm = null; // ISO string — pedidos criados antes disso nunca são candidatos
 
+// Fallback do Realtime — recuperação caso o canal pare/seja suspenso (ex.: aba em segundo plano
+// no iPad/Safari) ou perca um evento. Ver iniciarPollingPedidos()/reloadOrders() mais abaixo.
+let _reloadOrdersEmAndamento = false; // lock separado de _impressaoEmAndamento — nunca 2 reloadOrders() em voo ao mesmo tempo
+let _intervaloPollingPedidos = null;
+const INTERVALO_POLLING_PEDIDOS_MS = 5000;
+
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
@@ -80,6 +86,7 @@ async function init() {
   setInterval(renderizarQuadroPedidos, 30000);
 
   iniciarRealtimePedidos();
+  iniciarPollingPedidos();
   // 1ª varredura logo após a carga inicial — pega tanto pedidos represados (impressora ficou
   // desligada, feature acabou de ser ligada) quanto o caso comum de nada pendente.
   escanearCandidatosImpressaoAutomatica();
@@ -93,13 +100,21 @@ async function init() {
  */
 function iniciarRealtimePedidos() {
   if (canalPedidosRealtime) return;
-  canalPedidosRealtime = subscribeToOrders(() => {
-    clearTimeout(timeoutRecarregarPedidosRealtime);
-    timeoutRecarregarPedidosRealtime = setTimeout(reloadOrders, 400);
-  });
+  canalPedidosRealtime = subscribeToOrders(
+    () => {
+      clearTimeout(timeoutRecarregarPedidosRealtime);
+      timeoutRecarregarPedidosRealtime = setTimeout(reloadOrders, 400);
+    },
+    (status) => {
+      // Só logging — o SDK do Supabase já gerencia reconexão sozinho, nenhuma reconexão manual aqui.
+      console.log('[pedidos] Realtime canal de pedidos:', status);
+    }
+  );
 }
 
 async function reloadOrders() {
+  if (_reloadOrdersEmAndamento) return;
+  _reloadOrdersEmAndamento = true;
   try {
     await carregarPedidosClientesCache();
     // Reconsulta o toggle a cada reload — uma aba de /pedidos já aberta antes de alguém ligar/
@@ -109,8 +124,25 @@ async function reloadOrders() {
     renderizarQuadroPedidos();
     escanearCandidatosImpressaoAutomatica();
   } catch (erro) {
-    console.error('Erro ao recarregar pedidos (realtime):', erro);
+    console.error('Erro ao recarregar pedidos (realtime/polling):', erro);
+  } finally {
+    _reloadOrdersEmAndamento = false;
   }
+}
+
+/**
+ * Fallback do Realtime — recuperação caso o canal pare, seja suspenso (ex.: aba em segundo
+ * plano no iPad/Safari) ou perca um evento. Reaproveita reloadOrders() (mesmo fluxo de sempre:
+ * recarrega pedidos, atualiza auto_print_enabled, renderiza, escaneia candidatos) — nunca cria
+ * um segundo caminho de impressão. Só age com a página visível; reloadOrders() já se protege
+ * sozinho contra sobreposição com o Realtime via _reloadOrdersEmAndamento.
+ */
+function iniciarPollingPedidos() {
+  if (_intervaloPollingPedidos) return;
+  _intervaloPollingPedidos = setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    reloadOrders();
+  }, INTERVALO_POLLING_PEDIDOS_MS);
 }
 
 /**
@@ -211,10 +243,31 @@ function detectarPedidosNovos() {
   if (temPedidoNovo) tocarSomNovoPedido();
 }
 
-window.addEventListener('beforeunload', () => {
-  clearTimeout(timeoutRecarregarPedidosRealtime);
-  unsubscribeFromOrders(canalPedidosRealtime);
+// Fallback do Realtime pra iPad/Safari: ao voltar de segundo plano (troca de app, bloqueio de
+// tela), o canal pode ter sido suspenso/perdido eventos — força uma recarga imediata.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    reloadOrders();
+  }
 });
+
+/**
+ * Limpa timers/subscription do painel — chamada em beforeunload e pagehide (iPad/Safari nem
+ * sempre dispara beforeunload ao trocar de app/bloquear a tela). Segura contra chamadas
+ * repetidas: clearTimeout/clearInterval em ids já limpos são no-ops do próprio JS, e
+ * _intervaloPollingPedidos/canalPedidosRealtime são zerados depois de usados — uma 2ª chamada
+ * vê tudo null e não faz nada (unsubscribeFromOrders já checa `if (canal)` internamente).
+ */
+function limparRecursosPedidos() {
+  clearTimeout(timeoutRecarregarPedidosRealtime);
+  clearInterval(_intervaloPollingPedidos);
+  _intervaloPollingPedidos = null;
+  unsubscribeFromOrders(canalPedidosRealtime);
+  canalPedidosRealtime = null;
+}
+
+window.addEventListener('beforeunload', limparRecursosPedidos);
+window.addEventListener('pagehide', limparRecursosPedidos);
 
 function ligarEventosFiltrosPedidos() {
   document.getElementById('campo-busca-pedidos').addEventListener(
