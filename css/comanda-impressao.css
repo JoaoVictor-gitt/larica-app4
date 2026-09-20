@@ -2,32 +2,33 @@
  * comanda-impressao.css
  * Estilos exclusivos da comanda de cozinha (#comanda-impressao, pedidos.html).
  * Sem cores, sem imagens — só texto grande e alto-contraste, para impressora
- * térmica de 58mm. Escondida na tela; só aparece via @media print.
+ * térmica de 80mm (TM-m30III, área imprimível real ~72mm/576 dots). Escondida
+ * na tela; só aparece via @media print.
  */
 
 #comanda-impressao {
   display: none;
 }
 
-/* Página de impressão = bobina térmica de 58mm, nunca A4/Letter. "auto" na
+/* Página de impressão = bobina térmica de 80mm, nunca A4/Letter. "auto" na
    altura deixa a página crescer conforme o conteúdo — bobina contínua não
    tem comprimento fixo de página. Fica fora de @media print de propósito:
    @page só produz efeito em contexto de paginação (impressão/preview), não
    precisa (nem é prática comum) ficar aninhada dentro de @media print. */
 @page {
-  size: 58mm auto;
+  size: 80mm auto;
   margin: 0;
 }
 
 @media print {
   /* Sem isso, o navegador ainda aplica sua própria margem de página por
-     cima do que @page já define — html/body em 58mm sem margem/padding
+     cima do que @page já define — html/body em 80mm sem margem/padding
      evita qualquer respiro extra ou overflow horizontal. */
   html,
   body {
     margin: 0 !important;
     padding: 0 !important;
-    width: 58mm;
+    width: 80mm;
   }
 
   /* Remove TUDO que não é a comanda do fluxo de impressão (display:none,
@@ -41,8 +42,13 @@
 
   #comanda-impressao {
     display: block;
-    width: 58mm;
+    /* 72mm, não os 80mm da página inteira — essa é a área realmente imprimível da
+       TM-m30III num rolo de 80mm; centralizado para sobrar a mesma margem física
+       não-imprimível dos dois lados. */
+    width: 72mm;
+    margin: 0 auto;
     padding: 2mm;
+    box-sizing: border-box;
     color: #000;
     background: #fff;
     font-family: 'Courier New', Courier, monospace;

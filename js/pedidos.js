@@ -314,9 +314,21 @@ async function executarAcaoPedido(botao, funcaoTransicao, mensagemSucesso) {
 // em outro pedido, ou chamada programática — são resolvidas pelo mesmo guard,
 // sem depender do atributo disabled do HTML.
 
+// Feature flag — enquanto false, EpsonPrinterService/gerarComandaEposPrintXml
+// NUNCA são chamados por nenhum caminho a partir do clique em Imprimir/Reimprimir.
+// O SDK/builder/service já estão carregados (pedidos.html), mas ficam como código
+// morto até isto virar true — nenhum fetch pra Epson acontece com a flag em false.
+const IMPRESSAO_EPSON_DIRETA_ATIVA = false;
+
 let _impressaoEmAndamento = false;
 let _pedidoIdImpressaoPendente = null;
 
+/**
+ * Ponto único de entrada, compartilhado pelos dois caminhos (AirPrint e Epson
+ * direta) — aquisição do pedido, snapshot e lock acontecem exatamente uma vez
+ * aqui, nunca duplicados entre os dois. A escolha do caminho é decidida uma
+ * única vez, pela flag; nenhuma das duas tentativas pode coexistir com a outra.
+ */
 function iniciarImpressaoPedido(id) {
   if (_impressaoEmAndamento) {
     mostrarToast('Já existe uma impressão em andamento.', 'erro');
@@ -327,23 +339,33 @@ function iniciarImpressaoPedido(id) {
   if (!pedido) return;
 
   // Snapshot próprio, desconectado do cache — o Realtime pode substituir
-  // _cachePedidosClientes inteiro enquanto o diálogo de impressão estiver
-  // aberto; a comanda já impressa e o id confirmado depois no afterprint
-  // nunca dependem desse objeto mutável de novo.
+  // _cachePedidosClientes inteiro enquanto a tentativa estiver em andamento;
+  // a comanda já montada (e, no caminho AirPrint, o id confirmado depois no
+  // afterprint) nunca dependem desse objeto mutável de novo.
   const snapshot = JSON.parse(JSON.stringify(pedido));
 
   _impressaoEmAndamento = true;
   _pedidoIdImpressaoPendente = id;
-
-  renderizarComandaParaImpressao(snapshot);
   aplicarBloqueioBotoesImpressao();
+
+  if (IMPRESSAO_EPSON_DIRETA_ATIVA) {
+    _iniciarTentativaEpsonDireta(id, snapshot);
+  } else {
+    _iniciarTentativaAirPrint(snapshot);
+  }
+}
+
+/** Caminho atual (único ativo em produção hoje) — exatamente as mesmas 2 linhas que já existiam em iniciarImpressaoPedido(). */
+function _iniciarTentativaAirPrint(snapshot) {
+  renderizarComandaParaImpressao(snapshot);
   window.print();
 }
 
 // Único listener global, registrado uma única vez — nunca duplicado por
 // render. Como _pedidoIdImpressaoPendente só é lido aqui (nunca escrito por
 // mais ninguém enquanto _impressaoEmAndamento é true), o id confirmado é
-// exatamente o capturado no início deste job.
+// exatamente o capturado no início deste job. Pertence exclusivamente ao
+// caminho AirPrint — a tentativa Epson direta nunca depende deste evento.
 window.addEventListener('afterprint', () => {
   if (!_impressaoEmAndamento) return;
   const id = _pedidoIdImpressaoPendente;
@@ -353,15 +375,138 @@ window.addEventListener('afterprint', () => {
   // usuário cancelou). Confirmação humana é o sinal mais confiável
   // disponível nessa arquitetura (sem bridge local).
   if (confirm('A comanda foi impressa corretamente?')) {
-    registrarImpressaoPedido(id)
-      .then(() => mostrarToast('Impressão registrada.', 'sucesso'))
-      .catch((erro) => mostrarToast(erro.message || 'Não foi possível registrar a impressão.', 'erro'))
-      .finally(finalizarImpressaoPedido);
+    _registrarImpressaoEFinalizar(id);
   } else {
     mostrarToast('Impressão não registrada. Toque em Imprimir/Reimprimir pra tentar de novo.', 'erro');
     finalizarImpressaoPedido();
   }
 });
+
+/**
+ * Chama register_order_print e finaliza — único lugar que faz isso, reaproveitado
+ * pelo "Sim" do afterprint (AirPrint) e pelo caminho Epson (SUCESSO/"Já imprimiu"),
+ * pra nunca duplicar a mesma sequência RPC→toast→finalizar em 3 lugares diferentes.
+ * mensagemFalhaRpc permite uma mensagem mais específica quando quem chama já sabe
+ * que a impressão física foi confirmada por outro meio (ex.: Epson respondeu sucesso).
+ */
+function _registrarImpressaoEFinalizar(id, mensagemFalhaRpc) {
+  return registrarImpressaoPedido(id)
+    .then(() => mostrarToast('Impressão registrada.', 'sucesso'))
+    .catch((erro) => mostrarToast(mensagemFalhaRpc || erro.message || 'Não foi possível registrar a impressão.', 'erro'))
+    .finally(finalizarImpressaoPedido);
+}
+
+// ---------------------------------------------------------------------------
+// Impressão direta Epson (ePOS-Print via EpsonPrinterService) — só alcançável
+// quando IMPRESSAO_EPSON_DIRETA_ATIVA === true. Nenhuma função abaixo é chamada
+// por nenhum outro lugar do arquivo enquanto a flag estiver false.
+// ---------------------------------------------------------------------------
+
+/**
+ * gerarComandaEposPrintXml()/EpsonPrinterService.imprimir() só são chamados
+ * aqui dentro — nunca em iniciarImpressaoPedido() diretamente, nem em nenhum
+ * handler de clique. id/snapshot chegam por parâmetro (já capturados por
+ * iniciarImpressaoPedido()); esta função nunca lê nem depende de
+ * _pedidoIdImpressaoPendente, que é exclusivo do fluxo AirPrint/afterprint.
+ */
+async function _iniciarTentativaEpsonDireta(id, snapshot) {
+  let xml;
+  try {
+    xml = gerarComandaEposPrintXml(snapshot);
+  } catch (erroBuilder) {
+    mostrarToast('Não foi possível montar a comanda para a Epson: ' + (erroBuilder && erroBuilder.message ? erroBuilder.message : erroBuilder), 'erro');
+    finalizarImpressaoPedido();
+    return;
+  }
+
+  const resultado = await EpsonPrinterService.imprimir(xml);
+
+  switch (resultado.codigo) {
+    case 'SUCESSO':
+      // Impressão confirmada pela impressora — só agora chama a RPC, nunca antes.
+      _registrarImpressaoEFinalizar(
+        id,
+        'A comanda foi enviada e confirmada pela impressora, mas não foi possível registrar a impressão no sistema.'
+      );
+      break;
+    case 'TIMEOUT':
+    case 'ERRO_REDE':
+      _epsonTratarResultadoAmbiguo(id, snapshot, resultado);
+      break;
+    case 'EPSON_REJEITOU':
+    case 'HTTP_ERRO':
+    case 'XML_INVALIDO':
+    default:
+      _epsonTratarResultadoErro(id, snapshot, resultado);
+      break;
+  }
+}
+
+/**
+ * TIMEOUT/ERRO_REDE — resultado ambíguo: o navegador não sabe dizer se a
+ * impressora recebeu/imprimiu. Nenhuma das 4 opções roda sozinha; todas
+ * exigem uma escolha explícita do operador (confirm() nativo, mesmo padrão
+ * já usado no restante do painel). Interface provisória — pode virar um
+ * modal dedicado quando a flag for ativada de verdade; a lógica abaixo já
+ * está completa e correta, só falta um visual melhor no futuro.
+ */
+function _epsonTratarResultadoAmbiguo(id, snapshot, resultado) {
+  const mensagem = 'Não foi possível confirmar se a comanda foi impressa. Verifique a impressora antes de tentar novamente.';
+
+  if (confirm(mensagem + '\n\nVocê já verificou fisicamente e a comanda SAIU impressa?')) {
+    // "Já imprimiu" — registra sem imprimir de novo.
+    _registrarImpressaoEFinalizar(id);
+    return;
+  }
+
+  if (confirm('Tentar imprimir novamente pela Epson agora?')) {
+    // "Tentar novamente" — encerra COMPLETAMENTE a tentativa atual (libera o lock)
+    // e só depois disso inicia uma tentativa nova e independente.
+    finalizarImpressaoPedido();
+    iniciarImpressaoPedido(id);
+    return;
+  }
+
+  if (confirm('Imprimir pelo navegador (AirPrint) agora?')) {
+    // "Imprimir pelo navegador" — encerra o estado da tentativa Epson (a chamada já
+    // terminou, não há mais nada "em voo") e entra no fluxo AirPrint existente sem
+    // soltar o lock: o mesmo snapshot já capturado segue pro afterprint normal, que
+    // vai chamar finalizarImpressaoPedido() sozinho quando aquele fluxo terminar.
+    _iniciarTentativaAirPrint(snapshot);
+    return;
+  }
+
+  // "Cancelar" — não registra, não imprime de novo.
+  mostrarToast('Impressão não registrada. Toque em Imprimir/Reimprimir pra tentar de novo.', 'erro');
+  finalizarImpressaoPedido();
+}
+
+/**
+ * EPSON_REJEITOU/HTTP_ERRO/XML_INVALIDO — a impressora respondeu (ou o HTTP/XML
+ * já são conhecidos), então não há a mesma ambiguidade do timeout/erro de rede.
+ * Nunca chama a RPC. Nunca reenvia sozinho. Nunca inventa tradução para
+ * atributosEpson desconhecidos — só exibe o que veio, cru, pra diagnóstico.
+ */
+function _epsonTratarResultadoErro(id, snapshot, resultado) {
+  let detalhe = resultado.mensagem || 'A impressora não confirmou a impressão.';
+  if (resultado.resposta && resultado.resposta.atributosEpson) {
+    detalhe += ' Detalhes: ' + JSON.stringify(resultado.resposta.atributosEpson);
+  }
+
+  if (confirm(detalhe + '\n\nTentar imprimir novamente pela Epson?')) {
+    finalizarImpressaoPedido();
+    iniciarImpressaoPedido(id);
+    return;
+  }
+
+  if (confirm('Imprimir pelo navegador (AirPrint) agora?')) {
+    _iniciarTentativaAirPrint(snapshot);
+    return;
+  }
+
+  mostrarToast('Impressão não registrada. Toque em Imprimir/Reimprimir pra tentar de novo.', 'erro');
+  finalizarImpressaoPedido();
+}
 
 /**
  * Único ponto de liberação do lock — roda sempre (RPC ok, RPC falhou, ou

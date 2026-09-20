@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Teste — EpsonPrinterService (fetch mockado, sem Epson física)</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; font-size: 14px; padding: 12px; }
+    .teste { border: 1px solid #ccc; border-radius: 4px; padding: 10px; margin-bottom: 16px; }
+    .checagens li.ok { color: green; }
+    .checagens li.falha { color: red; font-weight: bold; }
+    pre { white-space: pre-wrap; word-break: break-all; background: #f5f5f5; padding: 8px; max-height: 200px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>Teste local — EpsonPrinterService</h1>
+  <p><strong>fetch() é mockado em todos os cenários — nenhuma requisição real sai desta página, nenhuma Epson é contatada.</strong></p>
+  <div id="resultados"></div>
+
+  <script src="js/services/epson-printer-service.js"></script>
+  <script>
+    const XML_VALIDO = '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print"><text>teste</text></epos-print>';
+    const fetchOriginal = window.fetch;
+    let chamadasFetch = [];
+
+    function instalarFetchMock(implementacao) {
+      chamadasFetch = [];
+      window.fetch = function (url, opcoes) {
+        chamadasFetch.push({ url, opcoes });
+        return implementacao(url, opcoes);
+      };
+    }
+    function restaurarFetch() {
+      window.fetch = fetchOriginal;
+    }
+    function respostaFake(corpo, status, contentType) {
+      return new Response(corpo, { status, headers: contentType ? { 'Content-Type': contentType } : undefined });
+    }
+
+    function checagensComuns(resultado, esperaChamadaFetch) {
+      const c = [];
+      c.push({ d: 'Chamou fetch no máximo 1 vez (' + chamadasFetch.length + ')', ok: chamadasFetch.length === (esperaChamadaFetch ? 1 : 0) });
+      if (esperaChamadaFetch && chamadasFetch.length > 0) {
+        const { url, opcoes } = chamadasFetch[0];
+        c.push({ d: 'URL contém devid=local_printer', ok: url.indexOf('devid=local_printer') !== -1 });
+        c.push({ d: 'URL contém timeout=10000 (eposTimeoutMs)', ok: url.indexOf('timeout=10000') !== -1 });
+        const corpoEnviado = opcoes.body || '';
+        const ocorrenciasEnvelope = (corpoEnviado.match(/<s:Envelope/g) || []).length;
+        c.push({ d: 'Envelope SOAP aparece exatamente 1 vez no corpo enviado', ok: ocorrenciasEnvelope === 1 });
+        c.push({ d: 'AbortController foi usado (signal presente)', ok: !!opcoes.signal });
+      }
+      return c;
+    }
+
+    const cenarios = [
+      {
+        nome: '1. HTTP 200 + success="true" → SUCESSO',
+        preparar: () => instalarFetchMock(() => Promise.resolve(respostaFake('<response success="true"/>', 200, 'text/xml'))),
+        verificar: (r) => [{ d: 'codigo === SUCESSO', ok: r.codigo === 'SUCESSO' }, { d: 'sucesso === true', ok: r.sucesso === true }],
+      },
+      {
+        nome: '2. HTTP 200 + success="1" → SUCESSO',
+        preparar: () => instalarFetchMock(() => Promise.resolve(respostaFake('<response success="1"/>', 200, 'text/xml'))),
+        verificar: (r) => [{ d: 'codigo === SUCESSO', ok: r.codigo === 'SUCESSO' }],
+      },
+      {
+        nome: '3. HTTP 200 + success="false" → EPSON_REJEITOU (com atributosEpson)',
+        preparar: () => instalarFetchMock(() => Promise.resolve(respostaFake('<response success="false" code="PaperEmpty"/>', 200, 'text/xml'))),
+        verificar: (r) => [
+          { d: 'codigo === EPSON_REJEITOU', ok: r.codigo === 'EPSON_REJEITOU' },
+          { d: 'sucesso === false', ok: r.sucesso === false },
+          { d: 'resposta.atributosEpson.code === "PaperEmpty"', ok: r.resposta.atributosEpson && r.resposta.atributosEpson.code === 'PaperEmpty' },
+        ],
+      },
+      {
+        nome: '4. HTTP 500 → HTTP_ERRO',
+        preparar: () => instalarFetchMock(() => Promise.resolve(respostaFake('erro interno', 500, 'text/plain'))),
+        verificar: (r) => [{ d: 'codigo === HTTP_ERRO', ok: r.codigo === 'HTTP_ERRO' }, { d: 'resposta.httpStatus === 500', ok: r.resposta.httpStatus === 500 }],
+      },
+      {
+        nome: '5. HTTP 200 + XML inválido → XML_INVALIDO',
+        preparar: () => instalarFetchMock(() => Promise.resolve(respostaFake('<not-xml unclosed', 200, 'text/xml'))),
+        verificar: (r) => [{ d: 'codigo === XML_INVALIDO', ok: r.codigo === 'XML_INVALIDO' }],
+      },
+      {
+        nome: '6. HTTP 200 + XML válido sem <response> → XML_INVALIDO',
+        preparar: () => instalarFetchMock(() => Promise.resolve(respostaFake('<outraCoisa>sem response aqui</outraCoisa>', 200, 'text/xml'))),
+        verificar: (r) => [{ d: 'codigo === XML_INVALIDO', ok: r.codigo === 'XML_INVALIDO' }],
+      },
+      {
+        nome: '7. fetch rejeitado (erro de rede/CORS) → ERRO_REDE, mensagem ambígua',
+        preparar: () => instalarFetchMock(() => Promise.reject(new TypeError('Failed to fetch'))),
+        verificar: (r) => [
+          { d: 'codigo === ERRO_REDE', ok: r.codigo === 'ERRO_REDE' },
+          { d: 'mensagem NÃO diz "não imprimiu"', ok: r.mensagem.toLowerCase().indexOf('não imprimiu') === -1 },
+          { d: 'mensagem menciona verificar a impressora', ok: r.mensagem.toLowerCase().indexOf('verifique a impressora') !== -1 },
+        ],
+      },
+      {
+        nome: '8. AbortError (timeout do AbortController) → TIMEOUT, mensagem ambígua',
+        preparar: () => instalarFetchMock(() => Promise.reject(new DOMException('The operation was aborted.', 'AbortError'))),
+        verificar: (r) => [
+          { d: 'codigo === TIMEOUT', ok: r.codigo === 'TIMEOUT' },
+          { d: 'mensagem NÃO diz "não imprimiu"', ok: r.mensagem.toLowerCase().indexOf('não imprimiu') === -1 },
+        ],
+      },
+      {
+        nome: '9. Entrada vazia/inválida → ERRO_INESPERADO, ZERO chamadas de fetch',
+        preparar: () => instalarFetchMock(() => Promise.resolve(respostaFake('<response success="true"/>', 200, 'text/xml'))),
+        entrada: '',
+        verificar: (r) => [{ d: 'codigo === ERRO_INESPERADO', ok: r.codigo === 'ERRO_INESPERADO' }],
+        semFetch: true,
+      },
+    ];
+
+    async function rodarTudo() {
+      const container = document.getElementById('resultados');
+      for (const cenario of cenarios) {
+        cenario.preparar();
+        let resultado;
+        try {
+          resultado = await EpsonPrinterService.imprimir(cenario.entrada !== undefined ? cenario.entrada : XML_VALIDO);
+        } finally {
+          restaurarFetch();
+        }
+
+        const div = document.createElement('div');
+        div.className = 'teste';
+        const titulo = document.createElement('h2');
+        titulo.textContent = cenario.nome;
+        div.appendChild(titulo);
+
+        const pre = document.createElement('pre');
+        pre.textContent = JSON.stringify(resultado, null, 2);
+        div.appendChild(pre);
+
+        const checagens = [...checagensComuns(resultado, !cenario.semFetch), ...cenario.verificar(resultado)];
+        const ul = document.createElement('ul');
+        ul.className = 'checagens';
+        checagens.forEach((c) => {
+          const li = document.createElement('li');
+          li.className = c.ok ? 'ok' : 'falha';
+          li.textContent = (c.ok ? '✓ ' : '✗ ') + c.d;
+          ul.appendChild(li);
+        });
+        div.appendChild(ul);
+        container.appendChild(div);
+      }
+    }
+
+    rodarTudo();
+  </script>
+</body>
+</html>

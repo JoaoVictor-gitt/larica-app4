@@ -145,6 +145,11 @@
   <script src="js/services/settings-service.js"></script>
   <script src="js/services/orders-service.js"></script>
   <script src="js/app.js"></script>
+  <!-- Impressão direta Epson (ePOS-Print) — carregados, mas inertes: IMPRESSAO_EPSON_DIRETA_ATIVA
+       em js/pedidos.js está false, então nenhum destes é chamado a partir do clique em Imprimir. -->
+  <script src="vendor/epson/epos-2.27.0.js"></script>
+  <script src="js/services/epson-print-builder.js"></script>
+  <script src="js/services/epson-printer-service.js"></script>
   <script src="js/pedidos.js"></script>
 </body>
 </html>

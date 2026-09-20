@@ -229,7 +229,11 @@ const CSP_REPORT_ONLY =
   // da Epson), porta 8043. O SDK (epos-2.27.0.js) embute Socket.IO 0.8.7, que faz handshake por
   // HTTPS e pode fazer upgrade pra WebSocket — confirmado lendo o arquivo real (ocorrências
   // literais de "WebSocket"/"wss"), por isso os dois esquemas abaixo, nunca connect-src *.
-  "connect-src 'self' https://ghntpyqdbgxaisfgytto.supabase.co wss://ghntpyqdbgxaisfgytto.supabase.co https://challenges.cloudflare.com https://6mab5o3v6up2v5ueyws25tzr5o5njduk4dldd5rxes2y6mby45bq.omnilinkcert.epson.biz:8043 wss://6mab5o3v6up2v5ueyws25tzr5o5njduk4dldd5rxes2y6mby45bq.omnilinkcert.epson.biz:8043; " +
+  // epos-direct-print-test.html (Teste A) chama o endpoint clássico ePOS-Print sem porta
+  // explícita (porta padrão HTTPS/443, é o que o próprio SDK usa em getAddressWithProtocol())
+  // — origem distinta de "...omnilinkcert.epson.biz:8043" para efeitos de CSP, por isso
+  // adicionada à parte. :8043 e wss:// continuam intactos (Teste B, e o teste ePOSDevice).
+  "connect-src 'self' https://ghntpyqdbgxaisfgytto.supabase.co wss://ghntpyqdbgxaisfgytto.supabase.co https://challenges.cloudflare.com https://6mab5o3v6up2v5ueyws25tzr5o5njduk4dldd5rxes2y6mby45bq.omnilinkcert.epson.biz:8043 wss://6mab5o3v6up2v5ueyws25tzr5o5njduk4dldd5rxes2y6mby45bq.omnilinkcert.epson.biz:8043 https://6mab5o3v6up2v5ueyws25tzr5o5njduk4dldd5rxes2y6mby45bq.omnilinkcert.epson.biz; " +
   "frame-src https://challenges.cloudflare.com; " +
   "frame-ancestors 'none'; " +
   "base-uri 'self'; " +

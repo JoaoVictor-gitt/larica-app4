@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Teste — gerarComandaEposPrintXml (puramente local, sem impressora)</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; font-size: 14px; padding: 12px; }
+    .cenario { border: 1px solid #ccc; border-radius: 4px; padding: 10px; margin-bottom: 24px; }
+    pre { white-space: pre-wrap; word-break: break-all; background: #f5f5f5; padding: 8px; max-height: 320px; overflow: auto; }
+    .checagens li.ok { color: green; }
+    .checagens li.falha { color: red; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Teste local — gerador de XML ePOS-Print</h1>
+  <p>
+    Só gera e exibe XML na tela. <strong>Nenhum fetch, nenhuma conexão com a Epson, nenhum envio de
+    impressão</strong> acontece nesta página.
+  </p>
+
+  <div id="diagnostico-moeda"></div>
+
+  <div id="cenarios"></div>
+
+  <script src="vendor/epson/epos-2.27.0.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/services/epson-print-builder.js"></script>
+  <script>
+    // ---------------------------------------------------------------------
+    // 3 objetos de pedido MOCK, no formato exato retornado por
+    // orders-service.js (_linhaSupabaseParaPedido) — nenhuma propriedade
+    // inventada. Puramente locais, nunca vêm do Supabase real.
+    // ---------------------------------------------------------------------
+
+    const CENARIO_RETIRADA_SIMPLES = {
+      numero: '#LARICA-101',
+      criadoEm: '2026-09-20T19:42:00.000Z',
+      cliente: { nome: 'Ana Souza', telefone: '0851234567' },
+      fulfilment: 'retirada',
+      retirada: { modo: 'asap', horario: null },
+      endereco: null,
+      formaPagamento: 'dinheiro',
+      statusPagamento: 'pendente',
+      total: 12.5,
+      itens: [
+        { produtoId: 'p1', nome: 'FRANGO', quantidade: 1, valorUnitario: 12.5, valorTotal: 12.5 },
+      ],
+    };
+
+    const CENARIO_RETIRADA_VARIOS_ITENS = {
+      numero: '#LARICA-102',
+      criadoEm: '2026-09-20T20:05:00.000Z',
+      cliente: { nome: 'Bruno Lima', telefone: '0879998877' },
+      fulfilment: 'retirada',
+      retirada: { modo: 'horario', horario: '20:30' },
+      endereco: null,
+      formaPagamento: 'cartao',
+      statusPagamento: 'pagar_na_entrega',
+      total: 32.0,
+      itens: [
+        {
+          produtoId: 'combo1',
+          nome: 'COMBO CASAL',
+          quantidade: 1,
+          valorUnitario: 24.0,
+          valorTotal: 24.0,
+          combo: {
+            comboId: 'combo1',
+            nome: 'COMBO CASAL',
+            precoBase: 24.0,
+            espetos: [
+              { produtoId: 'e1', nome: 'CONTRA FILÉ', quantidade: 2, acrescimoUnitario: 0 },
+            ],
+            acompanhamentos: [{ id: 'a1', nome: 'FAROFA', quantidade: 1 }],
+            incluidos: ['PÃO DE ALHO', 'VINAGRETE'],
+            extras: 0,
+            total: 24.0,
+          },
+        },
+        { produtoId: 'p2', nome: 'COCA ZERO', quantidade: 2, valorUnitario: 4.0, valorTotal: 8.0 },
+      ],
+    };
+
+    const CENARIO_ENTREGA_COM_ENDERECO = {
+      numero: '#LARICA-103',
+      criadoEm: '2026-09-20T21:10:00.000Z',
+      cliente: { nome: 'Carla Mendes', telefone: '0861112233' },
+      fulfilment: 'entrega',
+      retirada: null,
+      endereco: {
+        eircode: 'D01 AB12',
+        linha1: 'Rua Exemplo, 45',
+        linha2: 'Apto 3',
+        area: 'Centro',
+        distrito: '',
+        // Contém "&" de propósito — prova real (não suposição) de que builder.addText()
+        // escapa caracteres especiais de XML em vez de concatenar o texto do cliente cru.
+        instrucoes: 'Portão azul & tocar campainha 2x antes de descer',
+      },
+      formaPagamento: 'transferencia',
+      statusPagamento: 'pago',
+      total: 27.9,
+      itens: [
+        { produtoId: 'p3', nome: 'CONTRA FILÉ', quantidade: 2, valorUnitario: 10.0, valorTotal: 20.0 },
+        { produtoId: 'p4', nome: 'PÃO DE ALHO', quantidade: 1, valorUnitario: 7.9, valorTotal: 7.9 },
+      ],
+    };
+
+    const CENARIOS = [
+      { titulo: 'Cenário 1 — Retirada simples', pedido: CENARIO_RETIRADA_SIMPLES },
+      { titulo: 'Cenário 2 — Retirada com vários itens (combo + cobrar na retirada + horário)', pedido: CENARIO_RETIRADA_VARIOS_ITENS },
+      { titulo: 'Cenário 3 — Entrega com endereço/instruções', pedido: CENARIO_ENTREGA_COM_ENDERECO },
+    ];
+
+    /** Checagens determinísticas — só olham a string XML gerada, nunca tocam rede/impressora. */
+    function rodarChecagens(xml, pedido, ehEntrega) {
+      const checagens = [];
+
+      function checar(descricao, condicaoBooleana) {
+        checagens.push({ descricao, ok: !!condicaoBooleana });
+      }
+
+      checar('XML começa com <epos-print', xml.indexOf('<epos-print') === 0);
+      checar('XML termina com </epos-print>', xml.lastIndexOf('</epos-print>') === xml.length - '</epos-print>'.length);
+      checar('Contém número do pedido (' + pedido.numero + ')', xml.indexOf(pedido.numero) !== -1);
+      checar('Contém <cut type="feed"', xml.indexOf('<cut type="feed"') !== -1 || xml.indexOf("<cut type='feed'") !== -1 || /<cut[^>]*feed/.test(xml));
+      checar('Não contém "undefined"', xml.indexOf('undefined') === -1);
+      checar('Não contém "null"', xml.indexOf('null') === -1);
+      checar('Não contém "NaN"', xml.indexOf('NaN') === -1);
+      // [^\n]* em vez de \s* — o valor formatado (dígitos, vírgula/ponto) fica entre "TOTAL:" e
+      // "€", não é espaço em branco. Também não depende de qual caractere de espaço específico
+      // (ASCII U+0020, NBSP U+00A0 etc.) o Intl.NumberFormat usa antes do símbolo — [^\n]* cobre
+      // qualquer um deles sem precisar identificar qual é.
+      checar('Contém TOTAL formatado com €', /TOTAL:[^\n]*€/.test(xml));
+      checar(ehEntrega ? 'Contém "ENTREGA"' : 'Contém "RETIRADA"', xml.indexOf(ehEntrega ? 'ENTREGA' : 'RETIRADA') !== -1);
+
+      if (!ehEntrega) {
+        checar('NÃO contém bloco de endereço (retirada não tem endereço)', xml.indexOf('Rua ') === -1);
+        checar('Retirada NÃO contém a palavra ENTREGA em nenhum lugar', xml.indexOf('ENTREGA') === -1);
+      } else {
+        checar('Contém linha de endereço', xml.indexOf(pedido.endereco.linha1) !== -1);
+        checar('Entrega NÃO contém a palavra RETIRADA em nenhum lugar', xml.indexOf('RETIRADA') === -1);
+        if (pedido.endereco.instrucoes) {
+          // A instrução do cenário 3 tem "&" de propósito — não dá pra procurar o texto cru
+          // (ele nunca aparece cru se builder.addText() estiver escapando direito). Em vez disso:
+          // (1) confirma que a parte legível da instrução chegou, e (2) confirma que o caractere
+          // especial foi transformado em entidade XML, nunca concatenado cru.
+          checar('Contém instruções de entrega (parte textual)', xml.indexOf('tocar campainha') !== -1);
+          // Não fixo qual entidade XML exata é usada pro "&" (pode ser &amp; ou uma forma numérica
+          // válida) — só confirmo que NÃO aparece cru concatenado. A prova de que virou uma
+          // entidade válida (não sumiu, não quebrou o XML) já vem da checagem "XML é bem formado"
+          // acima, que falharia se o "&" tivesse vazado sem escapar.
+          checar('Caractere especial ("&") da instrução NÃO foi concatenado cru', xml.indexOf('Portão azul & tocar') === -1);
+        }
+      }
+
+      // XML bem formado — validação estrutural real via DOMParser. Também é, por construção,
+      // uma prova indireta contra injeção: se algum "<"/"&" cru tivesse vazado sem escapar, o XML
+      // deixaria de ser bem formado e este teste falharia.
+      try {
+        const doc = new DOMParser().parseFromString(xml, 'text/xml');
+        const erro = doc.getElementsByTagName('parsererror');
+        checar('XML é bem formado (DOMParser)', erro.length === 0);
+      } catch (e) {
+        checar('XML é bem formado (DOMParser)', false);
+      }
+
+      // --- Exatamente um <cut>, e ele é o último comando dentro de <epos-print> ---
+      const ocorrenciasCut = (xml.match(/<cut\b/g) || []).length;
+      checar('Existe exatamente um <cut> (' + ocorrenciasCut + ' encontrado(s))', ocorrenciasCut === 1);
+
+      const posicaoCut = xml.indexOf('<cut');
+      const posicaoFechamento = xml.indexOf('</epos-print>');
+      if (posicaoCut !== -1 && posicaoFechamento !== -1) {
+        const trechoAposCut = xml.substring(posicaoCut, posicaoFechamento);
+        checar('<cut> é o último comando (só </epos-print> vem depois dele)', /^<cut[^>]*\/>$/.test(trechoAposCut));
+      } else {
+        checar('<cut> é o último comando (só </epos-print> vem depois dele)', false);
+      }
+
+      // --- Tamanho 2x2 sempre volta pra 1x1 (nunca "vaza" pro próximo bloco) ---
+      const aberturasTamanhoGrande = (xml.match(/<text width="2" height="2"\/>/g) || []).length;
+      const resetsTamanhoNormal = (xml.match(/<text width="1" height="1"\/>/g) || []).length;
+      checar(
+        'Todo bloco 2x2 tem reset pra 1x1 (' + aberturasTamanhoGrande + ' aberturas, ' + resetsTamanhoNormal + ' resets)',
+        aberturasTamanhoGrande > 0 && resetsTamanhoNormal >= aberturasTamanhoGrande
+      );
+      checar(
+        'Termina em tamanho normal (1x1), não fica "preso" em 2x2',
+        xml.lastIndexOf('<text width="1" height="1"/>') > xml.lastIndexOf('<text width="2" height="2"/>')
+      );
+
+      // --- Negrito/emphasis: todo "ligado" tem um "desligado" correspondente ---
+      const aberturasNegrito = (xml.match(/<text em="true"\/>/g) || []).length;
+      const fechamentosNegrito = (xml.match(/<text em="false"\/>/g) || []).length;
+      checar(
+        'Negrito é desligado o mesmo número de vezes que é ligado (' + aberturasNegrito + ' / ' + fechamentosNegrito + ')',
+        aberturasNegrito > 0 && aberturasNegrito === fechamentosNegrito
+      );
+
+      // --- Alinhamento volta pra left antes da lista de produtos ---
+      const primeiroItem = (pedido.itens || [])[0];
+      if (primeiroItem) {
+        const posAlignLeft = xml.indexOf('<text align="left"/>');
+        const posPrimeiroItem = xml.indexOf(primeiroItem.nome);
+        checar('Alinhamento muda para left antes da lista de produtos', posAlignLeft !== -1 && posAlignLeft < posPrimeiroItem);
+      }
+
+      return checagens;
+    }
+
+    function renderizarCenario(cenario) {
+      const container = document.createElement('div');
+      container.className = 'cenario';
+
+      const titulo = document.createElement('h2');
+      titulo.textContent = cenario.titulo;
+      container.appendChild(titulo);
+
+      let xml = '';
+      let erroGeracao = null;
+      try {
+        xml = gerarComandaEposPrintXml(cenario.pedido);
+      } catch (e) {
+        erroGeracao = e;
+      }
+
+      if (erroGeracao) {
+        const p = document.createElement('p');
+        p.style.color = 'red';
+        p.textContent = 'ERRO ao gerar XML: ' + erroGeracao.message;
+        container.appendChild(p);
+        document.getElementById('cenarios').appendChild(container);
+        return;
+      }
+
+      const pre = document.createElement('pre');
+      pre.textContent = xml;
+      container.appendChild(pre);
+
+      const checagens = rodarChecagens(xml, cenario.pedido, cenario.pedido.fulfilment === 'entrega');
+      const listaChecagens = document.createElement('ul');
+      listaChecagens.className = 'checagens';
+      checagens.forEach(function (c) {
+        const li = document.createElement('li');
+        li.className = c.ok ? 'ok' : 'falha';
+        li.textContent = (c.ok ? '✓ ' : '✗ ') + c.descricao;
+        listaChecagens.appendChild(li);
+      });
+      container.appendChild(listaChecagens);
+
+      document.getElementById('cenarios').appendChild(container);
+    }
+
+    // Diagnóstico solicitado: mostra os code points REAIS que formatarMoeda() produz neste
+    // navegador — não é uma suposição, é o valor de verdade lido em tempo de execução.
+    (function mostrarCodePointsMoeda() {
+      const valorFormatado = formatarMoeda(12.5);
+      const itens = [];
+      for (const caractere of valorFormatado) {
+        const codePoint = caractere.codePointAt(0);
+        itens.push('<li>U+' + codePoint.toString(16).toUpperCase().padStart(4, '0') + ' "' + caractere + '"</li>');
+      }
+      document.getElementById('diagnostico-moeda').innerHTML =
+        '<h2>Diagnóstico — code points de formatarMoeda(12.5)</h2>' +
+        '<p>Valor formatado: <code>' + valorFormatado + '</code></p>' +
+        '<ul>' + itens.join('') + '</ul>';
+    })();
+
+    CENARIOS.forEach(renderizarCenario);
+  </script>
+</body>
+</html>

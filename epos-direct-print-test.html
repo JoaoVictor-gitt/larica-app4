@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Teste — ePOS-Print direto (sem ePOSDevice/Socket.IO)</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; font-size: 14px; padding: 12px; }
+    .resultado { background: #f2f2f2; padding: 10px; margin-bottom: 20px; border-radius: 4px; }
+    .resultado p { margin: 4px 0; word-break: break-all; }
+    .resultado pre { white-space: pre-wrap; word-break: break-all; background: #fff; padding: 8px; border: 1px solid #ccc; max-height: 300px; overflow: auto; }
+    button { font-size: 16px; padding: 10px 16px; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Teste ePOS-Print direto — sem ePOSDevice, sem Socket.IO</h1>
+  <p>
+    Página isolada. Reproduz exatamente a sondagem que o próprio <code>epos-2.27.0.js</code> usa
+    internamente em <code>probeWebServiceIF</code>/<code>checkEposPrintService</code>: POST pra
+    <code>/cgi-bin/epos/service.cgi</code> com envelope SOAP vazio. Sem carregar o SDK — só
+    <code>fetch()</code> nativo. <code>&lt;epos-print&gt;</code> permanece vazio; nenhum
+    <code>&lt;text&gt;</code>/<code>&lt;cut&gt;</code>/<code>&lt;feed&gt;</code> é enviado.
+  </p>
+
+  <h2>Teste A — HTTPS padrão (sem porta explícita, como o SDK oficial faz)</h2>
+  <p><code id="url-a"></code></p>
+  <button id="botao-teste-a" type="button">Executar Teste A</button>
+  <div class="resultado" id="resultado-a"></div>
+
+  <h2>Teste B — HTTPS :8043 (explícito)</h2>
+  <p><code id="url-b"></code></p>
+  <button id="botao-teste-b" type="button">Executar Teste B</button>
+  <div class="resultado" id="resultado-b"></div>
+
+  <script>
+    var HOSTNAME = '6mab5o3v6up2v5ueyws25tzr5o5njduk4dldd5rxes2y6mby45bq.omnilinkcert.epson.biz';
+    var URL_A = 'https://' + HOSTNAME + '/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000';
+    var URL_B = 'https://' + HOSTNAME + ':8043/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000';
+
+    // Envelope SOAP exato encontrado em Connection.prototype.probeWebServiceIF (epos-2.27.0.js) —
+    // <epos-print> vazio, só uma sondagem de conectividade, nunca um comando de impressão real.
+    var ENVELOPE_VAZIO =
+      '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">' +
+      '<s:Body>' +
+      '<epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print"></epos-print>' +
+      '</s:Body>' +
+      '</s:Envelope>';
+
+    document.getElementById('url-a').textContent = URL_A;
+    document.getElementById('url-b').textContent = URL_B;
+
+    function escaparHtml(texto) {
+      var div = document.createElement('div');
+      div.textContent = texto;
+      return div.innerHTML;
+    }
+
+    async function testarEndpoint(url, containerId) {
+      var container = document.getElementById(containerId);
+      container.innerHTML = '';
+
+      function linha(rotulo, valorHtml) {
+        var p = document.createElement('p');
+        p.innerHTML = '<strong>' + rotulo + ':</strong> ' + valorHtml;
+        container.appendChild(p);
+      }
+
+      linha('URL testada', escaparHtml(url));
+      var inicio = new Date();
+      linha('Início', inicio.toISOString());
+
+      try {
+        var resposta = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/xml; charset=utf-8',
+            'If-Modified-Since': 'Thu, 01 Jun 1970 00:00:00 GMT',
+            'SOAPAction': '""'
+          },
+          body: ENVELOPE_VAZIO
+        });
+
+        var fim = new Date();
+        linha('Fim', fim.toISOString());
+        linha('Duração', (fim - inicio) + 'ms');
+        linha('HTTP status', resposta.status + ' ' + resposta.statusText);
+        linha('Content-Type retornado', escaparHtml(resposta.headers.get('content-type') || '(ausente)'));
+
+        var corpoBruto = await resposta.text();
+        linha('Corpo bruto (até 2000 caracteres)', '<pre>' + escaparHtml(corpoBruto.substring(0, 2000)) + '</pre>');
+
+        var ehXmlValido = false;
+        var temResponse = false;
+        var valorSuccess = '(não aplicável)';
+        try {
+          var doc = new DOMParser().parseFromString(corpoBruto, 'text/xml');
+          var erroParse = doc.getElementsByTagName('parsererror');
+          ehXmlValido = erroParse.length === 0;
+          if (ehXmlValido) {
+            var respostas = doc.getElementsByTagName('response');
+            temResponse = respostas.length > 0;
+            if (temResponse) {
+              valorSuccess = respostas[0].getAttribute('success');
+            }
+          }
+        } catch (erroParseCatch) {
+          ehXmlValido = false;
+        }
+
+        linha('Corpo interpretável como XML?', ehXmlValido ? 'Sim' : 'Não');
+        linha('Existe elemento &lt;response&gt;?', temResponse ? 'Sim' : 'Não');
+        linha('Valor do atributo success', escaparHtml(String(valorSuccess)));
+      } catch (erro) {
+        var fimErro = new Date();
+        linha('Fim', fimErro.toISOString());
+        linha('Duração', (fimErro - inicio) + 'ms');
+        linha(
+          'Erro do fetch()',
+          '<pre>' + escaparHtml((erro && erro.name ? erro.name : 'Error') + ': ' + (erro && erro.message ? erro.message : String(erro))) + '</pre>'
+        );
+      }
+    }
+
+    document.getElementById('botao-teste-a').addEventListener('click', function () {
+      testarEndpoint(URL_A, 'resultado-a');
+    });
+    document.getElementById('botao-teste-b').addEventListener('click', function () {
+      testarEndpoint(URL_B, 'resultado-b');
+    });
+  </script>
+</body>
+</html>
