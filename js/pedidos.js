@@ -8,6 +8,11 @@
  * utils.js, storage.js e app.js (carregados antes deste).
  */
 
+// --- [AUTO-PRINT DEBUG] instrumentação temporária — remover depois do diagnóstico ---
+const AUTO_PRINT_DEBUG_VERSION = 'auto-print-debug-1';
+console.log('[AUTO-PRINT DEBUG] VERSION =', AUTO_PRINT_DEBUG_VERSION);
+// --- fim do bloco de versão ---
+
 let filtroTipoPedidos = ''; // '' | 'entrega' | 'comer_no_local' | 'retirada'
 let termoBuscaPedidos = '';
 let canalPedidosRealtime = null;
@@ -103,23 +108,42 @@ function iniciarRealtimePedidos() {
   canalPedidosRealtime = subscribeToOrders(
     () => {
       clearTimeout(timeoutRecarregarPedidosRealtime);
-      timeoutRecarregarPedidosRealtime = setTimeout(reloadOrders, 400);
+      timeoutRecarregarPedidosRealtime = setTimeout(() => reloadOrders('realtime'), 400);
     },
     (status) => {
       // Só logging — o SDK do Supabase já gerencia reconexão sozinho, nenhuma reconexão manual aqui.
-      console.log('[pedidos] Realtime canal de pedidos:', status);
+      console.log('[AUTO-PRINT DEBUG] Realtime status:', status);
     }
   );
 }
 
-async function reloadOrders() {
+/** origem: 'realtime' | 'polling' | 'visibilitychange' | 'desconhecida' — só pro log de diagnóstico, não afeta comportamento. */
+async function reloadOrders(origem = 'desconhecida') {
+  console.log('[AUTO-PRINT DEBUG] reload solicitado, origem =', origem, ', lock atual =', _reloadOrdersEmAndamento);
   if (_reloadOrdersEmAndamento) return;
   _reloadOrdersEmAndamento = true;
   try {
     await carregarPedidosClientesCache();
+    const pedidosCarregados = obterPedidosClientes();
+    console.log(
+      '[AUTO-PRINT DEBUG] pedidos carregados, quantidade =',
+      pedidosCarregados.length,
+      ', 5 mais recentes =',
+      pedidosCarregados
+        .slice()
+        .sort((a, b) => new Date(b.criadoEm) - new Date(a.criadoEm))
+        .slice(0, 5)
+        .map((p) => p.id)
+    );
     // Reconsulta o toggle a cada reload — uma aba de /pedidos já aberta antes de alguém ligar/
     // desligar em Configurações (em outra aba/dispositivo) precisa enxergar a mudança sem refresh.
     await atualizarConfiguracaoImpressaoAutomatica();
+    console.log(
+      '[AUTO-PRINT DEBUG] configuração atualizada, autoPrintAtiva =',
+      _impressaoAutomaticaAtiva,
+      ', autoPrintAtivadaEm =',
+      _impressaoAutomaticaAtivadaEm
+    );
     detectarPedidosNovos();
     renderizarQuadroPedidos();
     escanearCandidatosImpressaoAutomatica();
@@ -139,9 +163,11 @@ async function reloadOrders() {
  */
 function iniciarPollingPedidos() {
   if (_intervaloPollingPedidos) return;
+  console.log('[AUTO-PRINT DEBUG] polling iniciado, intervalo =', INTERVALO_POLLING_PEDIDOS_MS);
   _intervaloPollingPedidos = setInterval(() => {
+    console.log('[AUTO-PRINT DEBUG] polling tick, visibilityState =', document.visibilityState);
     if (document.visibilityState !== 'visible') return;
-    reloadOrders();
+    reloadOrders('polling');
   }, INTERVALO_POLLING_PEDIDOS_MS);
 }
 
@@ -247,7 +273,7 @@ function detectarPedidosNovos() {
 // tela), o canal pode ter sido suspenso/perdido eventos — força uma recarga imediata.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
-    reloadOrders();
+    reloadOrders('visibilitychange');
   }
 });
 
@@ -683,11 +709,37 @@ function pedidoEhCandidatoImpressaoAutomatica(pedido) {
 /** Chamado após init() e após todo reloadOrders() (nunca dentro de renderizarQuadroPedidos(), que só redesenha o cache atual). */
 function escanearCandidatosImpressaoAutomatica() {
   if (!_impressaoAutomaticaAtiva) return;
-  obterPedidosClientes().forEach((pedido) => {
-    if (_idsImpressaoAutomaticaEmFilaOuTentados.has(pedido.id)) return;
-    if (!pedidoEhCandidatoImpressaoAutomatica(pedido)) return;
+  const pedidos = obterPedidosClientes();
+
+  // [AUTO-PRINT DEBUG] só loga os 5 mais recentes, pra não poluir o console.
+  const idsParaLogar = new Set(
+    pedidos
+      .slice()
+      .sort((a, b) => new Date(b.criadoEm) - new Date(a.criadoEm))
+      .slice(0, 5)
+      .map((p) => p.id)
+  );
+
+  pedidos.forEach((pedido) => {
+    const jaTentado = _idsImpressaoAutomaticaEmFilaOuTentados.has(pedido.id);
+    const ehCandidato = !jaTentado && pedidoEhCandidatoImpressaoAutomatica(pedido);
+
+    if (idsParaLogar.has(pedido.id)) {
+      console.log('[AUTO-PRINT DEBUG] candidato?', {
+        id: pedido.id,
+        criadoEm: pedido.criadoEm,
+        status: pedido.status,
+        impressoEm: pedido.impressoEm,
+        autoPrintStatus: pedido.autoPrintStatus,
+        jaTentadoNestaAba: jaTentado,
+        candidato: ehCandidato,
+      });
+    }
+
+    if (jaTentado || !ehCandidato) return;
     _idsImpressaoAutomaticaEmFilaOuTentados.add(pedido.id);
     _filaImpressaoAutomatica.push(pedido.id);
+    console.log('[AUTO-PRINT DEBUG] ENFILEIRADO', pedido.id);
   });
   processarFilaImpressaoAutomatica();
 }
@@ -707,9 +759,11 @@ function processarFilaImpressaoAutomatica() {
  * caminho paralelo, não uma variação deles.
  */
 async function iniciarImpressaoAutomaticaPedido(id) {
+  console.log('[AUTO-PRINT DEBUG] PROCESSANDO', id);
   const pedido = obterPedidoClientePorId(id);
   if (!pedido || !pedidoEhCandidatoImpressaoAutomatica(pedido)) {
     // Já não é mais candidato (impresso/cancelado/claim resolvido nesse meio-tempo) — não é erro.
+    console.log('[AUTO-PRINT DEBUG] PROCESSANDO', id, '- não é mais candidato, abortando antes do claim');
     processarFilaImpressaoAutomatica();
     return;
   }
@@ -718,11 +772,13 @@ async function iniciarImpressaoAutomaticaPedido(id) {
   _impressaoEmAndamento = true;
   aplicarBloqueioBotoesImpressao();
 
+  console.log('[AUTO-PRINT DEBUG] CLAIM INICIADO', id);
   let resultadoClaim;
   try {
     resultadoClaim = await claimOrderAutoPrintNoSupabase(id, _deviceIdImpressora);
+    console.log('[AUTO-PRINT DEBUG] CLAIM RESULTADO', id, resultadoClaim);
   } catch (erroClaim) {
-    console.error('Erro ao reivindicar impressão automática do pedido ' + id + ':', erroClaim);
+    console.error('[AUTO-PRINT DEBUG] CLAIM ERRO', id, erroClaim);
     finalizarImpressaoPedido();
     return;
   }
