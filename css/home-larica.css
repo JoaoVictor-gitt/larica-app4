@@ -1,0 +1,264 @@
+/*
+ * home-larica.css
+ * Home pública do Larica (index.html) — header + hero cinematográfico
+ * preto/branco/laranja. Específico desta página, carregado só por ela;
+ * reaproveita os tokens já existentes de css/style.css (--cor-terracota,
+ * --cor-terracota-escura, --cor-sobre-acento, --raio-*, --espaco-*,
+ * --transicao-rapida) sem redefini-los — nada aqui afeta admin/pedido/checkout.
+ */
+
+/* Fundo sempre preto — a identidade desta home é fixa, não segue o toggle de
+   tema claro/escuro usado no resto do sistema (mesmo espírito do preto sólido
+   já usado em .cabecalho-pedido, css/pedido.css). */
+.home-larica-body {
+  background: #000000;
+  min-height: 100vh;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Header                                                                  */
+/* ---------------------------------------------------------------------- */
+.header-larica {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.header-larica-conteudo {
+  max-width: 1200px;
+  margin: 0 auto;
+  height: 72px;
+  padding: 0 var(--espaco-lg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header-larica-logo img {
+  height: 36px;
+  width: auto;
+  display: block;
+}
+
+.header-larica-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-xl);
+}
+
+.header-larica-nav a {
+  color: var(--cor-sobre-acento);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: color var(--transicao-rapida);
+}
+
+.header-larica-nav a:hover {
+  color: var(--cor-terracota);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Hero                                                                    */
+/* ---------------------------------------------------------------------- */
+.hero-larica {
+  position: relative;
+  min-height: 90vh;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+/* Camada 1: mídia — img/video real ocupam .hero-media-elemento (mesma classe
+   pras duas variantes, object-fit cuida do enquadramento em qualquer proporção
+   de tela). data-tipo-midia é o hook que uma futura tela de Configurações vai
+   trocar entre "imagem"/"video", sem precisar mudar CSS nenhum. */
+.hero-media {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.hero-media-elemento {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+/* Placeholder enquanto não há foto/vídeo real (ver comentário em index.html) —
+   substituído futuramente por <img>/<video class="hero-media-elemento">, sem
+   tocar em nenhuma regra abaixo (overlay e conteúdo são camadas independentes). */
+.hero-media-placeholder {
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at 25% 20%, rgba(255, 77, 0, 0.35), transparent 55%),
+    radial-gradient(circle at 80% 75%, rgba(255, 106, 43, 0.22), transparent 50%),
+    #0A0A0A;
+}
+
+/* Camada 2: overlay escuro — garante contraste do texto branco independente
+   da foto/vídeo por trás (mais escuro embaixo, onde ficam CTA/modalidades). */
+.hero-media-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.35) 40%, rgba(0, 0, 0, 0.88) 100%);
+}
+
+/* Vídeo (quando ativado numa etapa futura): respeita prefers-reduced-motion
+   escondendo o vídeo e mostrando o poster/fallback de imagem no lugar — regra
+   já preparada, inerte até existir um <video> real na página. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-media[data-tipo-midia="video"] video {
+    display: none;
+  }
+  .hero-media[data-tipo-midia="video"] .hero-media-poster-fallback {
+    display: block;
+  }
+}
+
+/* Camada 3: conteúdo */
+.hero-conteudo {
+  position: relative;
+  z-index: 1;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--espaco-2xl) var(--espaco-lg);
+  width: 100%;
+}
+
+.hero-eyebrow {
+  color: var(--cor-terracota);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.85rem;
+  margin: 0 0 var(--espaco-md);
+}
+
+.hero-headline {
+  color: var(--cor-sobre-acento);
+  font-weight: 800;
+  font-size: clamp(2.4rem, 6vw, 5rem);
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--espaco-md);
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.4);
+  max-width: 14ch;
+}
+
+.hero-subtexto {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: clamp(1rem, 2vw, 1.25rem);
+  font-weight: 500;
+  margin: 0 0 var(--espaco-xl);
+}
+
+.hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espaco-sm);
+  margin: 0 0 var(--espaco-xl);
+  padding: 0;
+  list-style: none;
+}
+
+.hero-badges li {
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: var(--cor-sobre-acento);
+  padding: var(--espaco-xs) var(--espaco-md);
+  border-radius: var(--raio-pill);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(4px);
+}
+
+.hero-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cor-terracota);
+  color: var(--cor-sobre-acento);
+  font-weight: 800;
+  font-size: 1.05rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: var(--espaco-md) var(--espaco-2xl);
+  border-radius: var(--raio-pill);
+  box-shadow: 0 8px 30px rgba(255, 77, 0, 0.35);
+  transition: background var(--transicao-rapida), transform var(--transicao-rapida);
+  margin-bottom: var(--espaco-xl);
+}
+
+.hero-cta:hover {
+  background: var(--cor-terracota-escura);
+  transform: translateY(-2px);
+}
+
+.hero-modalidades {
+  display: flex;
+  gap: var(--espaco-md);
+  padding: 0;
+  list-style: none;
+  margin: 0;
+  max-width: 560px;
+}
+
+.hero-modalidades li {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--raio-md);
+  padding: var(--espaco-md);
+  color: var(--cor-sobre-acento);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Tablet                                                                  */
+/* ---------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .header-larica-nav { gap: var(--espaco-md); }
+  .header-larica-nav a { font-size: 0.78rem; }
+
+  .hero-larica { min-height: 80vh; }
+
+  .hero-modalidades { flex-wrap: wrap; }
+  .hero-modalidades li { flex: 1 1 calc(50% - var(--espaco-sm)); }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Celular                                                                 */
+/* ---------------------------------------------------------------------- */
+@media (max-width: 480px) {
+  .header-larica-conteudo { height: 56px; }
+  .header-larica-logo img { height: 28px; }
+  .header-larica-nav { gap: var(--espaco-sm); }
+  .header-larica-nav a { font-size: 0.68rem; letter-spacing: 0.02em; }
+
+  .hero-larica { min-height: 100vh; }
+  .hero-conteudo { padding: var(--espaco-xl) var(--espaco-md); text-align: center; }
+
+  .hero-headline { max-width: none; }
+
+  .hero-badges { justify-content: center; }
+
+  .hero-cta { width: 100%; }
+
+  .hero-modalidades { flex-direction: column; max-width: none; }
+  .hero-modalidades li { flex: none; }
+}

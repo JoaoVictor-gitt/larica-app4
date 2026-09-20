@@ -15,27 +15,58 @@
   <title>Larica Food Truck</title>
   <link rel="icon" type="image/png" href="favicon.png" />
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/home-larica.css" />
   <link rel="stylesheet" href="css/responsive.css" />
 </head>
-<body class="tela-inicial-body" data-area="pedido">
-  <main class="tela-inicial">
-    <div class="tela-inicial-marca">
-      <img src="logo.png" alt="Larica Food Truck" class="marca-inicial-logo-img" />
-      <p class="tagline-larica">Food Truck</p>
+<body class="home-larica-body" data-area="pedido">
+  <header class="header-larica">
+    <div class="header-larica-conteudo">
+      <a class="header-larica-logo" href="index.html" aria-label="Larica — início">
+        <img src="logo.png" alt="Larica" />
+      </a>
+      <nav class="header-larica-nav">
+        <a href="index.html">Home</a>
+        <a href="pedido.html">Menu</a>
+      </nav>
     </div>
+  </header>
 
-    <div class="opcoes-area-inicial">
-      <a class="card opcao-area" href="pedido.html">
-        <span class="opcao-area-icone">🧾</span>
-        <h2>Fazer Pedido</h2>
-        <p>Veja nosso cardápio e faça seu pedido</p>
-      </a>
-      <a class="card opcao-area" href="dashboard.html">
-        <span class="opcao-area-icone">📊</span>
-        <h2>Painel Administrativo</h2>
-        <p>Gerenciar produtos, estoque, histórico e configurações</p>
-      </a>
-    </div>
+  <main>
+    <section class="hero-larica">
+      <!-- Mídia de fundo do Hero — hoje um placeholder (sem foto/vídeo real no
+           projeto ainda). data-tipo-midia é o hook que uma futura tela de
+           Configurações > Aparência do site vai controlar, trocando entre
+           "imagem"/"video" sem exigir nenhuma mudança de CSS. Quando a foto
+           real chegar, troca-se .hero-media-placeholder por:
+             <img class="hero-media-elemento" src="images/hero-churrasco.jpg"
+                  alt="" loading="eager" fetchpriority="high" />
+           Para vídeo, mesma classe .hero-media-elemento num <video autoplay
+           muted loop playsinline poster="...">, sempre com poster/fallback. -->
+      <div class="hero-media" data-tipo-midia="imagem">
+        <div class="hero-media-placeholder" aria-hidden="true"></div>
+        <div class="hero-media-overlay"></div>
+      </div>
+
+      <div class="hero-conteudo">
+        <p class="hero-eyebrow">Brazilian Street Food</p>
+        <h1 class="hero-headline">GRILLED. FRESH. BRAZILIAN.</h1>
+        <p class="hero-subtexto">Brazilian BBQ · Skewers · Street Food</p>
+
+        <ul class="hero-badges">
+          <li>Brazilian BBQ</li>
+          <li>Freshly Grilled</li>
+          <li>Vegetarian Options</li>
+        </ul>
+
+        <a class="hero-cta" href="pedido.html">Order Now</a>
+
+        <ul class="hero-modalidades">
+          <li>Pick Up</li>
+          <li>Delivery</li>
+          <li>Dine In</li>
+        </ul>
+      </div>
+    </section>
   </main>
 
   <script src="js/utils.js"></script>
