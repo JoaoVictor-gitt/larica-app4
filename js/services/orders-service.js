@@ -11,8 +11,8 @@
  * (supabaseClient), carregado antes deste arquivo.
  */
 
-const FULFILMENT_PARA_ENUM = { retirada: 'collection', entrega: 'delivery' };
-const ENUM_PARA_FULFILMENT = { collection: 'retirada', delivery: 'entrega' };
+const FULFILMENT_PARA_ENUM = { retirada: 'collection', comer_no_local: 'dine_in', entrega: 'delivery' };
+const ENUM_PARA_FULFILMENT = { collection: 'retirada', dine_in: 'comer_no_local', delivery: 'entrega' };
 
 const PAGAMENTO_PARA_ENUM = { cartao: 'card', dinheiro: 'cash', revolut: 'revolut', transferencia: 'bank_transfer' };
 const ENUM_PARA_PAGAMENTO = { card: 'cartao', cash: 'dinheiro', revolut: 'revolut', bank_transfer: 'transferencia' };

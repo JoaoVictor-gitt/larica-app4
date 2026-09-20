@@ -158,6 +158,12 @@
   margin-bottom: var(--espaco-md);
 }
 
+/* Etapa "Retirada / Comer no local / Entrega" tem 3 botões — grid próprio,
+   nunca aplicado a #opcoes-modo-retirada (esse continua com 2 colunas). */
+.opcoes-recebimento.opcoes-recebimento-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .opcao-pagamento.opcao-grande {
   flex-direction: column;
   align-items: center;
@@ -431,7 +437,8 @@
 }
 
 @media (max-width: 480px) {
-  .opcoes-recebimento {
+  .opcoes-recebimento,
+  .opcoes-recebimento-3 {
     grid-template-columns: 1fr;
   }
 

@@ -24,7 +24,7 @@
  *   CashPaymentInfo   -> { precisaTroco, valorPago, troco } — só quando
  *                        formaPagamento === 'dinheiro'; ponto único a trocar
  *                        futuramente por uma integração real (ex.: Revolut)
- *   FulfilmentType    -> 'retirada' | 'entrega'
+ *   FulfilmentType    -> 'retirada' | 'comer_no_local' | 'entrega'
  *   Order             -> { itens, fulfilment, cliente, retirada, endereco,
  *                          formaPagamento, pagamentoDinheiro, subtotal,
  *                          taxaEntrega, total }
@@ -166,7 +166,7 @@ let canalConfirmacaoTransferencia = null;
 const ROTULOS_ETAPA_PEDIDO = {
   cardapio: 'Cardápio',
   carrinho: 'Carrinho',
-  recebimento: 'Retirada ou entrega',
+  recebimento: 'Retirada, comer no local ou entrega',
   'dados-retirada': 'Seus dados',
   'dados-entrega': 'Seus dados e endereço',
   pagamento: 'Forma de pagamento',
@@ -413,9 +413,11 @@ function transferenciaDisponivel() {
 }
 
 /**
- * Cartão não funciona pra entrega (sem maquininha) — disponível só quando
- * fulfilment é retirada. Diferente de revolutDisponivel()/transferenciaDisponivel(),
- * não depende de business_settings — é regra fixa de fulfilment.
+ * Cartão não funciona pra entrega (sem maquininha) — disponível pra retirada
+ * e comer no local (o food truck tem maquininha no local). Diferente de
+ * revolutDisponivel()/transferenciaDisponivel(), não depende de
+ * business_settings — é regra fixa de fulfilment. `!== 'entrega'` já cobre
+ * 'comer_no_local' corretamente, sem precisar listar os 2 valores.
  */
 function cartaoDisponivel() {
   return estadoPedido.fulfilment !== 'entrega';
@@ -513,9 +515,9 @@ function calcularDisponibilidadeNegocio(config, horarios, agora) {
     return { podeFinalizar: false, motivo: 'outside_hours', mensagem: config.mensagemFechado || 'Pedidos fechados no momento.' };
   }
 
-  if (!config.entregaAtiva && !config.retiradaAtiva) {
-    return { podeFinalizar: false, motivo: 'no_methods', mensagem: 'Entrega e retirada estão indisponíveis no momento.' };
-  }
+  // "Comer no local" não tem toggle nesta fase — está sempre disponível,
+  // então nunca existe de fato "nenhum método disponível" (mesmo que
+  // entrega e retirada estejam ambas desativadas).
 
   return { podeFinalizar: true, motivo: 'open', mensagem: '' };
 }
@@ -552,8 +554,9 @@ function aplicarDisponibilidadeFulfilment() {
   aplicarDisponibilidadeBotaoFulfilment('retirada', configuracoesNegocio.retiradaAtiva);
   aplicarDisponibilidadeBotaoFulfilment('entrega', configuracoesNegocio.entregaAtiva);
 
-  const nenhumMetodo = !configuracoesNegocio.entregaAtiva && !configuracoesNegocio.retiradaAtiva;
-  document.getElementById('aviso-recebimento-indisponivel').style.display = nenhumMetodo ? '' : 'none';
+  // "Comer no local" não tem toggle nesta fase — nunca é desabilitado aqui, e o aviso de
+  // "nenhum método disponível" nunca deve aparecer mais (sempre resta ao menos essa opção).
+  document.getElementById('aviso-recebimento-indisponivel').style.display = 'none';
 }
 
 function aplicarDisponibilidadeBotaoFulfilment(fulfilment, disponivel) {
@@ -581,7 +584,8 @@ function invalidarFulfilmentSeIndisponivel() {
 
   const aindaValido =
     (estadoPedido.fulfilment === 'entrega' && configuracoesNegocio.entregaAtiva) ||
-    (estadoPedido.fulfilment === 'retirada' && configuracoesNegocio.retiradaAtiva);
+    (estadoPedido.fulfilment === 'retirada' && configuracoesNegocio.retiradaAtiva) ||
+    estadoPedido.fulfilment === 'comer_no_local'; // sem toggle nesta fase — sempre válido
   if (aindaValido) return;
 
   estadoPedido.fulfilment = '';
@@ -1384,7 +1388,9 @@ function ligarEventosRecebimento() {
 
   document.getElementById('botao-continuar-recebimento').addEventListener('click', () => {
     if (!estadoPedido.fulfilment) return;
-    irParaEtapaPedido(estadoPedido.fulfilment === 'retirada' ? 'dados-retirada' : 'dados-entrega');
+    // 3 vias explícitas — nunca um ternário assumindo que "não é retirada" significa entrega.
+    const ETAPA_POR_FULFILMENT = { retirada: 'dados-retirada', comer_no_local: 'dados-retirada', entrega: 'dados-entrega' };
+    irParaEtapaPedido(ETAPA_POR_FULFILMENT[estadoPedido.fulfilment]);
   });
 }
 
@@ -2067,6 +2073,9 @@ async function renderizarRevisao() {
     })
     .join('');
 
+  // Rótulo por fulfilment — as 3 modalidades nomeadas explicitamente, nunca um fallback genérico.
+  const ROTULO_FULFILMENT_REVISAO = { entrega: 'Entrega', comer_no_local: 'Comer no local', retirada: 'Retirada' };
+
   const blocoEntrega =
     estadoPedido.fulfilment === 'entrega'
       ? `
@@ -2079,7 +2088,7 @@ async function renderizarRevisao() {
       </div>`
       : `
       <div class="resumo-revisao-secao">
-        <div class="resumo-revisao-titulo">Retirada</div>
+        <div class="resumo-revisao-titulo">${ROTULO_FULFILMENT_REVISAO[estadoPedido.fulfilment] || 'Retirada'}</div>
         <p>Horário: ${escaparHtml(rotuloHorarioRetirada(estadoPedido))}</p>
       </div>`;
 
@@ -2089,7 +2098,7 @@ async function renderizarRevisao() {
       ${linhasItens}
     </div>
     <div class="resumo-revisao-secao">
-      <div class="resumo-revisao-titulo">${estadoPedido.fulfilment === 'entrega' ? 'Entrega' : 'Retirada'}</div>
+      <div class="resumo-revisao-titulo">${ROTULO_FULFILMENT_REVISAO[estadoPedido.fulfilment] || 'Retirada'}</div>
       <p>Cliente: ${escaparHtml(estadoPedido.cliente.nome)} · ${escaparHtml(estadoPedido.cliente.telefone)}</p>
     </div>
     ${blocoEntrega}
@@ -2151,7 +2160,7 @@ async function confirmarPedido() {
     }
 
     if (!estadoPedido.fulfilment) {
-      mostrarToast('Escolha retirada ou entrega para continuar.', 'erro');
+      mostrarToast('Escolha retirada, comer no local ou entrega para continuar.', 'erro');
       return;
     }
 
@@ -2208,7 +2217,9 @@ async function confirmarPedido() {
       itens: itensPedido,
       fulfilment: estadoPedido.fulfilment,
       cliente: { ...estadoPedido.cliente },
-      retirada: estadoPedido.fulfilment === 'retirada' ? { ...estadoPedido.retirada } : null,
+      // 'comer_no_local' reaproveita o mesmo dado de "quando quer o pedido pronto" que 'retirada' —
+      // por isso os dois valores são listados explicitamente aqui, nunca um "!== 'entrega'" implícito.
+      retirada: (estadoPedido.fulfilment === 'retirada' || estadoPedido.fulfilment === 'comer_no_local') ? { ...estadoPedido.retirada } : null,
       endereco: estadoPedido.fulfilment === 'entrega' ? { ...estadoPedido.endereco } : null,
       distanciaEntregaKm: distanciaEntregaAtual(),
       deliveryQuoteId: estadoPedido.fulfilment === 'entrega' && estadoPedido.cotacaoEntrega ? estadoPedido.cotacaoEntrega.quoteId : null,
@@ -2275,11 +2286,14 @@ function renderizarConfirmacao(pedido, moeda) {
 
   // Cartão é sempre presencial (não há pagamento online nesta versão) — reforça isso na confirmação.
   const avisoCartao =
-    pedido.formaPagamento === 'cartao' ? '<p class="aviso-info">Pagamento na retirada/entrega, presencialmente.</p>' : '';
+    pedido.formaPagamento === 'cartao' ? '<p class="aviso-info">Pagamento na retirada/entrega/local, presencialmente.</p>' : '';
+
+  // Rótulo por fulfilment — as 3 modalidades nomeadas explicitamente, nunca um fallback genérico.
+  const ROTULO_FULFILMENT_CONFIRMACAO = { entrega: 'Entrega', comer_no_local: 'Comer no local', retirada: 'Retirada' };
 
   document.getElementById('resumo-confirmacao').innerHTML = `
     ${linhasItens}
-    <div class="linha-resumo"><span>${pedido.fulfilment === 'entrega' ? 'Entrega' : 'Retirada'}</span><span></span></div>
+    <div class="linha-resumo"><span>${ROTULO_FULFILMENT_CONFIRMACAO[pedido.fulfilment] || 'Retirada'}</span><span></span></div>
     <div class="linha-resumo"><span>Pagamento</span><span>${escaparHtml(ROTULOS_FORMA_PAGAMENTO[pedido.formaPagamento] || '')}</span></div>
     ${linhaCupomResumoHtml(pedido.codigoCupom, pedido.valorDesconto, moeda, null)}
     <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoeda(pedido.total, moeda)}</span></div>
