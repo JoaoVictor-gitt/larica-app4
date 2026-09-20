@@ -123,6 +123,7 @@
       checar('XML começa com <epos-print', xml.indexOf('<epos-print') === 0);
       checar('XML termina com </epos-print>', xml.lastIndexOf('</epos-print>') === xml.length - '</epos-print>'.length);
       checar('Contém número do pedido (' + pedido.numero + ')', xml.indexOf(pedido.numero) !== -1);
+      checar('Contém "PEDIDO " imediatamente antes do número no cabeçalho', xml.indexOf('PEDIDO ' + pedido.numero) !== -1);
       checar('Contém <cut type="feed"', xml.indexOf('<cut type="feed"') !== -1 || xml.indexOf("<cut type='feed'") !== -1 || /<cut[^>]*feed/.test(xml));
       checar('Não contém "undefined"', xml.indexOf('undefined') === -1);
       checar('Não contém "null"', xml.indexOf('null') === -1);
