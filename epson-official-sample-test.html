@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Teste — printer_sample oficial Epson (SDK 2.27.0i)</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; font-size: 14px; padding: 12px; }
+    textarea { width: 100%; height: 260px; font-family: monospace; font-size: 12px; }
+    button { font-size: 16px; padding: 10px 16px; margin-bottom: 10px; }
+    label { display: block; margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <h1>Teste isolado — fluxo original do printer_sample.html (Epson ePOS SDK for JavaScript 2.27.0i)</h1>
+  <p>
+    Página isolada, sem nenhuma relação com o painel de pedidos. Reproduz literalmente
+    <code>connectHostName → Callback_connectHostName → ePosDev.connect() → Callback_connect → createDevice()</code>
+    do sample oficial da Epson. Sem wrappers de XMLHttpRequest/WebSocket. Não imprime nada.
+  </p>
+
+  <label>Serial: <input id="target" readonly style="width:220px;" /></label>
+  <label>crypto = true, buffer = false (fixos, conforme solicitado)</label>
+
+  <button id="botao-conectar" type="button">Executar fluxo oficial (connect + createDevice)</button>
+
+  <h2>Console (mesmo formato do sample oficial)</h2>
+  <textarea id="console" readonly></textarea>
+
+  <script src="vendor/epson/epos-2.27.0.js"></script>
+  <script>
+    // ---------------------------------------------------------------------
+    // Cópia fiel do fluxo de conexão de printer_sample.html (ePOS SDK for
+    // JavaScript 2.27.0i, pacote oficial da Epson). Nenhum wrapper de
+    // XMLHttpRequest/WebSocket/Socket.IO é instalado nesta página.
+    // ---------------------------------------------------------------------
+
+    var SERIAL = 'XCWQ020321';
+    var DEVICE_ID = 'local_printer';
+
+    var ePosDev = new epson.ePOSDevice();
+
+    // --- consolelog: idêntica ao sample oficial ---
+    function consolelog(string, option) {
+      var length = arguments.length;
+      var overwrite = length > 1 ? option : false;
+      if (overwrite) {
+        document.getElementById('console').value = string + '\r\n';
+      } else {
+        document.getElementById('console').value += string + '\r\n';
+      }
+    }
+
+    // --- encodeBase32: idêntica ao sample oficial ---
+    function encodeBase32(byteArray) {
+      const bit5toBase32Dic = {
+        '00000': 'A', '00001': 'B', '00010': 'C', '00011': 'D',
+        '00100': 'E', '00101': 'F', '00110': 'G', '00111': 'H',
+        '01000': 'I', '01001': 'J', '01010': 'K', '01011': 'L',
+        '01100': 'M', '01101': 'N', '01110': 'O', '01111': 'P',
+        '10000': 'Q', '10001': 'R', '10010': 'S', '10011': 'T',
+        '10100': 'U', '10101': 'V', '10110': 'W', '10111': 'X',
+        '11000': 'Y', '11001': 'Z', '11010': '2', '11011': '3',
+        '11100': '4', '11101': '5', '11110': '6', '11111': '7'
+      };
+
+      var byteText = '';
+      for (var i = 0; i < byteArray.length; i++) {
+        byteText += String(Number(byteArray[i]).toString(2)).padStart(8, '0');
+      }
+
+      const bit5Array = byteText.match(/.{1,5}/g);
+      var base32Text = '';
+      for (var i = 0; i < bit5Array.length; i++) {
+        var bit5Text = bit5Array[i];
+        if (bit5Text.length < 5) {
+          bit5Text = bit5Text + '0'.repeat(5 - bit5Text.length);
+        }
+        if (bit5Text in bit5toBase32Dic) {
+          base32Text += bit5toBase32Dic[bit5Text];
+        }
+      }
+      return base32Text;
+    }
+
+    // --- connectHostName: idêntica ao sample oficial ---
+    async function connectHostName(serial, callback) {
+      const epsonDomain = 'omnilinkcert.epson.biz';
+
+      const uppercaseSerial = serial.toUpperCase();
+      document.getElementById('target').value = uppercaseSerial;
+
+      const buff = new Uint8Array([].map.call(uppercaseSerial, (c) => c.charCodeAt(0))).buffer;
+      const hashHex = await crypto.subtle.digest('SHA-256', buff);
+
+      const base32Text = encodeBase32(new Uint8Array(hashHex));
+
+      const target = base32Text + '.' + epsonDomain;
+      consolelog('Generate Printer URL based on entered serial number. ' + target, false);
+
+      callback(target);
+    }
+
+    // --- Callback_connectHostName: idêntica ao sample oficial — connect() primeiro, handlers depois ---
+    function Callback_connectHostName(target) {
+      ePosDev.connect(target, '8043', Callback_connect);
+      ePosDev.onreconnecting = OnReconnecting;
+      ePosDev.onreconnect = OnReconnect;
+      ePosDev.ondisconnect = OnDisconnect;
+    }
+
+    // --- Callback_connect: idêntica ao sample oficial, só com crypto/buffer fixos (não há checkboxes nesta página) ---
+    function Callback_connect(data) {
+      var deviceID = DEVICE_ID;
+      var cryptoOpt = true;
+      var bufferOpt = false;
+      var options = { crypto: cryptoOpt, buffer: bufferOpt };
+
+      if (data == 'OK') {
+        consolelog('connected to ePOS Device Service Interface.', false);
+        ePosDev.createDevice(deviceID, ePosDev.DEVICE_TYPE_PRINTER, options, callbackCreateDevice_printer);
+      } else if (data == 'SSL_CONNECT_OK') {
+        consolelog('connected to ePOS Device Service Interface with SSL.', false);
+        ePosDev.createDevice(deviceID, ePosDev.DEVICE_TYPE_PRINTER, options, callbackCreateDevice_printer);
+      } else {
+        consolelog('connected to ePOS Device Service Interface is failed. [' + data + ']', false);
+      }
+    }
+
+    // --- callbackCreateDevice_printer: mesma checagem de sucesso/erro do sample oficial.
+    // onstatuschange/ononline do sample original dependiam de checkboxes que não existem
+    // nesta página isolada — aqui só logam direto, sem gate de checkbox. onreceive
+    // simplificado (sem getStatusText, helper de decodificação de status não necessário
+    // pois nenhum comando de impressão é enviado aqui).
+    function callbackCreateDevice_printer(data, code) {
+      if (data == null) {
+        consolelog('createDevice falhou. code=' + code);
+        return;
+      }
+
+      consolelog('you can use printer.');
+      consolelog('TESTE CONCLUÍDO — connect() e createDevice() OK. Nenhum comando de impressão foi enviado.');
+
+      var printer = data;
+      printer.onreceive = function (res) {
+        consolelog('onreceive: ' + JSON.stringify(res));
+      };
+      printer.onstatuschange = function (status) {
+        consolelog('onstatuschange: ' + status);
+      };
+      printer.ononline = function () {
+        consolelog('ononline');
+      };
+    }
+
+    function OnReconnecting() { consolelog('onreconnecting'); }
+    function OnReconnect() { consolelog('onreconnect'); }
+    function OnDisconnect() { consolelog('ondisconnect'); }
+
+    document.getElementById('botao-conectar').addEventListener('click', function () {
+      document.getElementById('console').value = '';
+      connectHostName(SERIAL, Callback_connectHostName);
+    });
+  </script>
+</body>
+</html>
