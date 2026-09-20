@@ -318,7 +318,7 @@ async function executarAcaoPedido(botao, funcaoTransicao, mensagemSucesso) {
 // NUNCA são chamados por nenhum caminho a partir do clique em Imprimir/Reimprimir.
 // O SDK/builder/service já estão carregados (pedidos.html), mas ficam como código
 // morto até isto virar true — nenhum fetch pra Epson acontece com a flag em false.
-const IMPRESSAO_EPSON_DIRETA_ATIVA = false;
+const IMPRESSAO_EPSON_DIRETA_ATIVA = true;
 
 let _impressaoEmAndamento = false;
 let _pedidoIdImpressaoPendente = null;

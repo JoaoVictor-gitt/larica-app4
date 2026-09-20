@@ -64,7 +64,7 @@ function gerarComandaEposPrintXml(pedido) {
 
   builder.addTextStyle(undefined, undefined, true);
   builder.addTextSize(2, 2);
-  builder.addText((pedido.numero || '') + '\n');
+  builder.addText('PEDIDO ' + (pedido.numero || '') + '\n');
   builder.addTextSize(1, 1);
   builder.addTextStyle(undefined, undefined, false);
 
@@ -170,6 +170,8 @@ function gerarComandaEposPrintXml(pedido) {
   builder.addText('TOTAL: ' + formatarMoeda(pedido.total) + '\n');
   builder.addTextSize(1, 1);
   builder.addTextStyle(undefined, undefined, false);
+
+  builder.addFeedLine(1);
 
   builder.addTextStyle(undefined, undefined, true);
   builder.addText((pedido.numero || '') + '\n');
