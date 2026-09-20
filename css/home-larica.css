@@ -16,21 +16,23 @@
 }
 
 /* ---------------------------------------------------------------------- */
-/* Header                                                                  */
+/* Header — sobreposto ao Hero, sem faixa/fundo próprio. A legibilidade da    */
+/* navegação vem do esmaecimento superior do próprio overlay do Hero          */
+/* (.hero-media-overlay, mais abaixo), não de um background aqui.            */
 /* ---------------------------------------------------------------------- */
 .header-larica {
-  position: sticky;
+  position: absolute;
   top: 0;
-  z-index: 20;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(6px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  left: 0;
+  width: 100%;
+  z-index: 10;
+  background: transparent;
 }
 
 .header-larica-conteudo {
   max-width: 1200px;
   margin: 0 auto;
-  height: 72px;
+  height: 88px;
   padding: 0 var(--espaco-lg);
   display: flex;
   align-items: center;
@@ -62,12 +64,29 @@
   color: var(--cor-terracota);
 }
 
+/* Order Now do header — pill laranja, precisa vencer a cor branca de
+   ".header-larica-nav a" acima (por isso a seletor composto, sem !important). */
+.header-larica-nav a.header-larica-cta {
+  background: var(--cor-terracota);
+  color: var(--cor-sobre-acento);
+  padding: 8px 22px;
+  border-radius: var(--raio-pill);
+  transition: background var(--transicao-rapida), transform var(--transicao-rapida);
+}
+
+.header-larica-nav a.header-larica-cta:hover {
+  background: var(--cor-terracota-escura);
+  color: var(--cor-sobre-acento);
+  transform: translateY(-1px);
+}
+
 /* ---------------------------------------------------------------------- */
-/* Hero                                                                    */
+/* Hero — praticamente a tela inteira; header fica por cima (absolute), a    */
+/* mídia ocupa tudo atrás, inclusive atrás do header.                        */
 /* ---------------------------------------------------------------------- */
 .hero-larica {
   position: relative;
-  min-height: 90vh;
+  min-height: 100vh;
   display: flex;
   align-items: center;
   overflow: hidden;
@@ -103,12 +122,17 @@
     #0A0A0A;
 }
 
-/* Camada 2: overlay escuro — garante contraste do texto branco independente
-   da foto/vídeo por trás (mais escuro embaixo, onde ficam CTA/modalidades). */
+/* Camada 2: overlay — dois gradientes na mesma camada:
+   1) esmaecimento superior sutil, só pra legibilidade do header transparente;
+   2) gradiente horizontal principal, forte à esquerda (onde fica o texto) e
+      suave à direita (onde a comida/fogo aparece com mais destaque). */
 .hero-media-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.35) 40%, rgba(0, 0, 0, 0.88) 100%);
+  z-index: 1;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0) 200px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.72) 35%, rgba(0, 0, 0, 0.32) 65%, rgba(0, 0, 0, 0.1) 100%);
 }
 
 /* Vídeo (quando ativado numa etapa futura): respeita prefers-reduced-motion
@@ -123,14 +147,16 @@
   }
 }
 
-/* Camada 3: conteúdo */
+/* Camada 3: conteúdo — encostado à esquerda (flex-start padrão de .hero-larica,
+   já que .hero-media/.header-larica são position:absolute e saem do fluxo),
+   largura limitada pra sobrar espaço aberto à direita pra comida/fogo. */
 .hero-conteudo {
   position: relative;
-  z-index: 1;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: var(--espaco-2xl) var(--espaco-lg);
+  z-index: 2;
+  max-width: 620px;
   width: 100%;
+  padding: 0 var(--espaco-lg);
+  margin-left: clamp(1.5rem, 8vw, 6rem);
 }
 
 .hero-eyebrow {
@@ -145,12 +171,16 @@
 .hero-headline {
   color: var(--cor-sobre-acento);
   font-weight: 800;
-  font-size: clamp(2.4rem, 6vw, 5rem);
-  line-height: 1.05;
+  font-size: clamp(2.8rem, 7vw, 6.5rem);
+  line-height: 1.02;
   letter-spacing: -0.01em;
-  margin: 0 0 var(--espaco-md);
-  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.4);
-  max-width: 14ch;
+  text-transform: uppercase;
+  margin: 0 0 var(--espaco-lg);
+  text-shadow: 0 2px 28px rgba(0, 0, 0, 0.5);
+}
+
+.hero-headline span {
+  display: block;
 }
 
 .hero-subtexto {
@@ -185,6 +215,7 @@
 .hero-cta {
   display: inline-flex;
   align-items: center;
+  gap: var(--espaco-sm);
   justify-content: center;
   background: var(--cor-terracota);
   color: var(--cor-sobre-acento);
@@ -196,7 +227,6 @@
   border-radius: var(--raio-pill);
   box-shadow: 0 8px 30px rgba(255, 77, 0, 0.35);
   transition: background var(--transicao-rapida), transform var(--transicao-rapida);
-  margin-bottom: var(--espaco-xl);
 }
 
 .hero-cta:hover {
@@ -204,61 +234,44 @@
   transform: translateY(-2px);
 }
 
-.hero-modalidades {
-  display: flex;
-  gap: var(--espaco-md);
-  padding: 0;
-  list-style: none;
-  margin: 0;
-  max-width: 560px;
-}
-
-.hero-modalidades li {
-  flex: 1;
-  min-width: 0;
-  text-align: center;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: var(--raio-md);
-  padding: var(--espaco-md);
-  color: var(--cor-sobre-acento);
-  font-weight: 700;
-  text-transform: uppercase;
-  font-size: 0.85rem;
-  letter-spacing: 0.05em;
-  background: rgba(255, 255, 255, 0.04);
-}
-
 /* ---------------------------------------------------------------------- */
 /* Tablet                                                                  */
 /* ---------------------------------------------------------------------- */
 @media (max-width: 768px) {
+  .header-larica-conteudo { height: 72px; }
   .header-larica-nav { gap: var(--espaco-md); }
   .header-larica-nav a { font-size: 0.78rem; }
+  .header-larica-nav a.header-larica-cta { padding: 7px 16px; }
 
-  .hero-larica { min-height: 80vh; }
-
-  .hero-modalidades { flex-wrap: wrap; }
-  .hero-modalidades li { flex: 1 1 calc(50% - var(--espaco-sm)); }
+  .hero-conteudo { margin-left: var(--espaco-lg); }
 }
 
 /* ---------------------------------------------------------------------- */
 /* Celular                                                                 */
 /* ---------------------------------------------------------------------- */
 @media (max-width: 480px) {
-  .header-larica-conteudo { height: 56px; }
-  .header-larica-logo img { height: 28px; }
+  .header-larica-conteudo { height: 56px; padding: 0 var(--espaco-md); }
+  .header-larica-logo img { height: 26px; }
   .header-larica-nav { gap: var(--espaco-sm); }
-  .header-larica-nav a { font-size: 0.68rem; letter-spacing: 0.02em; }
+  .header-larica-nav a { font-size: 0.62rem; letter-spacing: 0.02em; }
+  .header-larica-nav a.header-larica-cta { padding: 6px 12px; }
 
-  .hero-larica { min-height: 100vh; }
-  .hero-conteudo { padding: var(--espaco-xl) var(--espaco-md); text-align: center; }
-
-  .hero-headline { max-width: none; }
+  /* Hero permanece full-screen (min-height:100vh já herdado da base) — só o
+     conteúdo passa a ocupar a largura toda e centralizar, em vez de encostar
+     à esquerda como no desktop/tablet. */
+  .hero-conteudo {
+    margin-left: 0;
+    max-width: none;
+    padding: var(--espaco-xl) var(--espaco-md);
+    text-align: center;
+  }
 
   .hero-badges { justify-content: center; }
 
   .hero-cta { width: 100%; }
 
-  .hero-modalidades { flex-direction: column; max-width: none; }
-  .hero-modalidades li { flex: none; }
+  /* Preparado para quando existir mídia real: no celular, favorece o lado
+     onde a comida normalmente fica no enquadramento (ajustar conforme a foto/
+     vídeo real escolhido na Galeria) em vez do centro puro usado no desktop. */
+  .hero-media-elemento { object-position: 65% center; }
 }
