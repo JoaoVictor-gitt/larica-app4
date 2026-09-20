@@ -82,6 +82,27 @@ function gerarComandaEposPrintXml(pedido) {
     builder.addTextStyle(undefined, undefined, false);
   }
 
+  // Cliente/telefone/troco — mesmos campos reais já usados no bloco de entrega
+  // (cliente.nome/telefone) e no modal de detalhes do pedido (pagamentoDinheiro).
+  // Cada linha só é emitida se o dado existir e for válido; troco nunca é
+  // recalculado aqui — pedido.pagamentoDinheiro.troco já vem calculado/persistido.
+  if (cliente.nome) {
+    builder.addText('Cliente: ' + cliente.nome + '\n');
+  }
+  if (cliente.telefone) {
+    builder.addText('Telefone: ' + cliente.telefone + '\n');
+  }
+  if (pedido.formaPagamento === 'dinheiro' && pedido.pagamentoDinheiro && pedido.pagamentoDinheiro.precisaTroco) {
+    const valorPago = pedido.pagamentoDinheiro.valorPago;
+    const troco = pedido.pagamentoDinheiro.troco;
+    if (typeof valorPago === 'number' && !isNaN(valorPago)) {
+      builder.addText('Troco para: ' + formatarMoeda(valorPago) + '\n');
+    }
+    if (typeof troco === 'number' && !isNaN(troco)) {
+      builder.addText('Troco necessário: ' + formatarMoeda(troco) + '\n');
+    }
+  }
+
   builder.addFeedLine(1);
   builder.addHLine(0, EPSON_PRINT_LARGURA_DOTS - 1, builder.LINE_THICK);
   builder.addFeedLine(1);

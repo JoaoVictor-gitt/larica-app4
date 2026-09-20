@@ -41,6 +41,7 @@
       endereco: null,
       formaPagamento: 'dinheiro',
       statusPagamento: 'pendente',
+      pagamentoDinheiro: { precisaTroco: false, valorPago: null, troco: null },
       total: 12.5,
       itens: [
         { produtoId: 'p1', nome: 'FRANGO', quantidade: 1, valorUnitario: 12.5, valorTotal: 12.5 },
@@ -106,10 +107,44 @@
       ],
     };
 
+    const CENARIO_DINHEIRO_COM_TROCO = {
+      numero: '#LARICA-104',
+      criadoEm: '2026-09-20T22:00:00.000Z',
+      cliente: { nome: 'Maria Silva', telefone: '' }, // telefone vazio de propósito — testa omissão da linha
+      fulfilment: 'retirada',
+      retirada: { modo: 'asap', horario: null },
+      endereco: null,
+      formaPagamento: 'dinheiro',
+      statusPagamento: 'pendente',
+      pagamentoDinheiro: { precisaTroco: true, valorPago: 50, troco: 25.5 },
+      total: 24.5,
+      itens: [
+        { produtoId: 'p5', nome: 'FRANGO', quantidade: 2, valorUnitario: 12.25, valorTotal: 24.5 },
+      ],
+    };
+
+    const CENARIO_DINHEIRO_TROCO_INCOMPLETO = {
+      numero: '#LARICA-105',
+      criadoEm: '2026-09-20T22:15:00.000Z',
+      cliente: { nome: 'João Costa', telefone: '0861234567' },
+      fulfilment: 'retirada',
+      retirada: { modo: 'asap', horario: null },
+      endereco: null,
+      formaPagamento: 'dinheiro',
+      statusPagamento: 'pendente',
+      // precisaTroco true, mas valorPago/troco ainda não informados/calculados — nenhuma das
+      // duas linhas de troco deve aparecer (nunca "undefined"/"null"/"NaN").
+      pagamentoDinheiro: { precisaTroco: true, valorPago: null, troco: null },
+      total: 15.0,
+      itens: [{ produtoId: 'p6', nome: 'COCA-COLA LATA', quantidade: 1, valorUnitario: 15.0, valorTotal: 15.0 }],
+    };
+
     const CENARIOS = [
-      { titulo: 'Cenário 1 — Retirada simples', pedido: CENARIO_RETIRADA_SIMPLES },
+      { titulo: 'Cenário 1 — Retirada simples (dinheiro, sem troco)', pedido: CENARIO_RETIRADA_SIMPLES },
       { titulo: 'Cenário 2 — Retirada com vários itens (combo + cobrar na retirada + horário)', pedido: CENARIO_RETIRADA_VARIOS_ITENS },
       { titulo: 'Cenário 3 — Entrega com endereço/instruções', pedido: CENARIO_ENTREGA_COM_ENDERECO },
+      { titulo: 'Cenário 4 — Dinheiro com troco completo (sem telefone)', pedido: CENARIO_DINHEIRO_COM_TROCO },
+      { titulo: 'Cenário 5 — Dinheiro, precisaTroco=true mas valorPago/troco ausentes', pedido: CENARIO_DINHEIRO_TROCO_INCOMPLETO },
     ];
 
     /** Checagens determinísticas — só olham a string XML gerada, nunca tocam rede/impressora. */
@@ -134,6 +169,40 @@
       // qualquer um deles sem precisar identificar qual é.
       checar('Contém TOTAL formatado com €', /TOTAL:[^\n]*€/.test(xml));
       checar(ehEntrega ? 'Contém "ENTREGA"' : 'Contém "RETIRADA"', xml.indexOf(ehEntrega ? 'ENTREGA' : 'RETIRADA') !== -1);
+
+      // --- Cliente / Telefone ---
+      const cliente = pedido.cliente || {};
+      if (cliente.nome) {
+        checar('Contém "Cliente: ' + cliente.nome + '"', xml.indexOf('Cliente: ' + cliente.nome) !== -1);
+      } else {
+        checar('NÃO contém "Cliente:" (sem nome)', xml.indexOf('Cliente:') === -1);
+      }
+      if (cliente.telefone) {
+        checar('Contém "Telefone: ' + cliente.telefone + '"', xml.indexOf('Telefone: ' + cliente.telefone) !== -1);
+      } else {
+        checar('NÃO contém "Telefone:" (sem telefone)', xml.indexOf('Telefone:') === -1);
+      }
+
+      // --- Troco (nunca recalculado — só exibe pedido.pagamentoDinheiro.valorPago/troco) ---
+      const dinheiro = pedido.pagamentoDinheiro;
+      const trocoAplicavel = pedido.formaPagamento === 'dinheiro' && !!(dinheiro && dinheiro.precisaTroco);
+      if (!trocoAplicavel) {
+        checar(
+          'NÃO contém informações de troco (pagamento não é dinheiro ou precisaTroco=false)',
+          xml.indexOf('Troco para:') === -1 && xml.indexOf('Troco necessário:') === -1
+        );
+      } else {
+        if (typeof dinheiro.valorPago === 'number' && !isNaN(dinheiro.valorPago)) {
+          checar('Contém "Troco para:" formatado em € (valorPago válido)', /Troco para:[^\n]*€/.test(xml));
+        } else {
+          checar('NÃO contém "Troco para:" (valorPago ausente/inválido)', xml.indexOf('Troco para:') === -1);
+        }
+        if (typeof dinheiro.troco === 'number' && !isNaN(dinheiro.troco)) {
+          checar('Contém "Troco necessário:" formatado em € (troco válido, não recalculado)', /Troco necessário:[^\n]*€/.test(xml));
+        } else {
+          checar('NÃO contém "Troco necessário:" (troco ausente/inválido)', xml.indexOf('Troco necessário:') === -1);
+        }
+      }
 
       if (!ehEntrega) {
         checar('NÃO contém bloco de endereço (retirada não tem endereço)', xml.indexOf('Rua ') === -1);
