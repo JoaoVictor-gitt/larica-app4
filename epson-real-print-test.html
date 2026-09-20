@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Teste físico real — Epson TM-m30III</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; font-size: 14px; padding: 16px; max-width: 700px; margin: 0 auto; }
+    h1 { font-size: 18px; }
+    .aviso { background: #fff3cd; border: 1px solid #d9a441; padding: 10px; border-radius: 4px; margin-bottom: 16px; }
+    #botao-imprimir {
+      display: block;
+      width: 100%;
+      font-size: 20px;
+      padding: 18px;
+      margin: 16px 0;
+      border: none;
+      border-radius: 6px;
+      background: #1a7f37;
+      color: #fff;
+      cursor: pointer;
+    }
+    #botao-imprimir:disabled { background: #999; cursor: not-allowed; }
+    pre { white-space: pre-wrap; word-break: break-all; background: #f5f5f5; padding: 8px; max-height: 300px; overflow: auto; border-radius: 4px; }
+    .resultado { border: 1px solid #ccc; border-radius: 4px; padding: 12px; margin-top: 12px; }
+    .resultado.sucesso { border-color: #1a7f37; background: #eaf7ee; }
+    .resultado.erro { border-color: #cf222e; background: #fdeeee; }
+    .resultado.ambiguo { border-color: #d9a441; background: #fff8e6; }
+    .resultado.inesperado { border-color: #999; background: #f0f0f0; }
+    .aviso-ambiguo { font-weight: bold; color: #8a5a00; }
+  </style>
+</head>
+<body>
+  <h1>Teste físico real — Epson TM-m30III</h1>
+  <div class="aviso">
+    Esta página envia uma requisição REAL para a impressora Epson configurada em
+    <code>EPSON_PRINTER_CONFIG</code>. Não acessa Supabase, não chama <code>register_order_print</code>,
+    não altera <code>print_count</code>, não lê pedidos reais, não chama <code>window.print()</code>.
+    Cada clique confirmado dispara no máximo UMA chamada a <code>EpsonPrinterService.imprimir()</code> — sem retry automático.
+  </div>
+
+  <h2>Pedido de teste (fixo, fictício)</h2>
+  <pre id="pre-pedido"></pre>
+
+  <h2>XML gerado (ePOS-Print)</h2>
+  <pre id="pre-xml">(gerado ao clicar no botão)</pre>
+
+  <button id="botao-imprimir" type="button">🖨️ IMPRIMIR COMANDA DE TESTE</button>
+
+  <div id="area-resultado"></div>
+
+  <script src="js/utils.js"></script>
+  <script src="vendor/epson/epos-2.27.0.js"></script>
+  <script src="js/services/epson-print-builder.js"></script>
+  <script src="js/services/epson-printer-service.js"></script>
+  <script>
+    const PEDIDO_TESTE = {
+      numero: '#TESTE-001',
+      criadoEm: new Date().toISOString(),
+      fulfilment: 'retirada',
+      retirada: { modo: 'asap' },
+      cliente: { nome: 'Teste Epson', telefone: '' },
+      itens: [
+        { quantidade: 2, nome: 'ESPETO DE CONTRA FILÉ' },
+        { quantidade: 1, nome: 'PÃO DE ALHO' },
+        { quantidade: 1, nome: 'COCA-COLA LATA' },
+      ],
+      formaPagamento: 'dinheiro',
+      statusPagamento: 'pago',
+      total: 24.5,
+    };
+
+    document.getElementById('pre-pedido').textContent = JSON.stringify(PEDIDO_TESTE, null, 2);
+
+    let _enviando = false;
+
+    function classeResultado(codigo) {
+      if (codigo === 'SUCESSO') return 'sucesso';
+      if (codigo === 'TIMEOUT' || codigo === 'ERRO_REDE') return 'ambiguo';
+      if (codigo === 'EPSON_REJEITOU' || codigo === 'HTTP_ERRO' || codigo === 'XML_INVALIDO') return 'erro';
+      return 'inesperado';
+    }
+
+    function renderizarResultado(resultado) {
+      const area = document.getElementById('area-resultado');
+      const div = document.createElement('div');
+      div.className = 'resultado ' + classeResultado(resultado.codigo);
+
+      const titulo = document.createElement('h3');
+      titulo.textContent = 'Resultado: ' + resultado.codigo;
+      div.appendChild(titulo);
+
+      if (resultado.codigo === 'TIMEOUT' || resultado.codigo === 'ERRO_REDE') {
+        const aviso = document.createElement('p');
+        aviso.className = 'aviso-ambiguo';
+        aviso.textContent = 'Resultado ambíguo — a impressora pode já ter impresso. NÃO reenviando automaticamente.';
+        div.appendChild(aviso);
+      }
+
+      const pre = document.createElement('pre');
+      pre.textContent = JSON.stringify(resultado, null, 2);
+      div.appendChild(pre);
+
+      area.prepend(div);
+    }
+
+    document.getElementById('botao-imprimir').addEventListener('click', async function () {
+      if (_enviando) return;
+
+      let xml;
+      try {
+        xml = gerarComandaEposPrintXml(PEDIDO_TESTE);
+      } catch (erroBuilder) {
+        alert('Não foi possível gerar o XML da comanda de teste: ' + (erroBuilder && erroBuilder.message ? erroBuilder.message : erroBuilder));
+        return;
+      }
+      document.getElementById('pre-xml').textContent = xml;
+
+      const confirmado = confirm('Enviar UMA comanda de teste para a Epson TM-m30III?');
+      if (!confirmado) return;
+
+      const botao = document.getElementById('botao-imprimir');
+      _enviando = true;
+      botao.disabled = true;
+      try {
+        const resultado = await EpsonPrinterService.imprimir(xml);
+        renderizarResultado(resultado);
+      } finally {
+        _enviando = false;
+        botao.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
