@@ -1,0 +1,71 @@
+/*
+ * recibo-cliente-impressao.css
+ * Recibo do cliente na tela de confirmação de pedido (#recibo-impressao-cliente,
+ * pedido.html) — botão "🖨️ Imprimir pedido", usando window.print() nativo do
+ * navegador (impressão comum do cliente, papel A4/Letter padrão — nunca a
+ * bobina térmica de 80mm da Epson, que é um fluxo totalmente separado em
+ * /pedidos). Escondido na tela; só aparece via @media print.
+ */
+
+#recibo-impressao-cliente {
+  display: none;
+}
+
+@media print {
+  /* Mesmo padrão já usado em comanda-impressao.css: remove tudo que não é o
+     recibo do fluxo de impressão (display:none, não visibility:hidden) — sem
+     isso, header/menu, carrinho, barra de progresso, botões e o fundo da
+     página apareceriam impressos. #recibo-impressao-cliente é irmã direta de
+     #layout-shell/<main>/modais dentro de <body> (pedido.html). */
+  body > *:not(#recibo-impressao-cliente) {
+    display: none !important;
+  }
+
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  #recibo-impressao-cliente {
+    display: block;
+    color: #000;
+    background: #fff;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12pt;
+    line-height: 1.4;
+    padding: 10mm;
+  }
+
+  #recibo-impressao-cliente hr {
+    border: none;
+    border-top: 1px dashed #000;
+    margin: 3mm 0;
+  }
+
+  .recibo-marca {
+    font-size: 20pt;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .recibo-numero {
+    font-size: 16pt;
+    font-weight: 700;
+    text-align: center;
+    margin: 2mm 0;
+  }
+
+  .recibo-tipo {
+    font-size: 12pt;
+    font-weight: 700;
+    text-align: center;
+    letter-spacing: 0.05em;
+    margin-bottom: 2mm;
+  }
+
+  .recibo-extra {
+    padding-left: 6mm;
+    font-size: 10pt;
+  }
+}

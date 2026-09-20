@@ -739,6 +739,13 @@ function ligarEventosGerais() {
     const numero = ultimoPedidoConfirmado && ultimoPedidoConfirmado.numeroPedido;
     window.location.href = numero ? `acompanhar-pedido.html?pedido=${encodeURIComponent(numero)}` : 'acompanhar-pedido.html';
   });
+
+  // Impressão nativa do navegador do recibo do cliente — nunca a comanda térmica Epson (fluxo
+  // separado, exclusivo de /pedidos). Não faz claim, não chama register_order_print, não grava
+  // nada no Supabase.
+  document.getElementById('botao-imprimir-pedido-confirmacao').addEventListener('click', () => {
+    window.print();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2298,6 +2305,74 @@ function renderizarConfirmacao(pedido, moeda) {
     ${linhaCupomResumoHtml(pedido.codigoCupom, pedido.valorDesconto, moeda, null)}
     <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoeda(pedido.total, moeda)}</span></div>
     ${avisoCartao}
+  `;
+
+  renderizarReciboImpressaoCliente(pedido, moeda);
+}
+
+/**
+ * Recibo simples pra impressão do cliente (#recibo-impressao-cliente, botão "🖨️ Imprimir
+ * pedido" na tela de confirmação padrão) — elemento oculto, só aparece via @media print
+ * (css/recibo-cliente-impressao.css), usando window.print() nativo do navegador. Totalmente
+ * separado da comanda térmica Epson/impressão automática de /pedidos: não chama
+ * EpsonPrinterService, não faz claim, não chama register_order_print, não grava nada no
+ * Supabase. Usa exclusivamente campos reais já existentes no pedido confirmado (mesmo objeto
+ * de renderizarConfirmacao()) — nenhum campo inventado.
+ */
+function renderizarReciboImpressaoCliente(pedido, moeda) {
+  const cliente = pedido.cliente || {};
+  const endereco = pedido.endereco || {};
+  const ehEntrega = pedido.fulfilment === 'entrega';
+  const ROTULO_FULFILMENT_RECIBO = { entrega: 'ENTREGA', comer_no_local: 'COMER NO LOCAL', retirada: 'RETIRADA' };
+
+  const linhasItens = pedido.itens
+    .map((item) => {
+      const extras = item.combo
+        ? [
+            ...(item.combo.espetos || []).map((e) => `<div class="recibo-extra">${e.quantidade}x ${escaparHtml(e.nome)}</div>`),
+            ...(item.combo.acompanhamentos || []).map((a) => `<div class="recibo-extra">${a.quantidade}x ${escaparHtml(a.nome)}</div>`),
+            ...(item.combo.incluidos || []).map((nome) => `<div class="recibo-extra">${escaparHtml(nome)}</div>`),
+          ].join('')
+        : '';
+      return `<div class="linha-resumo"><span>${item.quantidade}x ${escaparHtml(item.nome)}</span><span>${formatarMoeda(item.valorTotal, moeda)}</span></div>${extras}`;
+    })
+    .join('');
+
+  const linhaTelefone = cliente.telefone
+    ? `<div class="linha-resumo"><span>Telefone</span><span>${escaparHtml(cliente.telefone)}</span></div>`
+    : '';
+
+  // endereco.instrucoes é o único campo de texto livre que realmente existe no modelo — só entrega.
+  const blocoEndereco = ehEntrega
+    ? `<hr/>
+       <div class="linha-resumo"><span>Endereço</span><span></span></div>
+       <p>${escaparHtml(endereco.eircode || '')}<br/>
+       ${escaparHtml(endereco.linha1 || '')}${endereco.linha2 ? ', ' + escaparHtml(endereco.linha2) : ''}<br/>
+       ${escaparHtml(endereco.area || '')}</p>
+       ${endereco.instrucoes ? `<p><em>${escaparHtml(endereco.instrucoes)}</em></p>` : ''}`
+    : '';
+
+  const d = pedido.pagamentoDinheiro;
+  const blocoTroco =
+    pedido.formaPagamento === 'dinheiro' && d && d.precisaTroco
+      ? `<div class="linha-resumo"><span>Troco para</span><span>${formatarMoeda(d.valorPago, moeda)}</span></div>
+         <div class="linha-resumo"><span>Troco necessário</span><span>${formatarMoeda(d.troco, moeda)}</span></div>`
+      : '';
+
+  document.getElementById('recibo-impressao-cliente').innerHTML = `
+    <div class="recibo-marca">LARICA</div>
+    <div class="recibo-numero">PEDIDO ${escaparHtml(pedido.numero)}</div>
+    <div class="recibo-tipo">${ROTULO_FULFILMENT_RECIBO[pedido.fulfilment] || 'RETIRADA'}</div>
+    <hr/>
+    ${linhasItens}
+    <hr/>
+    <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoeda(pedido.total, moeda)}</span></div>
+    <div class="linha-resumo"><span>Pagamento</span><span>${escaparHtml(ROTULOS_FORMA_PAGAMENTO[pedido.formaPagamento] || '')}</span></div>
+    ${blocoTroco}
+    <hr/>
+    <div class="linha-resumo"><span>Cliente</span><span>${escaparHtml(cliente.nome || '')}</span></div>
+    ${linhaTelefone}
+    ${blocoEndereco}
   `;
 }
 
