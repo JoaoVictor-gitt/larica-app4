@@ -68,13 +68,7 @@ async function init() {
 
   // Impressão automática — mesmo padrão defensivo da meta de preparo: falha aqui nunca derruba o
   // Kanban, só deixa _impressaoAutomaticaAtiva em false (nenhum candidato é escaneado).
-  try {
-    const configImpressaoAutomatica = await buscarImpressaoAutomaticaDoSupabase();
-    _impressaoAutomaticaAtiva = configImpressaoAutomatica.ativa;
-    _impressaoAutomaticaAtivadaEm = configImpressaoAutomatica.ativadaEm;
-  } catch (erroImpressaoAutomatica) {
-    console.error('Não foi possível carregar a configuração de impressão automática:', erroImpressaoAutomatica);
-  }
+  await atualizarConfiguracaoImpressaoAutomatica();
 
   kanban.style.display = '';
   renderizarQuadroPedidos();
@@ -108,11 +102,36 @@ function iniciarRealtimePedidos() {
 async function reloadOrders() {
   try {
     await carregarPedidosClientesCache();
+    // Reconsulta o toggle a cada reload — uma aba de /pedidos já aberta antes de alguém ligar/
+    // desligar em Configurações (em outra aba/dispositivo) precisa enxergar a mudança sem refresh.
+    await atualizarConfiguracaoImpressaoAutomatica();
     detectarPedidosNovos();
     renderizarQuadroPedidos();
     escanearCandidatosImpressaoAutomatica();
   } catch (erro) {
     console.error('Erro ao recarregar pedidos (realtime):', erro);
+  }
+}
+
+/**
+ * Busca o estado atual de auto_print_enabled/auto_print_enabled_at e atualiza as variáveis em
+ * memória — reaproveitada por init() e por todo reloadOrders(), nunca duplicada.
+ *
+ * Fail-safe: se a consulta falhar, força _impressaoAutomaticaAtiva = false e
+ * _impressaoAutomaticaAtivadaEm = null NESTE ciclo — nunca reaproveita um `true`/data antigos que
+ * possam estar desatualizados. Nunca lança (erro é só logado), então uma falha aqui nunca impede
+ * o resto de reloadOrders()/init() de continuar — pedidos sempre aparecem no painel normalmente,
+ * só a impressão automática fica pausada até o próximo ciclo bem-sucedido.
+ */
+async function atualizarConfiguracaoImpressaoAutomatica() {
+  try {
+    const config = await buscarImpressaoAutomaticaDoSupabase();
+    _impressaoAutomaticaAtiva = config.ativa;
+    _impressaoAutomaticaAtivadaEm = config.ativadaEm;
+  } catch (erro) {
+    console.error('Não foi possível carregar a configuração de impressão automática:', erro);
+    _impressaoAutomaticaAtiva = false;
+    _impressaoAutomaticaAtivadaEm = null;
   }
 }
 
