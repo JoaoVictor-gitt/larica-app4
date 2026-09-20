@@ -128,9 +128,10 @@
 .card-pedido-tempos { order: 4; } /* Etapa 1 — Tempo de Preparo */
 .card-pedido-rodape { order: 5; }
 .card-pedido-pagamento { order: 6; }
-.bloco-pronto-para { order: 7; }
-.card-pedido-acoes { order: 8; }
-.link-cancelar-pedido { order: 9; }
+.alerta-impressao-automatica { order: 7; }
+.bloco-pronto-para { order: 8; }
+.card-pedido-acoes { order: 9; }
+.link-cancelar-pedido { order: 10; }
 
 .card-pedido-cabecalho {
   order: 1;
@@ -320,6 +321,25 @@
 .destaque-troco {
   margin-top: 2px;
   font-weight: 700;
+  color: var(--cor-status-amarelo);
+}
+
+/* Alerta de impressão automática (falha definitiva / resultado ambíguo / claim antigo sem resolução) */
+.alerta-impressao-automatica {
+  margin-top: 2px;
+  padding: var(--espaco-xs) var(--espaco-sm);
+  border-radius: var(--raio-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.alerta-impressao-erro {
+  background: rgba(212, 98, 98, 0.15);
+  border: 1px solid var(--cor-status-vermelho);
+  color: var(--cor-status-vermelho);
+}
+.alerta-impressao-ambiguo {
+  background: rgba(224, 185, 78, 0.15);
+  border: 1px solid var(--cor-status-amarelo);
   color: var(--cor-status-amarelo);
 }
 

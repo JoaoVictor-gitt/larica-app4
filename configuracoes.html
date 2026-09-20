@@ -88,6 +88,14 @@
         </span>
         <span class="config-card-seta">→</span>
       </button>
+      <button type="button" class="config-card" data-config-abrir="impressao-automatica">
+        <span class="config-card-icone">🖨️</span>
+        <span class="config-card-texto">
+          <strong>Impressão automática</strong>
+          <span>Envie novos pedidos direto pra impressora Epson</span>
+        </span>
+        <span class="config-card-seta">→</span>
+      </button>
     </div>
 
     <!-- Aparência: moeda + tema — preferências locais, continuam em localStorage -->
@@ -381,6 +389,30 @@
 
             <button type="submit" class="btn btn-primario" id="botao-salvar-meta-preparo">Salvar meta de preparo</button>
           </form>
+        </div>
+      </div>
+      </section>
+
+      <!-- Impressão automática de novos pedidos (Epson direta) -->
+      <section class="config-secao" data-config-secao="impressao-automatica">
+      <button type="button" class="config-botao-voltar" data-config-voltar>← Voltar para Configurações</button>
+      <div class="card" style="max-width:520px;">
+        <h2 class="titulo-grafico" style="margin-top:0;">Impressão automática</h2>
+
+        <div class="estado-vazio" id="estado-carregando-impressao-automatica">Carregando...</div>
+        <div class="estado-vazio" id="estado-erro-impressao-automatica" style="display:none;"></div>
+
+        <div id="conteudo-impressao-automatica" style="display:none;">
+          <div class="linha-toggle">
+            <div class="linha-toggle-texto">
+              <label for="campo-impressao-automatica-ativa">Impressão automática de novos pedidos</label>
+              <span>Quando ativada, novos pedidos serão enviados automaticamente para a impressora configurada.</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="campo-impressao-automatica-ativa" />
+              <span class="toggle-switch-trilho"></span>
+            </label>
+          </div>
         </div>
       </div>
       </section>

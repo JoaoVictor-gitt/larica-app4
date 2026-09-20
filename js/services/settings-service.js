@@ -147,6 +147,54 @@ async function atualizarMetaPreparoNoSupabase(minutos) {
 }
 
 // ---------------------------------------------------------------------------
+// Impressão automática de novos pedidos (Epson direta) — business_settings.
+// Coluna administrativa própria, fora de BUSINESS_SETTINGS_COLUNAS_PUBLICAS —
+// mesmo raciocínio de preparation_target_minutes: só usada por /pedidos e
+// /configuracoes, nunca pelo checkout público (js/pedido.js nunca chama isto).
+// ---------------------------------------------------------------------------
+
+const BUSINESS_SETTINGS_COLUNAS_IMPRESSAO_AUTOMATICA = 'id, auto_print_enabled, auto_print_enabled_at';
+
+function _linhaSupabaseParaImpressaoAutomatica(linha) {
+  return {
+    ativa: !!linha.auto_print_enabled,
+    ativadaEm: linha.auto_print_enabled_at,
+  };
+}
+
+/** { ativa, ativadaEm } — lido por /pedidos (decide se escaneia candidatos a impressão automática) e /configuracoes (preenche o toggle). */
+async function buscarImpressaoAutomaticaDoSupabase() {
+  const { data, error } = await supabaseClient
+    .from('business_settings')
+    .select(BUSINESS_SETTINGS_COLUNAS_IMPRESSAO_AUTOMATICA)
+    .eq('id', 1)
+    .single();
+  if (error) throw new Error(error.message);
+  return _linhaSupabaseParaImpressaoAutomatica(data);
+}
+
+/**
+ * Liga/desliga a impressão automática. Cada chamada representa uma ação explícita do
+ * usuário no toggle (nunca um resave em lote de outro formulário — este campo não faz
+ * parte de atualizarConfiguracoesNegocioNoSupabase) — por isso, sempre que `ativa` for
+ * true, carimba auto_print_enabled_at = now(), mesmo que já estivesse ligada antes; ao
+ * desligar, NUNCA mexe em auto_print_enabled_at (fica sem efeito enquanto desligada, já
+ * que claim_order_auto_print exige auto_print_enabled=true antes de olhar a data).
+ */
+async function atualizarImpressaoAutomaticaNoSupabase(ativa) {
+  const linha = { auto_print_enabled: !!ativa };
+  if (ativa) linha.auto_print_enabled_at = new Date().toISOString();
+  const { data, error } = await supabaseClient
+    .from('business_settings')
+    .update(linha)
+    .eq('id', 1)
+    .select(BUSINESS_SETTINGS_COLUNAS_IMPRESSAO_AUTOMATICA)
+    .single();
+  if (error) throw new Error(error.message);
+  return _linhaSupabaseParaImpressaoAutomatica(data);
+}
+
+// ---------------------------------------------------------------------------
 // QR Code Revolut (Fase 10A) — Supabase Storage, bucket business-assets
 // ---------------------------------------------------------------------------
 

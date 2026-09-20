@@ -42,6 +42,10 @@ function _linhaSupabaseParaPedido(o) {
     impressoEm: o.printed_at,
     qtdImpressoes: o.print_count || 0,
     ultimaImpressaoEm: o.last_printed_at,
+    // Claim de impressão automática — independente de impressoEm/qtdImpressoes (esses só mudam
+    // via register_order_print, nunca tocado pelo claim). null = nunca reivindicado automaticamente.
+    autoPrintStatus: o.auto_print_status || null,
+    autoPrintClaimedAt: o.auto_print_claimed_at || null,
     cliente: { nome: o.customer_name, telefone: o.customer_phone },
     fulfilment: ENUM_PARA_FULFILMENT[o.fulfilment_type] || o.fulfilment_type,
     // pickup_time (coluna `time` do Supabase) vem como "HH:MM:SS" — cortamos os segundos.
@@ -310,6 +314,35 @@ async function registerOrderPrintNoSupabase(id) {
   const { data, error } = await supabaseClient.rpc('register_order_print', { p_order_id: id });
   if (error) throw new Error(error.message);
   return _linhaSupabaseParaPedido(data);
+}
+
+/**
+ * Reivindica o direito de imprimir automaticamente um pedido — atômico no banco
+ * (UPDATE...WHERE...RETURNING dentro da RPC). `{ claimed: false }` é o resultado
+ * NORMAL quando outro dispositivo já reivindicou primeiro, quando um humano já
+ * imprimiu manualmente, ou quando a impressão automática está desativada — nunca
+ * um erro, nunca lançado como exceção.
+ */
+async function claimOrderAutoPrintNoSupabase(id, claimedBy) {
+  const { data, error } = await supabaseClient.rpc('claim_order_auto_print', { p_order_id: id, p_claimed_by: claimedBy });
+  if (error) throw new Error(error.message);
+  return data; // { claimed: boolean, order?: {...linha bruta do Supabase...} }
+}
+
+/**
+ * Resolve um claim de impressão automática que ESTE dispositivo detém —
+ * 'succeeded' | 'failed' | 'ambiguous'. `{ resolved: false }` se o claim não é
+ * (mais) deste dispositivo — não deveria acontecer no fluxo normal, mas nunca é
+ * tratado como erro.
+ */
+async function resolveOrderAutoPrintNoSupabase(id, claimedBy, status) {
+  const { data, error } = await supabaseClient.rpc('resolve_order_auto_print', {
+    p_order_id: id,
+    p_claimed_by: claimedBy,
+    p_status: status,
+  });
+  if (error) throw new Error(error.message);
+  return data; // { resolved: boolean, order?: {...} }
 }
 
 async function deleteOrderNoSupabase(id) {

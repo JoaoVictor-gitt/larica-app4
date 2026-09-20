@@ -34,6 +34,7 @@
         <select id="filtro-tipo-pedidos" class="input">
           <option value="">Todos</option>
           <option value="entrega">Entrega</option>
+          <option value="comer_no_local">Comer no local</option>
           <option value="retirada">Retirada</option>
         </select>
       </div>
@@ -145,8 +146,9 @@
   <script src="js/services/settings-service.js"></script>
   <script src="js/services/orders-service.js"></script>
   <script src="js/app.js"></script>
-  <!-- Impressão direta Epson (ePOS-Print) — carregados, mas inertes: IMPRESSAO_EPSON_DIRETA_ATIVA
-       em js/pedidos.js está false, então nenhum destes é chamado a partir do clique em Imprimir. -->
+  <!-- Impressão direta Epson (ePOS-Print) — IMPRESSAO_EPSON_DIRETA_ATIVA em js/pedidos.js está
+       true: clique em Imprimir/Reimprimir e a impressão automática de novos pedidos usam este
+       caminho (gerarComandaEposPrintXml -> EpsonPrinterService.imprimir -> HTTPS/443). -->
   <script src="vendor/epson/epos-2.27.0.js"></script>
   <script src="js/services/epson-print-builder.js"></script>
   <script src="js/services/epson-printer-service.js"></script>

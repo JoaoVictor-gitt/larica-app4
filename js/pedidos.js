@@ -26,9 +26,17 @@ let pedidoCancelamentoId = null;
 // sem quebrar o resto da tela (ver calcularTemposPedido()).
 let metaPreparoMinutos = null;
 
+// Impressão automática de novos pedidos — carregada 1x em init(), igual à meta de preparo. Ambas
+// false/null enquanto não carrega (ou se a leitura falhar) — nesse caso nunca escaneia candidatos,
+// nunca imprime automaticamente por engano. Ver seção "Impressão automática" mais abaixo.
+let _impressaoAutomaticaAtiva = false;
+let _impressaoAutomaticaAtivadaEm = null; // ISO string — pedidos criados antes disso nunca são candidatos
+
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
+  _deviceIdImpressora = obterDeviceIdImpressora();
+
   const carregando = document.getElementById('estado-carregando-pedidos');
   const erro = document.getElementById('estado-erro-pedidos');
   const kanban = document.getElementById('kanban-pedidos');
@@ -58,6 +66,16 @@ async function init() {
     console.error('Não foi possível carregar a meta de preparo:', erroMeta);
   }
 
+  // Impressão automática — mesmo padrão defensivo da meta de preparo: falha aqui nunca derruba o
+  // Kanban, só deixa _impressaoAutomaticaAtiva em false (nenhum candidato é escaneado).
+  try {
+    const configImpressaoAutomatica = await buscarImpressaoAutomaticaDoSupabase();
+    _impressaoAutomaticaAtiva = configImpressaoAutomatica.ativa;
+    _impressaoAutomaticaAtivadaEm = configImpressaoAutomatica.ativadaEm;
+  } catch (erroImpressaoAutomatica) {
+    console.error('Não foi possível carregar a configuração de impressão automática:', erroImpressaoAutomatica);
+  }
+
   kanban.style.display = '';
   renderizarQuadroPedidos();
   ligarEventosFiltrosPedidos();
@@ -68,6 +86,9 @@ async function init() {
   setInterval(renderizarQuadroPedidos, 30000);
 
   iniciarRealtimePedidos();
+  // 1ª varredura logo após a carga inicial — pega tanto pedidos represados (impressora ficou
+  // desligada, feature acabou de ser ligada) quanto o caso comum de nada pendente.
+  escanearCandidatosImpressaoAutomatica();
 }
 
 /**
@@ -89,6 +110,7 @@ async function reloadOrders() {
     await carregarPedidosClientesCache();
     detectarPedidosNovos();
     renderizarQuadroPedidos();
+    escanearCandidatosImpressaoAutomatica();
   } catch (erro) {
     console.error('Erro ao recarregar pedidos (realtime):', erro);
   }
@@ -520,6 +542,9 @@ function finalizarImpressaoPedido() {
   _pedidoIdImpressaoPendente = null;
   aplicarBloqueioBotoesImpressao();
   renderizarQuadroPedidos();
+  // Libera a vez do próximo candidato da fila de impressão automática, se houver — roda tanto
+  // depois de um print manual (AirPrint/Epson) quanto de um automático, sempre que o lock solta.
+  processarFilaImpressaoAutomatica();
 }
 
 /** Aplica o lock atual ao botão de imprimir do modal "Ver pedido" — os botões do Kanban se resolvem sozinhos em cardPedidoHtml() a cada render. */
@@ -529,6 +554,182 @@ function aplicarBloqueioBotoesImpressao() {
   botaoModal.disabled = _impressaoEmAndamento;
   const pedidoModal = obterPedidoClientePorId(botaoModal.dataset.id);
   if (pedidoModal) botaoModal.textContent = pedidoModal.qtdImpressoes > 0 ? '🖨️ Reimprimir' : '🖨️ Imprimir';
+}
+
+// ---------------------------------------------------------------------------
+// Impressão automática de novos pedidos (Epson direta)
+//
+// Caminho IRMÃO de iniciarImpressaoPedido() — nunca chamado a partir do clique
+// em Imprimir/Reimprimir, nunca chama iniciarImpressaoPedido(). Reaproveita
+// _impressaoEmAndamento só pra garantir exclusão mútua com um print manual NA
+// MESMA aba (a impressora física é um recurso só, um trabalho de cada vez);
+// entre abas/dispositivos diferentes, a única proteção real é o claim atômico
+// no Supabase (claim_order_auto_print) — _impressaoEmAndamento de uma aba não
+// enxerga nem afeta a de outra.
+//
+// "Candidato" é decidido inteiramente por campos do próprio pedido (nunca por
+// "isso é novo pra essa aba", que é o padrão frágil já usado só pro som —
+// idsPedidosVistos — e que não seria seguro aqui): impressoEm nulo,
+// autoPrintStatus nulo, não cancelado, e criado depois da última ativação do
+// toggle. Isso garante que reabrir/atualizar a página, reconectar o Realtime,
+// ou reindexar o mesmo id 2x nunca reconsidera um pedido já resolvido — e que
+// pedidos anteriores à ativação nunca entram na fila, mesmo que nunca tenham
+// sido impressos.
+// ---------------------------------------------------------------------------
+
+const CHAVE_DEVICE_ID_IMPRESSORA = 'larica_printer_device_id';
+let _deviceIdImpressora = null;
+
+/** UUID persistente por navegador/dispositivo (nunca por aba) — gerado uma vez, reaproveitado depois via localStorage. */
+function obterDeviceIdImpressora() {
+  try {
+    let id = localStorage.getItem(CHAVE_DEVICE_ID_IMPRESSORA);
+    if (!id) {
+      id = gerarId(); // js/utils.js — já usa crypto.randomUUID() com fallback seguro
+      localStorage.setItem(CHAVE_DEVICE_ID_IMPRESSORA, id);
+    }
+    return id;
+  } catch (erro) {
+    // localStorage indisponível (modo privado raro/quota) — id só desta sessão, nunca quebra a página.
+    return gerarId();
+  }
+}
+
+let _filaImpressaoAutomatica = []; // ids aguardando tentativa, nesta aba
+const _idsImpressaoAutomaticaEmFilaOuTentados = new Set(); // evita enfileirar o mesmo id 2x enquanto não resolvido
+
+/** Único ponto que decide se um pedido pode ser candidato — mesma regra tanto ao escanear quanto ao revalidar na hora de tentar. */
+function pedidoEhCandidatoImpressaoAutomatica(pedido) {
+  if (!_impressaoAutomaticaAtiva || !_impressaoAutomaticaAtivadaEm) return false;
+  if (!IMPRESSAO_EPSON_DIRETA_ATIVA) return false; // impressão automática só existe pelo caminho Epson direto
+  if (pedido.impressoEm) return false;
+  if (pedido.autoPrintStatus) return false; // claimed/succeeded/failed/ambiguous — nunca reconsiderado aqui
+  if (pedido.status === STATUS_PEDIDO.CANCELADO) return false;
+  return new Date(pedido.criadoEm).getTime() >= new Date(_impressaoAutomaticaAtivadaEm).getTime();
+}
+
+/** Chamado após init() e após todo reloadOrders() (nunca dentro de renderizarQuadroPedidos(), que só redesenha o cache atual). */
+function escanearCandidatosImpressaoAutomatica() {
+  if (!_impressaoAutomaticaAtiva) return;
+  obterPedidosClientes().forEach((pedido) => {
+    if (_idsImpressaoAutomaticaEmFilaOuTentados.has(pedido.id)) return;
+    if (!pedidoEhCandidatoImpressaoAutomatica(pedido)) return;
+    _idsImpressaoAutomaticaEmFilaOuTentados.add(pedido.id);
+    _filaImpressaoAutomatica.push(pedido.id);
+  });
+  processarFilaImpressaoAutomatica();
+}
+
+/** Só avança quando a impressora (representada por _impressaoEmAndamento) está livre — nunca 2 tentativas ao mesmo tempo nesta aba. */
+function processarFilaImpressaoAutomatica() {
+  if (_impressaoEmAndamento) return;
+  const id = _filaImpressaoAutomatica.shift();
+  if (!id) return;
+  iniciarImpressaoAutomaticaPedido(id);
+}
+
+/**
+ * Uma tentativa completa de impressão automática de UM pedido. Usa o mesmo
+ * builder/serviço do caminho manual (gerarComandaEposPrintXml/EpsonPrinterService),
+ * inalterados. Nunca chama iniciarImpressaoPedido()/_iniciarTentativaEpsonDireta() —
+ * caminho paralelo, não uma variação deles.
+ */
+async function iniciarImpressaoAutomaticaPedido(id) {
+  const pedido = obterPedidoClientePorId(id);
+  if (!pedido || !pedidoEhCandidatoImpressaoAutomatica(pedido)) {
+    // Já não é mais candidato (impresso/cancelado/claim resolvido nesse meio-tempo) — não é erro.
+    processarFilaImpressaoAutomatica();
+    return;
+  }
+
+  const snapshot = JSON.parse(JSON.stringify(pedido));
+  _impressaoEmAndamento = true;
+  aplicarBloqueioBotoesImpressao();
+
+  let resultadoClaim;
+  try {
+    resultadoClaim = await claimOrderAutoPrintNoSupabase(id, _deviceIdImpressora);
+  } catch (erroClaim) {
+    console.error('Erro ao reivindicar impressão automática do pedido ' + id + ':', erroClaim);
+    finalizarImpressaoPedido();
+    return;
+  }
+
+  if (!resultadoClaim.claimed) {
+    // Outro dispositivo já reivindicou, ou um humano já imprimiu manualmente, ou a impressão
+    // automática foi desativada entre o escaneamento e agora — resultado esperado, não é erro.
+    finalizarImpressaoPedido();
+    return;
+  }
+
+  let xml;
+  try {
+    xml = gerarComandaEposPrintXml(snapshot);
+  } catch (erroBuilder) {
+    console.error('Não foi possível montar a comanda para impressão automática:', erroBuilder);
+    await _resolverImpressaoAutomaticaSemLancar(id, 'failed');
+    finalizarImpressaoPedido();
+    return;
+  }
+
+  const resultado = await EpsonPrinterService.imprimir(xml);
+
+  if (resultado.codigo === 'SUCESSO') {
+    await _resolverImpressaoAutomaticaSemLancar(id, 'succeeded');
+    // Mesmo helper do caminho manual — RPC register_order_print, toast e finalizarImpressaoPedido()
+    // (que já avança a fila) rodam exatamente como numa impressão manual bem-sucedida.
+    _registrarImpressaoEFinalizar(
+      id,
+      'A comanda foi enviada e confirmada pela impressora, mas não foi possível registrar a impressão automática no sistema.'
+    );
+    return;
+  }
+
+  // TIMEOUT/ERRO_REDE = ambíguo (a impressora pode ter impresso); qualquer outro código = falha
+  // definitiva. Nos dois casos: nunca chama register_order_print, nunca reenvia sozinho.
+  const statusResolucao = resultado.codigo === 'TIMEOUT' || resultado.codigo === 'ERRO_REDE' ? 'ambiguous' : 'failed';
+  await _resolverImpressaoAutomaticaSemLancar(id, statusResolucao);
+  finalizarImpressaoPedido();
+}
+
+/** Grava o resultado terminal do claim; nunca lança — uma falha ao gravar não pode travar o lock nem a fila. */
+async function _resolverImpressaoAutomaticaSemLancar(id, status) {
+  try {
+    await resolveOrderAutoPrintNoSupabase(id, _deviceIdImpressora, status);
+  } catch (erroResolver) {
+    console.error('Não foi possível registrar o resultado (' + status + ') da impressão automática do pedido ' + id + ':', erroResolver);
+    // Segue mesmo assim — o pedido fica "claimed" sem resolução, tratado como ambíguo na UI (ver
+    // alertaImpressaoAutomaticaHtml) e nunca reconsiderado automaticamente por nenhum dispositivo.
+  }
+  try {
+    await carregarPedidosClientesCache(); // traz o autoPrintStatus novo antes do próximo render
+  } catch (erroRecarregar) {
+    console.error('Não foi possível recarregar pedidos após resolver impressão automática:', erroRecarregar);
+  }
+}
+
+// Um claim 'claimed' sem resolução por tempo demais (aba fechou/recarregou entre o claim e o
+// resolve) é tratado igual a 'ambiguous' na UI — mesmo destaque, sem inventar outro estado no banco.
+const MINUTOS_CLAIM_IMPRESSAO_AUTOMATICA_TRAVADO = 5;
+
+/** HTML do alerta de impressão automática pro card do Kanban — '' quando não há nada a destacar. */
+function alertaImpressaoAutomaticaHtml(pedido) {
+  if (pedido.impressoEm) return ''; // já impresso (manual ou automático) — nunca mostra alerta
+  if (pedido.autoPrintStatus === 'failed') {
+    return '<div class="alerta-impressao-automatica alerta-impressao-erro">⚠️ Impressão automática falhou — imprimir manualmente</div>';
+  }
+  if (pedido.autoPrintStatus === 'ambiguous') {
+    return '<div class="alerta-impressao-automatica alerta-impressao-ambiguo">⚠️ Verifique a impressora antes de reimprimir</div>';
+  }
+  if (pedido.autoPrintStatus === 'claimed') {
+    const minutosDesdeClaim = pedido.autoPrintClaimedAt
+      ? (Date.now() - new Date(pedido.autoPrintClaimedAt).getTime()) / 60000
+      : Infinity;
+    if (minutosDesdeClaim >= MINUTOS_CLAIM_IMPRESSAO_AUTOMATICA_TRAVADO) {
+      return '<div class="alerta-impressao-automatica alerta-impressao-ambiguo">⚠️ Verifique a impressora antes de reimprimir</div>';
+    }
+  }
+  return '';
 }
 
 function renderizarComandaParaImpressao(pedido) {
@@ -614,6 +815,7 @@ function cardPedidoHtml(pedido) {
       <div class="card-pedido-cliente">${escaparHtml((pedido.cliente || {}).nome || '(sem nome)')}</div>
       ${blocoTemposPedidoHtml(pedido)}
       <div class="card-pedido-pagamento">${rotuloPagamentoCompacto(pedido)}</div>
+      ${alertaImpressaoAutomaticaHtml(pedido)}
       ${pedido.status === STATUS_PEDIDO.PRONTO ? blocoProntoParaHtml(pedido) : ''}
       <div class="card-pedido-rodape">
         <span>${totalItens} ${totalItens === 1 ? 'item' : 'itens'}</span>

@@ -80,6 +80,8 @@ document.addEventListener('DOMContentLoaded', () => {
   carregarConfiguracoesNegocio();
   carregarCupons(); // independente de carregarConfiguracoesNegocio() — uma falha aqui não pode derrubar o resto de Configurações
   carregarMetaPreparo(); // idem — coluna própria (preparation_target_minutes), fora da lista pública de business_settings
+  carregarImpressaoAutomatica(); // idem — colunas próprias (auto_print_enabled/auto_print_enabled_at)
+  document.getElementById('campo-impressao-automatica-ativa').addEventListener('change', alternarImpressaoAutomatica);
 });
 
 // ---------------------------------------------------------------------------
@@ -731,5 +733,54 @@ async function salvarMetaPreparo(evento) {
   } finally {
     botao.disabled = false;
     botao.textContent = textoOriginal;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Impressão automática de novos pedidos (Epson direta) — public.business_settings.
+// Colunas próprias (auto_print_enabled/auto_print_enabled_at), fora da lista pública
+// de business_settings — mesmo raciocínio de preparation_target_minutes (ver
+// settings-service.js). Toggle salva imediatamente ao alternar (mesmo padrão de
+// alternarModoEscuro), nunca espera um botão "Salvar".
+// ---------------------------------------------------------------------------
+
+async function carregarImpressaoAutomatica() {
+  const carregando = document.getElementById('estado-carregando-impressao-automatica');
+  const erroEl = document.getElementById('estado-erro-impressao-automatica');
+  const conteudo = document.getElementById('conteudo-impressao-automatica');
+
+  carregando.style.display = '';
+  erroEl.style.display = 'none';
+  conteudo.style.display = 'none';
+
+  try {
+    const config = await buscarImpressaoAutomaticaDoSupabase();
+    document.getElementById('campo-impressao-automatica-ativa').checked = config.ativa;
+    carregando.style.display = 'none';
+    conteudo.style.display = '';
+  } catch (erro) {
+    carregando.style.display = 'none';
+    erroEl.textContent = 'Não foi possível carregar a configuração de impressão automática: ' + erro.message;
+    erroEl.style.display = '';
+  }
+}
+
+/**
+ * Liga/desliga a impressão automática imediatamente ao alternar o toggle. Cada chamada
+ * é uma ação explícita do usuário — é isso que garante que auto_print_enabled_at só
+ * avança quando alguém realmente liga (ver atualizarImpressaoAutomaticaNoSupabase).
+ */
+async function alternarImpressaoAutomatica(evento) {
+  const checkbox = evento.target;
+  const ativa = checkbox.checked;
+  checkbox.disabled = true;
+  try {
+    await atualizarImpressaoAutomaticaNoSupabase(ativa);
+    mostrarToast(ativa ? 'Impressão automática ativada.' : 'Impressão automática desativada.', 'sucesso');
+  } catch (erro) {
+    checkbox.checked = !ativa; // gravação falhou — reverte o toggle visualmente
+    mostrarToast(erro.message || 'Não foi possível salvar a impressão automática.', 'erro');
+  } finally {
+    checkbox.disabled = false;
   }
 }
