@@ -268,7 +268,11 @@ function calcularResumoRelatorioDiario(pedidos, cancelados) {
 
   const porFormaPagamento = { cartao: { qtd: 0, valor: 0 }, dinheiro: { qtd: 0, valor: 0 }, revolut: { qtd: 0, valor: 0 }, transferencia: { qtd: 0, valor: 0 } };
   const porStatusPagamento = { pago: { qtd: 0, valor: 0 }, pendente: { qtd: 0, valor: 0 }, pagar_na_entrega: { qtd: 0, valor: 0 }, legado: { qtd: 0, valor: 0 } };
-  const porAtendimento = { retirada: { qtd: 0, valor: 0 }, entrega: { qtd: 0, valor: 0, taxas: 0 } };
+  const porAtendimento = {
+    retirada: { qtd: 0, valor: 0 },
+    comerNoLocal: { qtd: 0, valor: 0 },
+    entrega: { qtd: 0, valor: 0, taxas: 0 },
+  };
 
   pedidos.forEach((p) => {
     if (porFormaPagamento[p.formaPagamento]) {
@@ -282,6 +286,9 @@ function calcularResumoRelatorioDiario(pedidos, cancelados) {
     if (p.fulfilment === 'retirada') {
       porAtendimento.retirada.qtd += 1;
       porAtendimento.retirada.valor += p.total;
+    } else if (p.fulfilment === 'comer_no_local') {
+      porAtendimento.comerNoLocal.qtd += 1;
+      porAtendimento.comerNoLocal.valor += p.total;
     } else if (p.fulfilment === 'entrega') {
       porAtendimento.entrega.qtd += 1;
       porAtendimento.entrega.valor += p.total;
@@ -1141,10 +1148,12 @@ function renderizarAtendimentoRelatorio(resumo) {
   }
 
   const retirada = resumo.porAtendimento.retirada;
+  const comerNoLocal = resumo.porAtendimento.comerNoLocal;
   const entrega = resumo.porAtendimento.entrega;
 
   container.innerHTML = `
     <div class="linha-resumo"><span>Retirada</span><span>${retirada.qtd} pedido${retirada.qtd === 1 ? '' : 's'} · ${formatarMoeda(retirada.valor, moeda)}</span></div>
+    <div class="linha-resumo"><span>Comer no local</span><span>${comerNoLocal.qtd} pedido${comerNoLocal.qtd === 1 ? '' : 's'} · ${formatarMoeda(comerNoLocal.valor, moeda)}</span></div>
     <div class="linha-resumo"><span>Entrega</span><span>${entrega.qtd} pedido${entrega.qtd === 1 ? '' : 's'} · ${formatarMoeda(entrega.valor, moeda)}</span></div>
     <div class="linha-resumo"><span>Taxas de entrega arrecadadas</span><span>${formatarMoeda(entrega.taxas, moeda)}</span></div>
   `;

@@ -226,6 +226,12 @@ function construirPdfRelatorio(relatorio) {
     body: [
       ['Retirada', String(r.porAtendimento.retirada.qtd), formatarMoeda(r.porAtendimento.retirada.valor, moeda), formatarMoeda(0, moeda)],
       [
+        'Comer no local',
+        String(r.porAtendimento.comerNoLocal.qtd),
+        formatarMoeda(r.porAtendimento.comerNoLocal.valor, moeda),
+        formatarMoeda(0, moeda),
+      ],
+      [
         'Entrega',
         String(r.porAtendimento.entrega.qtd),
         formatarMoeda(r.porAtendimento.entrega.valor, moeda),
@@ -546,11 +552,12 @@ function construirExcelRelatorio(relatorio) {
   const aoaAtendimento = [
     ['Tipo', 'Pedidos', 'Valor', 'Taxas de entrega'],
     ['Retirada', r.porAtendimento.retirada.qtd, r.porAtendimento.retirada.valor, 0],
+    ['Comer no local', r.porAtendimento.comerNoLocal.qtd, r.porAtendimento.comerNoLocal.valor, 0],
     ['Entrega', r.porAtendimento.entrega.qtd, r.porAtendimento.entrega.valor, r.porAtendimento.entrega.taxas],
   ];
   const wsAtendimento = XLSX.utils.aoa_to_sheet(aoaAtendimento);
-  formatarColunaXlsx(wsAtendimento, 2, 1, 2, FORMATO_MOEDA_XLSX);
-  formatarColunaXlsx(wsAtendimento, 3, 1, 2, FORMATO_MOEDA_XLSX);
+  formatarColunaXlsx(wsAtendimento, 2, 1, 3, FORMATO_MOEDA_XLSX);
+  formatarColunaXlsx(wsAtendimento, 3, 1, 3, FORMATO_MOEDA_XLSX);
   definirLargurasXlsx(wsAtendimento, [12, 10, 14, 16]);
   XLSX.utils.book_append_sheet(wb, wsAtendimento, 'Atendimento');
 

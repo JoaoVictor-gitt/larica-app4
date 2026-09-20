@@ -141,8 +141,10 @@ function renderizarCabecalhoTabelaHistorico(ehCancelados) {
 }
 
 /** Linha da aba Cancelados — total é histórico/informativo (já excluído do Dashboard), sem checkbox nem botão de excluir (item 8) */
+const ROTULOS_TIPO_HISTORICO = { entrega: 'Entrega', comer_no_local: 'Comer no local', retirada: 'Retirada' };
+
 function linhaPedidoCanceladoHtml(pedido, moeda) {
-  const tipoRotulo = pedido.fulfilment === 'entrega' ? 'Entrega' : 'Retirada';
+  const tipoRotulo = ROTULOS_TIPO_HISTORICO[pedido.fulfilment] || 'Retirada';
   return `
     <tr>
       <td>${escaparHtml(pedido.numero)}</td>
@@ -332,6 +334,7 @@ function abrirModalDetalhePedidoHistorico(id) {
   const cliente = pedido.cliente || {};
   const endereco = pedido.endereco || {};
   const ehEntrega = pedido.fulfilment === 'entrega';
+  const ehComerNoLocal = pedido.fulfilment === 'comer_no_local';
   const ehCancelado = pedido.status === STATUS_PEDIDO.CANCELADO;
 
   // Pedido cancelado não pode ser excluído por aqui (item 8 — mantém rastreabilidade do estorno de estoque)
@@ -339,8 +342,9 @@ function abrirModalDetalhePedidoHistorico(id) {
 
   document.getElementById('detalhe-pedido-historico-titulo').textContent = pedido.numero;
 
-  const blocoTipo = ehEntrega
-    ? `
+  let blocoTipo;
+  if (ehEntrega) {
+    blocoTipo = `
       <div class="detalhe-pedido-secao">
         <div class="detalhe-pedido-titulo">Entrega</div>
         <p>${escaparHtml(endereco.eircode || '')}<br/>
@@ -348,12 +352,20 @@ function abrirModalDetalhePedidoHistorico(id) {
         ${[endereco.area, endereco.distrito].filter(Boolean).map(escaparHtml).join(' — ')}</p>
         ${endereco.instrucoes ? `<p><em>${escaparHtml(endereco.instrucoes)}</em></p>` : ''}
         <p>Taxa de entrega: ${formatarMoeda(pedido.taxaEntrega, moeda)}</p>
-      </div>`
-    : `
+      </div>`;
+  } else if (ehComerNoLocal) {
+    blocoTipo = `
+      <div class="detalhe-pedido-secao">
+        <div class="detalhe-pedido-titulo">Comer no local</div>
+        <p>Horário: ${escaparHtml(rotuloHorarioRetirada(pedido))}</p>
+      </div>`;
+  } else {
+    blocoTipo = `
       <div class="detalhe-pedido-secao">
         <div class="detalhe-pedido-titulo">Retirada</div>
         <p>Retirada: ${escaparHtml(rotuloHorarioRetirada(pedido))}</p>
       </div>`;
+  }
 
   const blocoCancelamento = ehCancelado
     ? `

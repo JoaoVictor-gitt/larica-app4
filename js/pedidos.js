@@ -8,7 +8,7 @@
  * utils.js, storage.js e app.js (carregados antes deste).
  */
 
-let filtroTipoPedidos = ''; // '' | 'entrega' | 'retirada'
+let filtroTipoPedidos = ''; // '' | 'entrega' | 'comer_no_local' | 'retirada'
 let termoBuscaPedidos = '';
 let canalPedidosRealtime = null;
 let timeoutRecarregarPedidosRealtime = null;
@@ -537,6 +537,8 @@ function renderizarComandaParaImpressao(pedido) {
   const ehEntrega = pedido.fulfilment === 'entrega';
   const moeda = obterConfiguracoes().moeda;
   const horarioSolicitado = !ehEntrega && pedido.retirada && pedido.retirada.modo === 'horario' ? pedido.retirada.horario : null;
+  // 3 modalidades nomeadas explicitamente — nunca um "ehEntrega ? X : Y" tratando comer_no_local como retirada.
+  const ROTULO_TIPO_COMANDA = { entrega: 'ENTREGA', comer_no_local: 'COMER NO LOCAL', retirada: 'RETIRADA' };
 
   document.getElementById('comanda-impressao').innerHTML = `
     <div class="comanda-cabecalho">
@@ -545,7 +547,7 @@ function renderizarComandaParaImpressao(pedido) {
     </div>
     <div class="comanda-numero">${escaparHtml(pedido.numero)}</div>
     <div class="comanda-linha-info">${formatarData(pedido.criadoEm)} - ${formatarHora(pedido.criadoEm)}</div>
-    <div class="comanda-tipo">${ehEntrega ? 'ENTREGA' : 'RETIRADA'}</div>
+    <div class="comanda-tipo">${ROTULO_TIPO_COMANDA[pedido.fulfilment] || 'RETIRADA'}</div>
     <hr/>
     <div class="comanda-itens">${linhasItensPedidoHtml(pedido)}</div>
     ${
@@ -591,7 +593,11 @@ function cardPedidoHtml(pedido) {
   const minutosDesdeCriacao = Math.max(0, Math.floor((Date.now() - new Date(pedido.criadoEm).getTime()) / 60000));
   const nivelDemora = pedido.status === STATUS_PEDIDO.FINALIZADO ? 'normal' : calcularNivelDemoraPedido(minutosDesdeCriacao);
   const tipoRotulo =
-    pedido.fulfilment === 'entrega' ? '🚗 Entrega' : `📍 Retirada · ${escaparHtml(rotuloCompactoHorarioRetirada(pedido))}`;
+    pedido.fulfilment === 'entrega'
+      ? '🚗 Entrega'
+      : pedido.fulfilment === 'comer_no_local'
+      ? '🍽️ Comer no local'
+      : `📍 Retirada · ${escaparHtml(rotuloCompactoHorarioRetirada(pedido))}`;
   const tempoRotulo = formatarTempoDecorrido(obterTimestampEtapaAtual(pedido));
   const moeda = obterConfiguracoes().moeda;
 
@@ -773,7 +779,8 @@ function botaoPrincipalPedidoHtml(pedido) {
     return `<button type="button" class="btn btn-primario" data-acao="pronto" data-id="${pedido.id}">Marcar como pronto</button>`;
   }
   if (pedido.status === STATUS_PEDIDO.PRONTO) {
-    const rotulo = pedido.fulfilment === 'entrega' ? 'Pedido entregue' : 'Pedido retirado';
+    const rotulo =
+      pedido.fulfilment === 'entrega' ? 'Pedido entregue' : pedido.fulfilment === 'comer_no_local' ? 'Pedido servido' : 'Pedido retirado';
     return `<button type="button" class="btn btn-primario" data-acao="concluir" data-id="${pedido.id}">${rotulo}</button>`;
   }
   return '';
@@ -783,22 +790,32 @@ function botaoPrincipalPedidoHtml(pedido) {
 function blocoProntoParaHtml(pedido) {
   const cliente = pedido.cliente || {};
   const linhaTroco = linhaTrocoNecessarioHtml(pedido);
+  const nomeTelefone = `${escaparHtml(cliente.nome || '')} · ${escaparHtml(cliente.telefone || '')}`;
 
   if (pedido.fulfilment === 'entrega') {
     const endereco = pedido.endereco || {};
     return `
       <div class="bloco-pronto-para">
         <strong>Pronto para entrega</strong>
-        <span>${escaparHtml(cliente.nome || '')} · ${escaparHtml(cliente.telefone || '')}</span>
+        <span>${nomeTelefone}</span>
         <span>${escaparHtml(endereco.eircode || '')}</span>
         <span>${escaparHtml(endereco.linha1 || '')}${endereco.linha2 ? ', ' + escaparHtml(endereco.linha2) : ''}</span>
         ${linhaTroco}
       </div>`;
   }
+  if (pedido.fulfilment === 'comer_no_local') {
+    return `
+      <div class="bloco-pronto-para">
+        <strong>Pronto — comer no local</strong>
+        <span>${nomeTelefone}</span>
+        ${linhaTroco}
+      </div>`;
+  }
+  // retirada
   return `
     <div class="bloco-pronto-para">
       <strong>Pronto para retirada</strong>
-      <span>${escaparHtml(cliente.nome || '')} · ${escaparHtml(cliente.telefone || '')}</span>
+      <span>${nomeTelefone}</span>
       ${linhaTroco}
     </div>`;
 }
@@ -883,6 +900,7 @@ function abrirModalDetalhesPedido(id) {
   const cliente = pedido.cliente || {};
   const endereco = pedido.endereco || {};
   const ehEntrega = pedido.fulfilment === 'entrega';
+  const ehComerNoLocal = pedido.fulfilment === 'comer_no_local';
 
   document.getElementById('pedido-modal-titulo').textContent = pedido.numero;
 
@@ -900,8 +918,9 @@ function abrirModalDetalhesPedido(id) {
   botaoImprimirDetalhe.textContent = pedido.qtdImpressoes > 0 ? '🖨️ Reimprimir' : '🖨️ Imprimir';
   botaoImprimirDetalhe.disabled = _impressaoEmAndamento;
 
-  const blocoTipo = ehEntrega
-    ? `
+  let blocoTipo;
+  if (ehEntrega) {
+    blocoTipo = `
       <div class="detalhe-pedido-secao">
         <div class="detalhe-pedido-titulo">Entrega</div>
         <p>${escaparHtml(endereco.eircode || '')}<br/>
@@ -909,12 +928,20 @@ function abrirModalDetalhesPedido(id) {
         ${[endereco.area, endereco.distrito].filter(Boolean).map(escaparHtml).join(' — ')}</p>
         ${endereco.instrucoes ? `<p><em>${escaparHtml(endereco.instrucoes)}</em></p>` : ''}
         <p>Taxa de entrega: ${formatarMoeda(pedido.taxaEntrega, moeda)}</p>
-      </div>`
-    : `
+      </div>`;
+  } else if (ehComerNoLocal) {
+    blocoTipo = `
+      <div class="detalhe-pedido-secao">
+        <div class="detalhe-pedido-titulo">Comer no local</div>
+        <p>Horário: ${escaparHtml(rotuloHorarioRetirada(pedido))}</p>
+      </div>`;
+  } else {
+    blocoTipo = `
       <div class="detalhe-pedido-secao">
         <div class="detalhe-pedido-titulo">Retirada</div>
         <p>Retirada: ${escaparHtml(rotuloHorarioRetirada(pedido))}</p>
       </div>`;
+  }
 
   document.getElementById('pedido-modal-corpo').innerHTML = `
     <div class="detalhe-pedido-secao">

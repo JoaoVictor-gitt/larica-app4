@@ -173,7 +173,10 @@ function renderizarResultado(dados) {
 }
 
 function formatarTextoStatus(dados) {
+  // 3 modalidades nomeadas explicitamente — nunca um "entrega ? X : Y" tratando
+  // dine_in como retirada (dine_in não tem nada a "retirar").
   const entrega = dados.fulfilment_type === 'delivery';
+  const comerNoLocal = dados.fulfilment_type === 'dine_in';
   switch (dados.status) {
     case 'aguardando_pagamento':
       return '<strong>Aguardando confirmação de pagamento.</strong>';
@@ -182,9 +185,9 @@ function formatarTextoStatus(dados) {
     case 'em_preparo':
       return '<strong>Seu pedido está em preparo.</strong>';
     case 'pronto':
-      return entrega
-        ? '<strong>Seu pedido está pronto e seguirá para entrega.</strong>'
-        : '<strong>Seu pedido está pronto para retirada.</strong>';
+      if (entrega) return '<strong>Seu pedido está pronto e seguirá para entrega.</strong>';
+      if (comerNoLocal) return '<strong>Seu pedido está pronto!</strong>';
+      return '<strong>Seu pedido está pronto para retirada.</strong>';
     case 'finalizado': {
       const horario = formatarHorarioDublin(dados.completed_at);
       return '<strong>Pedido finalizado.</strong>' + (horario ? ` Finalizado às ${horario}.` : '');

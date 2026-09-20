@@ -139,17 +139,35 @@
       itens: [{ produtoId: 'p6', nome: 'COCA-COLA LATA', quantidade: 1, valorUnitario: 15.0, valorTotal: 15.0 }],
     };
 
+    const CENARIO_COMER_NO_LOCAL = {
+      numero: '#LARICA-106',
+      criadoEm: '2026-09-20T22:30:00.000Z',
+      cliente: { nome: 'Pedro Alves', telefone: '0839876543' },
+      fulfilment: 'comer_no_local',
+      retirada: { modo: 'asap', horario: null },
+      endereco: null,
+      formaPagamento: 'dinheiro',
+      // 'pagar_na_entrega' testa a linha "COBRAR NO LOCAL" (rótulo específico de comer_no_local).
+      statusPagamento: 'pagar_na_entrega',
+      pagamentoDinheiro: { precisaTroco: false, valorPago: null, troco: null },
+      total: 18.0,
+      itens: [{ produtoId: 'p7', nome: 'FRANGO', quantidade: 1, valorUnitario: 18.0, valorTotal: 18.0 }],
+    };
+
     const CENARIOS = [
       { titulo: 'Cenário 1 — Retirada simples (dinheiro, sem troco)', pedido: CENARIO_RETIRADA_SIMPLES },
       { titulo: 'Cenário 2 — Retirada com vários itens (combo + cobrar na retirada + horário)', pedido: CENARIO_RETIRADA_VARIOS_ITENS },
       { titulo: 'Cenário 3 — Entrega com endereço/instruções', pedido: CENARIO_ENTREGA_COM_ENDERECO },
       { titulo: 'Cenário 4 — Dinheiro com troco completo (sem telefone)', pedido: CENARIO_DINHEIRO_COM_TROCO },
       { titulo: 'Cenário 5 — Dinheiro, precisaTroco=true mas valorPago/troco ausentes', pedido: CENARIO_DINHEIRO_TROCO_INCOMPLETO },
+      { titulo: 'Cenário 6 — Comer no local (sem endereço, cobrar no local)', pedido: CENARIO_COMER_NO_LOCAL },
     ];
 
     /** Checagens determinísticas — só olham a string XML gerada, nunca tocam rede/impressora. */
-    function rodarChecagens(xml, pedido, ehEntrega) {
+    function rodarChecagens(xml, pedido) {
       const checagens = [];
+      const ehEntrega = pedido.fulfilment === 'entrega';
+      const ehComerNoLocal = pedido.fulfilment === 'comer_no_local';
 
       function checar(descricao, condicaoBooleana) {
         checagens.push({ descricao, ok: !!condicaoBooleana });
@@ -168,7 +186,15 @@
       // (ASCII U+0020, NBSP U+00A0 etc.) o Intl.NumberFormat usa antes do símbolo — [^\n]* cobre
       // qualquer um deles sem precisar identificar qual é.
       checar('Contém TOTAL formatado com €', /TOTAL:[^\n]*€/.test(xml));
-      checar(ehEntrega ? 'Contém "ENTREGA"' : 'Contém "RETIRADA"', xml.indexOf(ehEntrega ? 'ENTREGA' : 'RETIRADA') !== -1);
+
+      // --- Rótulo de modalidade: as 3 nomeadas explicitamente, mutuamente exclusivas ---
+      const ROTULO_TIPO = ehEntrega ? 'ENTREGA' : ehComerNoLocal ? 'COMER NO LOCAL' : 'RETIRADA';
+      checar('Contém "' + ROTULO_TIPO + '"', xml.indexOf(ROTULO_TIPO) !== -1);
+      ['RETIRADA', 'ENTREGA', 'COMER NO LOCAL']
+        .filter((rotulo) => rotulo !== ROTULO_TIPO)
+        .forEach((outroRotulo) => {
+          checar(ROTULO_TIPO + ' NÃO contém a palavra "' + outroRotulo + '" em nenhum lugar', xml.indexOf(outroRotulo) === -1);
+        });
 
       // --- Cliente / Telefone ---
       const cliente = pedido.cliente || {};
@@ -205,11 +231,9 @@
       }
 
       if (!ehEntrega) {
-        checar('NÃO contém bloco de endereço (retirada não tem endereço)', xml.indexOf('Rua ') === -1);
-        checar('Retirada NÃO contém a palavra ENTREGA em nenhum lugar', xml.indexOf('ENTREGA') === -1);
+        checar('NÃO contém bloco de endereço (retirada/comer no local não tem endereço)', xml.indexOf('Rua ') === -1);
       } else {
         checar('Contém linha de endereço', xml.indexOf(pedido.endereco.linha1) !== -1);
-        checar('Entrega NÃO contém a palavra RETIRADA em nenhum lugar', xml.indexOf('RETIRADA') === -1);
         if (pedido.endereco.instrucoes) {
           // A instrução do cenário 3 tem "&" de propósito — não dá pra procurar o texto cru
           // (ele nunca aparece cru se builder.addText() estiver escapando direito). Em vez disso:
@@ -308,7 +332,7 @@
       pre.textContent = xml;
       container.appendChild(pre);
 
-      const checagens = rodarChecagens(xml, cenario.pedido, cenario.pedido.fulfilment === 'entrega');
+      const checagens = rodarChecagens(xml, cenario.pedido);
       const listaChecagens = document.createElement('ul');
       listaChecagens.className = 'checagens';
       checagens.forEach(function (c) {

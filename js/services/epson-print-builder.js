@@ -32,6 +32,12 @@ const ROTULOS_FORMA_PAGAMENTO_COMANDA = {
   transferencia: 'TRANSFERÊNCIA',
 };
 
+// 3 modalidades nomeadas explicitamente — nunca um "ehEntrega ? X : Y" tratando
+// comer_no_local como retirada. Mesmo padrão visual (2x2/negrito/centralizado)
+// já usado para RETIRADA/ENTREGA, só o texto muda.
+const ROTULO_TIPO_COMANDA_EPSON = { entrega: 'ENTREGA', comer_no_local: 'COMER NO LOCAL', retirada: 'RETIRADA' };
+const ROTULO_COBRAR_COMANDA_EPSON = { entrega: 'COBRAR NA ENTREGA', comer_no_local: 'COBRAR NO LOCAL', retirada: 'COBRAR NA RETIRADA' };
+
 /**
  * Gera o XML <epos-print> completo de uma comanda de cozinha.
  * @param {object} pedido — mesmo formato retornado por orders-service.js.
@@ -71,7 +77,7 @@ function gerarComandaEposPrintXml(pedido) {
   builder.addText(formatarData(pedido.criadoEm) + ' - ' + formatarHora(pedido.criadoEm) + '\n');
 
   builder.addTextStyle(undefined, undefined, true);
-  builder.addText((ehEntrega ? 'ENTREGA' : 'RETIRADA') + '\n');
+  builder.addText((ROTULO_TIPO_COMANDA_EPSON[pedido.fulfilment] || 'RETIRADA') + '\n');
   builder.addTextStyle(undefined, undefined, false);
 
   // Horário solicitado — só existe pra retirada com modo "horario" (retirada "asap" ou entrega não têm isso)
@@ -176,7 +182,7 @@ function gerarComandaEposPrintXml(pedido) {
   if (pedido.statusPagamento === 'pagar_na_entrega') {
     builder.addTextStyle(undefined, undefined, true);
     builder.addTextSize(2, 1);
-    builder.addText((ehEntrega ? 'COBRAR NA ENTREGA' : 'COBRAR NA RETIRADA') + '\n');
+    builder.addText((ROTULO_COBRAR_COMANDA_EPSON[pedido.fulfilment] || 'COBRAR NA RETIRADA') + '\n');
     builder.addTextSize(1, 1);
     builder.addTextStyle(undefined, undefined, false);
   }

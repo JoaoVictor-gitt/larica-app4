@@ -143,6 +143,7 @@ function calcularResumoFechamento(pedidosValidos, cancelados) {
   const transferencia = somaPorFiltro((p) => p.formaPagamento === 'transferencia');
   const delivery = somaPorFiltro((p) => p.fulfilment === 'entrega');
   const retirada = somaPorFiltro((p) => p.fulfilment === 'retirada');
+  const comerNoLocal = somaPorFiltro((p) => p.fulfilment === 'comer_no_local');
 
   const trocoInformado = pedidosValidos
     .filter((p) => p.formaPagamento === 'dinheiro' && p.precisaTroco === true)
@@ -162,6 +163,7 @@ function calcularResumoFechamento(pedidosValidos, cancelados) {
     transferencia,
     delivery,
     retirada,
+    comerNoLocal,
     trocoInformado,
     totalCancelamentos,
     valorHistoricoCancelado,
@@ -385,6 +387,7 @@ function renderizarFechamento(resumo) {
   definir('fechamento-transferencia', formatarMoeda(resumo.transferencia, moeda));
   definir('fechamento-delivery', formatarMoeda(resumo.delivery, moeda));
   definir('fechamento-retirada', formatarMoeda(resumo.retirada, moeda));
+  definir('fechamento-comer-no-local', formatarMoeda(resumo.comerNoLocal, moeda));
   definir('fechamento-troco', formatarMoeda(resumo.trocoInformado, moeda));
   definir('fechamento-cancelamentos', resumo.totalCancelamentos);
   definir('fechamento-valor-cancelado', formatarMoeda(resumo.valorHistoricoCancelado, moeda));
