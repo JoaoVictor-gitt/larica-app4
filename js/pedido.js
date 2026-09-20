@@ -743,9 +743,12 @@ function ligarEventosGerais() {
   // Impressão nativa do navegador do recibo do cliente — nunca a comanda térmica Epson (fluxo
   // separado, exclusivo de /pedidos). Não faz claim, não chama register_order_print, não grava
   // nada no Supabase.
-  document.getElementById('botao-imprimir-pedido-confirmacao').addEventListener('click', () => {
-    window.print();
-  });
+  const botaoImprimirPedidoConfirmacao = document.getElementById('botao-imprimir-pedido-confirmacao');
+  if (botaoImprimirPedidoConfirmacao) {
+    botaoImprimirPedidoConfirmacao.addEventListener('click', () => {
+      window.print();
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2320,6 +2323,12 @@ function renderizarConfirmacao(pedido, moeda) {
  * de renderizarConfirmacao()) — nenhum campo inventado.
  */
 function renderizarReciboImpressaoCliente(pedido, moeda) {
+  const recibo = document.getElementById('recibo-impressao-cliente');
+  if (!recibo) {
+    console.error('[RECIBO CLIENTE] #recibo-impressao-cliente não encontrado no DOM');
+    return;
+  }
+
   const cliente = pedido.cliente || {};
   const endereco = pedido.endereco || {};
   const ehEntrega = pedido.fulfilment === 'entrega';

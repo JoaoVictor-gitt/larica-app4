@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="css/style.css" />
   <link rel="stylesheet" href="css/cardapio.css" />
   <link rel="stylesheet" href="css/pedido.css" />
+  <link rel="stylesheet" href="css/recibo-cliente-impressao.css" />
   <link rel="stylesheet" href="css/responsive.css" />
 </head>
 <body data-pagina="pedido" data-area="pedido">
@@ -324,6 +325,7 @@
         <p>Obrigado! Seu pedido foi criado com sucesso.</p>
         <div class="numero-pedido" id="numero-pedido-confirmado"></div>
         <div id="resumo-confirmacao" class="card"></div>
+        <button type="button" class="btn btn-secundario" id="botao-imprimir-pedido-confirmacao">🖨️ Imprimir pedido</button>
       </div>
 
       <!-- Revolut: pedido já foi criado (estoque reservado), mas payment_status='pending' até um staff
@@ -374,6 +376,11 @@
       <button type="button" class="btn btn-secundario" id="botao-novo-pedido">Voltar ao cardápio</button>
     </section>
   </main>
+
+  <!-- Recibo simples pra impressão do cliente (botão "🖨️ Imprimir pedido" na confirmação) — window.print()
+       nativo do navegador. Nunca visível na tela normal, só via @media print (css/recibo-cliente-impressao.css).
+       Totalmente separado da comanda térmica Epson/impressão automática de /pedidos. -->
+  <div id="recibo-impressao-cliente" aria-hidden="true"></div>
 
   <div class="barra-carrinho-fixa" id="barra-carrinho-fixa" style="display:none;">
     <button type="button" id="botao-ver-carrinho"></button>
