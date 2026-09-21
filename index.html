@@ -34,15 +34,14 @@
 
   <main>
     <section class="hero-larica">
-      <!-- Mídia de fundo do Hero — hoje um placeholder (sem foto/vídeo real no
-           projeto ainda). data-tipo-midia é o hook que uma futura tela de
-           Configurações > Aparência do site vai controlar, trocando entre
-           "imagem"/"video" sem exigir nenhuma mudança de CSS. Quando a foto
-           real chegar, troca-se .hero-media-placeholder por:
-             <img class="hero-media-elemento" src="images/hero-churrasco.jpg"
-                  alt="" loading="eager" fetchpriority="high" />
-           Para vídeo, mesma classe .hero-media-elemento num <video autoplay
-           muted loop playsinline poster="...">, sempre com poster/fallback. -->
+      <!-- Mídia de fundo do Hero — .hero-media-placeholder (gradiente) é o que aparece
+           imediatamente, sem esperar rede nenhuma. js/home.js (Etapa 2.5, carregado com defer
+           no fim da página) consulta business_settings.hero_media_* e, se houver mídia
+           configurada e ela carregar com sucesso, insere um <img>/<video
+           class="hero-media-elemento"> por cima do placeholder (fade-in via
+           .hero-media-elemento-visivel, css/home-larica.css) — nunca remove o placeholder do
+           DOM, então qualquer falha mantém o gradiente visível. data-tipo-midia é atualizado
+           dinamicamente por home.js ("imagem"/"video"). -->
       <div class="hero-media" data-tipo-midia="imagem">
         <div class="hero-media-placeholder" aria-hidden="true"></div>
         <div class="hero-media-overlay"></div>
@@ -74,5 +73,14 @@
     // Garante que o localStorage já esteja inicializado antes de entrar em qualquer área
     inicializarStorage();
   </script>
+
+  <!-- Mídia do Hero (redesign Larica, Etapa 2.5) — lê business_settings.hero_media_* (público,
+       via getHeroMediaSettings) e troca o placeholder pela mídia configurada em Configurações >
+       Aparência do site. defer: não bloqueia o parse/pintura do Hero/placeholder acima; a ordem
+       entre scripts com defer é preservada, então executam nesta sequência mesmo assim. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" defer></script>
+  <script src="js/supabase.js" defer></script>
+  <script src="js/services/settings-service.js" defer></script>
+  <script src="js/home.js" defer></script>
 </body>
 </html>

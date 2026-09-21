@@ -103,11 +103,23 @@
 }
 
 .hero-media-elemento {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   object-position: center;
   display: block;
+  opacity: 0;
+  transition: opacity 400ms ease;
+}
+
+/* Aplicada por js/home.js só depois que o navegador confirma que a mídia carregou
+   (evento load/loadeddata) — nunca antes, senão um quadro em branco/quebrado apareceria
+   por cima do placeholder. O placeholder continua por baixo (nunca é removido do DOM), então
+   uma falha posterior de carregamento (ver .remove() em home.js) nunca deixa a tela sem fundo. */
+.hero-media-elemento.hero-media-elemento-visivel {
+  opacity: 1;
 }
 
 /* Placeholder enquanto não há foto/vídeo real (ver comentário em index.html) —
@@ -135,17 +147,10 @@
     linear-gradient(90deg, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.72) 35%, rgba(0, 0, 0, 0.32) 65%, rgba(0, 0, 0, 0.1) 100%);
 }
 
-/* Vídeo (quando ativado numa etapa futura): respeita prefers-reduced-motion
-   escondendo o vídeo e mostrando o poster/fallback de imagem no lugar — regra
-   já preparada, inerte até existir um <video> real na página. */
-@media (prefers-reduced-motion: reduce) {
-  .hero-media[data-tipo-midia="video"] video {
-    display: none;
-  }
-  .hero-media[data-tipo-midia="video"] .hero-media-poster-fallback {
-    display: block;
-  }
-}
+/* prefers-reduced-motion (Etapa 2.5): tratado em JS, não em CSS — js/home.js checa
+   window.matchMedia('(prefers-reduced-motion: reduce)') antes de decidir o que criar e, se
+   ativo, nunca chega a instanciar um <video>, usando o poster como imagem estática desde o
+   início. Por isso não existe nenhuma regra CSS de exibir/esconder <video> aqui. */
 
 /* Camada 3: conteúdo — encostado à esquerda (flex-start padrão de .hero-larica,
    já que .hero-media/.header-larica são position:absolute e saem do fluxo),
