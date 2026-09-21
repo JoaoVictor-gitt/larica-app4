@@ -96,6 +96,14 @@
         </span>
         <span class="config-card-seta">→</span>
       </button>
+      <button type="button" class="config-card" data-config-abrir="aparencia-site">
+        <span class="config-card-icone">🖼️</span>
+        <span class="config-card-texto">
+          <strong>Aparência do site</strong>
+          <span>Personalize a mídia principal exibida na página inicial</span>
+        </span>
+        <span class="config-card-seta">→</span>
+      </button>
     </div>
 
     <!-- Aparência: moeda + tema — preferências locais, continuam em localStorage -->
@@ -413,6 +421,81 @@
               <span class="toggle-switch-trilho"></span>
             </label>
           </div>
+        </div>
+      </div>
+      </section>
+
+      <!-- Aparência do site (redesign Larica, Etapa 2.4) — mídia do Hero em business_settings.hero_media_type/hero_media_path/hero_poster_path (Storage: bucket site-media) -->
+      <section class="config-secao" data-config-secao="aparencia-site">
+      <button type="button" class="config-botao-voltar" data-config-voltar>← Voltar para Configurações</button>
+      <div class="card" style="max-width:520px;">
+        <h2 class="titulo-grafico" style="margin-top:0;">Aparência do site</h2>
+        <p class="dica-campo" style="margin-top:-8px;">Personalize a mídia principal exibida na página inicial.</p>
+
+        <div class="estado-vazio" id="estado-carregando-aparencia-site">Carregando...</div>
+        <div class="estado-vazio" id="estado-erro-aparencia-site" style="display:none;"></div>
+
+        <div id="conteudo-aparencia-site" style="display:none;">
+          <form id="form-aparencia-site">
+            <div class="form-grupo">
+              <label>Tipo de mídia</label>
+              <div style="display:flex; gap:var(--espaco-lg);">
+                <label style="display:flex; align-items:center; gap:6px; font-weight:500;">
+                  <input type="radio" name="hero-media-tipo" id="campo-hero-tipo-imagem" value="image" />
+                  Imagem
+                </label>
+                <label style="display:flex; align-items:center; gap:6px; font-weight:500;">
+                  <input type="radio" name="hero-media-tipo" id="campo-hero-tipo-video" value="video" />
+                  Vídeo
+                </label>
+              </div>
+            </div>
+
+            <div class="estado-vazio" id="estado-vazio-hero-media" style="display:none;">
+              Nenhuma mídia personalizada configurada.<br />A home continuará usando o visual padrão.
+            </div>
+
+            <div id="bloco-hero-imagem" class="form-grupo" style="display:none;">
+              <label>Preview</label>
+              <img
+                id="preview-hero-imagem"
+                style="display:none; width:100%; max-width:360px; aspect-ratio:16/9; object-fit:cover; border-radius:var(--raio-md); background:var(--cor-cinza-claro); margin-bottom:var(--espaco-sm);"
+                alt="Prévia da imagem do Hero"
+              />
+              <input type="file" id="campo-hero-imagem" accept="image/jpeg,image/png,image/webp" style="display:none;" />
+              <button type="button" class="btn btn-secundario" id="botao-selecionar-hero-imagem">Selecionar imagem</button>
+              <p class="dica-campo">JPG, PNG ou WEBP — máximo 5 MB.</p>
+            </div>
+
+            <div id="bloco-hero-video" class="form-grupo" style="display:none;">
+              <label>Preview</label>
+              <video
+                id="preview-hero-video"
+                style="display:none; width:100%; max-width:360px; aspect-ratio:16/9; object-fit:cover; border-radius:var(--raio-md); background:var(--cor-cinza-claro); margin-bottom:var(--espaco-sm);"
+                controls
+                muted
+                playsinline
+              ></video>
+              <input type="file" id="campo-hero-video" accept="video/mp4" style="display:none;" />
+              <button type="button" class="btn btn-secundario" id="botao-selecionar-hero-video">Selecionar vídeo</button>
+              <p class="dica-campo">MP4 — máximo 30 MB.</p>
+
+              <label style="display:block; margin-top:var(--espaco-md);">Poster / Fallback</label>
+              <img
+                id="preview-hero-poster"
+                style="display:none; width:100%; max-width:360px; aspect-ratio:16/9; object-fit:cover; border-radius:var(--raio-md); background:var(--cor-cinza-claro); margin-bottom:var(--espaco-sm);"
+                alt="Prévia do poster/fallback"
+              />
+              <input type="file" id="campo-hero-poster" accept="image/jpeg,image/png,image/webp" style="display:none;" />
+              <button type="button" class="btn btn-secundario" id="botao-selecionar-hero-poster">Selecionar imagem</button>
+              <p class="dica-campo">Exibida enquanto o vídeo carrega ou se não puder ser reproduzido. JPG, PNG ou WEBP — máximo 5 MB.</p>
+            </div>
+
+            <span class="campo-erro" id="erro-aparencia-site"></span>
+
+            <button type="submit" class="btn btn-primario" id="botao-salvar-aparencia-site">Salvar alterações</button>
+            <button type="button" class="btn btn-secundario" id="botao-remover-aparencia-site" style="margin-left:var(--espaco-sm);">Remover mídia personalizada</button>
+          </form>
         </div>
       </div>
       </section>

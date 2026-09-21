@@ -17,6 +17,12 @@ let configNegocioCache = null;
 // Arquivo de QR selecionado (ainda não enviado) — null enquanto não há seleção pendente.
 let arquivoQrRevolutSelecionado = null;
 
+// Aparência do site (redesign Larica, Etapa 2.4) — business_settings.hero_media_*, Storage site-media
+let heroMediaConfigCache = null; // última config confirmada no banco: {tipo, path, posterPath}
+let arquivoHeroImagemSelecionado = null;
+let arquivoHeroVideoSelecionado = null;
+let arquivoHeroPosterSelecionado = null;
+
 const REVOLUT_QR_MIMES_ACEITOS = ['image/png', 'image/jpeg', 'image/webp'];
 // REVOLUT_QR_TAMANHO_MAXIMO_BYTES vem de js/services/settings-service.js (carregado antes deste arquivo) — mesma constante, não redeclarada aqui.
 
@@ -82,6 +88,25 @@ document.addEventListener('DOMContentLoaded', () => {
   carregarMetaPreparo(); // idem — coluna própria (preparation_target_minutes), fora da lista pública de business_settings
   carregarImpressaoAutomatica(); // idem — colunas próprias (auto_print_enabled/auto_print_enabled_at)
   document.getElementById('campo-impressao-automatica-ativa').addEventListener('change', alternarImpressaoAutomatica);
+
+  document.getElementById('botao-selecionar-hero-imagem').addEventListener('click', () => document.getElementById('campo-hero-imagem').click());
+  document.getElementById('campo-hero-imagem').addEventListener('change', tratarSelecaoHeroImagem);
+  document.getElementById('botao-selecionar-hero-video').addEventListener('click', () => document.getElementById('campo-hero-video').click());
+  document.getElementById('campo-hero-video').addEventListener('change', tratarSelecaoHeroVideo);
+  document.getElementById('botao-selecionar-hero-poster').addEventListener('click', () => document.getElementById('campo-hero-poster').click());
+  document.getElementById('campo-hero-poster').addEventListener('change', tratarSelecaoHeroPoster);
+  document.querySelectorAll('input[name="hero-media-tipo"]').forEach((r) => r.addEventListener('change', alternarTipoHeroMedia));
+  document.getElementById('form-aparencia-site').addEventListener('submit', salvarAparenciaSite);
+  document.getElementById('botao-remover-aparencia-site').addEventListener('click', removerAparenciaSite);
+  carregarAparenciaSite(); // idem — coluna própria (hero_media_*), fora da lista pública padrão já carregada por carregarConfiguracoesNegocio()
+});
+
+// Revoga qualquer object URL de preview ainda em aberto ao sair da página (Aparência do site, Etapa 2.4)
+window.addEventListener('beforeunload', () => {
+  ['preview-hero-imagem', 'preview-hero-video', 'preview-hero-poster'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) revogarObjectUrlDoElemento(el);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -782,5 +807,270 @@ async function alternarImpressaoAutomatica(evento) {
     mostrarToast(erro.message || 'Não foi possível salvar a impressão automática.', 'erro');
   } finally {
     checkbox.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Aparência do site (redesign Larica, Etapa 2.4) — business_settings.hero_media_type/
+// hero_media_path/hero_poster_path (Storage: bucket site-media). Reaproveita
+// uploadMidiaSite/getUrlPublicaMidiaSite/getHeroMediaSettings/updateHeroMediaSettings
+// de js/services/settings-service.js (Etapa 2.3) — nenhuma lógica duplicada aqui.
+// ---------------------------------------------------------------------------
+
+/** Troca a src de um <img>/<video> de preview por uma URL "de verdade" (pública ou vazia) — revoga qualquer object URL antigo que o elemento estivesse segurando. */
+function definirPreviewUrlDireta(elemento, url) {
+  revogarObjectUrlDoElemento(elemento);
+  if (!url) {
+    elemento.style.display = 'none';
+    elemento.removeAttribute('src');
+    return;
+  }
+  elemento.src = url;
+  elemento.style.display = '';
+}
+
+/** Preview local de um File ainda não enviado — URL.createObjectURL, nunca base64 (item 10 do pedido). */
+function definirPreviewObjectUrl(elemento, file) {
+  revogarObjectUrlDoElemento(elemento);
+  const url = URL.createObjectURL(file);
+  elemento.src = url;
+  elemento.dataset.objectUrl = url;
+  elemento.style.display = '';
+}
+
+/** Revoga o object URL que o elemento estiver segurando (se houver) — chamada antes de qualquer troca de src e no beforeunload. */
+function revogarObjectUrlDoElemento(elemento) {
+  if (elemento.dataset.objectUrl) {
+    URL.revokeObjectURL(elemento.dataset.objectUrl);
+    delete elemento.dataset.objectUrl;
+  }
+}
+
+async function carregarAparenciaSite() {
+  const carregando = document.getElementById('estado-carregando-aparencia-site');
+  const erroEl = document.getElementById('estado-erro-aparencia-site');
+  const conteudo = document.getElementById('conteudo-aparencia-site');
+
+  carregando.style.display = '';
+  erroEl.style.display = 'none';
+  conteudo.style.display = 'none';
+
+  try {
+    const config = await getHeroMediaSettings();
+    preencherAparenciaSite(config);
+    carregando.style.display = 'none';
+    conteudo.style.display = '';
+  } catch (erro) {
+    carregando.style.display = 'none';
+    erroEl.textContent = 'Não foi possível carregar a configuração de aparência do site: ' + erro.message;
+    erroEl.style.display = '';
+  }
+}
+
+/** Aplica {tipo, path, posterPath} na tela — marca o radio certo e deixa alternarTipoHeroMedia() cuidar de mostrar bloco/preview certos. */
+function preencherAparenciaSite(config) {
+  heroMediaConfigCache = config;
+  document.getElementById('campo-hero-tipo-imagem').checked = config.tipo === 'image';
+  document.getElementById('campo-hero-tipo-video').checked = config.tipo === 'video';
+  alternarTipoHeroMedia();
+}
+
+/**
+ * Mostra o bloco (imagem/vídeo) do radio marcado e resolve o preview certo: se já existe um
+ * arquivo novo pendente pra esse tipo, mantém o preview local; senão, se a config salva for
+ * desse mesmo tipo, mostra a mídia salva; senão fica vazio. Nunca reaproveita a mídia salva de
+ * um tipo pro outro (item 8 do pedido) — cada bloco só olha pro estado do seu próprio tipo.
+ */
+function alternarTipoHeroMedia() {
+  const tipoEl = document.querySelector('input[name="hero-media-tipo"]:checked');
+  const tipo = tipoEl ? tipoEl.value : null;
+
+  document.getElementById('estado-vazio-hero-media').style.display = tipo ? 'none' : '';
+  document.getElementById('bloco-hero-imagem').style.display = tipo === 'image' ? '' : 'none';
+  document.getElementById('bloco-hero-video').style.display = tipo === 'video' ? '' : 'none';
+
+  if (tipo === 'image' && !arquivoHeroImagemSelecionado) {
+    const url = heroMediaConfigCache && heroMediaConfigCache.tipo === 'image' ? getUrlPublicaMidiaSite(heroMediaConfigCache.path) : null;
+    definirPreviewUrlDireta(document.getElementById('preview-hero-imagem'), url);
+  }
+  if (tipo === 'video') {
+    if (!arquivoHeroVideoSelecionado) {
+      const url = heroMediaConfigCache && heroMediaConfigCache.tipo === 'video' ? getUrlPublicaMidiaSite(heroMediaConfigCache.path) : null;
+      definirPreviewUrlDireta(document.getElementById('preview-hero-video'), url);
+    }
+    if (!arquivoHeroPosterSelecionado) {
+      const url = heroMediaConfigCache && heroMediaConfigCache.tipo === 'video' ? getUrlPublicaMidiaSite(heroMediaConfigCache.posterPath) : null;
+      definirPreviewUrlDireta(document.getElementById('preview-hero-poster'), url);
+    }
+  }
+}
+
+/** Formato aceito: qualquer chave de SITE_MEDIA_MIME_PARA_EXTENSAO (Etapa 2.3, settings-service.js) que não seja vídeo. */
+function _ehImagemAceitaSiteMedia(mime) {
+  return mime !== 'video/mp4' && !!SITE_MEDIA_MIME_PARA_EXTENSAO[mime];
+}
+
+function tratarSelecaoHeroImagem(evento) {
+  const erroEl = document.getElementById('erro-aparencia-site');
+  erroEl.textContent = '';
+  const arquivo = evento.target.files[0];
+  if (!arquivo) return;
+
+  if (!_ehImagemAceitaSiteMedia(arquivo.type)) {
+    erroEl.textContent = 'Formato inválido. Envie JPG, PNG ou WEBP.';
+    evento.target.value = '';
+    return;
+  }
+  if (arquivo.size > SITE_MEDIA_TAMANHO_MAXIMO_IMAGEM_BYTES) {
+    erroEl.textContent = 'A imagem precisa ter no máximo 5 MB.';
+    evento.target.value = '';
+    return;
+  }
+
+  arquivoHeroImagemSelecionado = arquivo;
+  definirPreviewObjectUrl(document.getElementById('preview-hero-imagem'), arquivo);
+}
+
+function tratarSelecaoHeroVideo(evento) {
+  const erroEl = document.getElementById('erro-aparencia-site');
+  erroEl.textContent = '';
+  const arquivo = evento.target.files[0];
+  if (!arquivo) return;
+
+  if (arquivo.type !== 'video/mp4') {
+    erroEl.textContent = 'Formato inválido. Envie um vídeo MP4.';
+    evento.target.value = '';
+    return;
+  }
+  if (arquivo.size > SITE_MEDIA_TAMANHO_MAXIMO_VIDEO_BYTES) {
+    erroEl.textContent = 'O vídeo precisa ter no máximo 30 MB.';
+    evento.target.value = '';
+    return;
+  }
+
+  arquivoHeroVideoSelecionado = arquivo;
+  definirPreviewObjectUrl(document.getElementById('preview-hero-video'), arquivo);
+}
+
+function tratarSelecaoHeroPoster(evento) {
+  const erroEl = document.getElementById('erro-aparencia-site');
+  erroEl.textContent = '';
+  const arquivo = evento.target.files[0];
+  if (!arquivo) return;
+
+  if (!_ehImagemAceitaSiteMedia(arquivo.type)) {
+    erroEl.textContent = 'Formato inválido. Envie JPG, PNG ou WEBP.';
+    evento.target.value = '';
+    return;
+  }
+  if (arquivo.size > SITE_MEDIA_TAMANHO_MAXIMO_IMAGEM_BYTES) {
+    erroEl.textContent = 'A imagem precisa ter no máximo 5 MB.';
+    evento.target.value = '';
+    return;
+  }
+
+  arquivoHeroPosterSelecionado = arquivo;
+  definirPreviewObjectUrl(document.getElementById('preview-hero-poster'), arquivo);
+}
+
+/**
+ * Salva a Aparência do site. Se um arquivo novo foi escolhido pro tipo ativo, envia primeiro
+ * (uploadMidiaSite) e usa o path retornado; senão, se a config salva já for desse mesmo tipo,
+ * preserva o path existente (item 6 — "clicar salvar sem trocar nada"); senão, falta escolher
+ * um arquivo e a função lança erro antes de qualquer upload/UPDATE.
+ *
+ * Falha parcial (item 7): se um upload for bem-sucedido mas outro upload (poster) ou o UPDATE
+ * final falhar, heroMediaConfigCache e a tela NUNCA são tocados aqui — o card continua
+ * mostrando a última configuração confirmada, nunca afirma sucesso. Um arquivo já enviado antes
+ * da falha pode ficar órfão no bucket site-media; não há rollback automático nesta etapa — a
+ * futura Galeria poderá localizar e remover órfãos manualmente.
+ */
+async function salvarAparenciaSite(evento) {
+  evento.preventDefault();
+  const botao = document.getElementById('botao-salvar-aparencia-site');
+  const erroEl = document.getElementById('erro-aparencia-site');
+  erroEl.textContent = '';
+  if (botao.disabled) return;
+
+  const textoOriginal = botao.textContent;
+  botao.disabled = true;
+
+  try {
+    const tipoEl = document.querySelector('input[name="hero-media-tipo"]:checked');
+    if (!tipoEl) throw new Error('Selecione o tipo de mídia (imagem ou vídeo).');
+    const tipo = tipoEl.value;
+
+    let path;
+    let posterPath = null;
+
+    if (tipo === 'image') {
+      if (arquivoHeroImagemSelecionado) {
+        botao.textContent = 'Enviando imagem...';
+        ({ path } = await uploadMidiaSite(arquivoHeroImagemSelecionado));
+      } else if (heroMediaConfigCache && heroMediaConfigCache.tipo === 'image') {
+        path = heroMediaConfigCache.path;
+      } else {
+        throw new Error('Selecione uma imagem para o Hero.');
+      }
+    } else {
+      if (arquivoHeroVideoSelecionado) {
+        botao.textContent = 'Enviando vídeo...';
+        ({ path } = await uploadMidiaSite(arquivoHeroVideoSelecionado));
+      } else if (heroMediaConfigCache && heroMediaConfigCache.tipo === 'video') {
+        path = heroMediaConfigCache.path;
+      } else {
+        throw new Error('Selecione um vídeo para o Hero.');
+      }
+
+      if (arquivoHeroPosterSelecionado) {
+        botao.textContent = 'Enviando poster...';
+        ({ path: posterPath } = await uploadMidiaSite(arquivoHeroPosterSelecionado));
+      } else if (heroMediaConfigCache && heroMediaConfigCache.tipo === 'video' && heroMediaConfigCache.posterPath) {
+        posterPath = heroMediaConfigCache.posterPath;
+      } else {
+        throw new Error('Selecione uma imagem de poster/fallback para o vídeo.');
+      }
+    }
+
+    botao.textContent = 'Salvando...';
+    const atualizado = await updateHeroMediaSettings({ tipo, path, posterPath });
+    heroMediaConfigCache = atualizado;
+    arquivoHeroImagemSelecionado = null;
+    arquivoHeroVideoSelecionado = null;
+    arquivoHeroPosterSelecionado = null;
+    preencherAparenciaSite(atualizado);
+    mostrarToast('Alterações salvas com sucesso.', 'sucesso');
+  } catch (erro) {
+    erroEl.textContent = erro.message || 'Não foi possível salvar as alterações.';
+  } finally {
+    botao.disabled = false;
+    botao.textContent = textoOriginal;
+  }
+}
+
+/** Remove só a configuração (business_settings) — nunca exclui o arquivo do Storage (item 9). */
+async function removerAparenciaSite() {
+  if (!confirm('Remover a mídia personalizada do Hero? A home voltará ao visual padrão. O arquivo não será excluído do Storage.')) return;
+
+  const botao = document.getElementById('botao-remover-aparencia-site');
+  const erroEl = document.getElementById('erro-aparencia-site');
+  erroEl.textContent = '';
+  botao.disabled = true;
+
+  try {
+    const atualizado = await updateHeroMediaSettings({ tipo: null, path: null, posterPath: null });
+    arquivoHeroImagemSelecionado = null;
+    arquivoHeroVideoSelecionado = null;
+    arquivoHeroPosterSelecionado = null;
+    document.getElementById('campo-hero-imagem').value = '';
+    document.getElementById('campo-hero-video').value = '';
+    document.getElementById('campo-hero-poster').value = '';
+    document.querySelectorAll('input[name="hero-media-tipo"]').forEach((r) => (r.checked = false));
+    preencherAparenciaSite(atualizado);
+    mostrarToast('Mídia personalizada removida. A home voltará ao visual padrão.', 'sucesso');
+  } catch (erro) {
+    erroEl.textContent = erro.message || 'Não foi possível remover a mídia personalizada.';
+  } finally {
+    botao.disabled = false;
   }
 }

@@ -274,3 +274,176 @@ async function atualizarHorarioFuncionamentoNoSupabase(diaSemana, { ativo, horaA
   if (error) throw new Error(error.message);
   return _linhaSupabaseParaHorario(data);
 }
+
+// ---------------------------------------------------------------------------
+// Mídia do Hero (redesign Larica, Etapa 2.3) — Supabase Storage, bucket
+// site-media (migration 20260920140000). Bucket próprio, separado de
+// business-assets (QR Revolut) e do image_url em base64 de produtos —
+// nenhum dos dois é tocado por este bloco.
+// ---------------------------------------------------------------------------
+
+const SITE_MEDIA_BUCKET = 'site-media';
+const SITE_MEDIA_MIME_PARA_EXTENSAO = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'video/mp4': 'mp4',
+};
+const SITE_MEDIA_TAMANHO_MAXIMO_IMAGEM_BYTES = 5 * 1024 * 1024; // 5 MB — limite do frontend (bucket permite até 30 MB, ver migration 20260920140000)
+const SITE_MEDIA_TAMANHO_MAXIMO_VIDEO_BYTES = 30 * 1024 * 1024; // 30 MB — mesmo teto do bucket
+
+/**
+ * Envia uma mídia (imagem ou vídeo) pro bucket site-media — nunca sobrescreve, sempre gera
+ * um path novo com gerarId() (js/utils.js), nunca o nome original do arquivo. Retorna só
+ * {path, tipo} — nunca a URL (mesmo padrão de uploadQrRevolut): quem chama decide quando/como
+ * persistir em business_settings, via updateHeroMediaSettings(...).
+ */
+async function uploadMidiaSite(file) {
+  if (!file) throw new Error('Selecione um arquivo de imagem ou vídeo.');
+
+  const extensao = SITE_MEDIA_MIME_PARA_EXTENSAO[file.type];
+  if (!extensao) throw new Error('Formato inválido. Envie JPG, PNG, WEBP ou MP4.');
+
+  const tipo = file.type === 'video/mp4' ? 'video' : 'image';
+  const limite = tipo === 'video' ? SITE_MEDIA_TAMANHO_MAXIMO_VIDEO_BYTES : SITE_MEDIA_TAMANHO_MAXIMO_IMAGEM_BYTES;
+  if (file.size > limite) {
+    throw new Error(tipo === 'video' ? 'O vídeo precisa ter no máximo 30 MB.' : 'A imagem precisa ter no máximo 5 MB.');
+  }
+
+  const pasta = tipo === 'video' ? 'hero/videos' : 'hero/images';
+  const path = `${pasta}/${gerarId()}.${extensao}`;
+
+  const { error } = await supabaseClient.storage
+    .from(SITE_MEDIA_BUCKET)
+    .upload(path, file, { upsert: false, contentType: file.type });
+  if (error) throw new Error(error.message);
+
+  return { path, tipo };
+}
+
+/** URL pública de uma mídia do site a partir do path salvo (hero_media_path/hero_poster_path) — sem query, nunca signed URL. */
+function getUrlPublicaMidiaSite(path) {
+  if (!path) return null;
+  const { data } = supabaseClient.storage.from(SITE_MEDIA_BUCKET).getPublicUrl(path);
+  return (data && data.publicUrl) || null;
+}
+
+/**
+ * Lista as mídias hoje no bucket site-media (hero/images + hero/videos), normalizadas pra
+ * uma futura tela de Galeria. list() do Storage não é recursivo — por isso duas chamadas,
+ * uma por pasta; o "tipo" já é conhecido pela pasta, não precisa inferir por MIME.
+ * created_at/updated_at vêm do próprio Storage (metadado do objeto, não inventado aqui) — se
+ * um dia vierem ausentes pra algum item, criadoEm fica null, nunca um valor fabricado.
+ */
+async function listarMidiasSite() {
+  const pastas = [
+    { prefixo: 'hero/images', tipo: 'image' },
+    { prefixo: 'hero/videos', tipo: 'video' },
+  ];
+
+  const listas = await Promise.all(
+    pastas.map(async ({ prefixo, tipo }) => {
+      const { data, error } = await supabaseClient.storage
+        .from(SITE_MEDIA_BUCKET)
+        .list(prefixo, { sortBy: { column: 'created_at', order: 'desc' } });
+      if (error) throw new Error(error.message);
+      return (data || [])
+        .filter((item) => item.id) // list() também pode devolver placeholder de pasta (id null) — nunca um arquivo real
+        .map((item) => {
+          const path = `${prefixo}/${item.name}`;
+          return {
+            path,
+            nome: item.name,
+            tipo,
+            url: getUrlPublicaMidiaSite(path),
+            criadoEm: item.created_at || item.updated_at || null,
+          };
+        });
+    })
+  );
+
+  return listas.flat().sort((a, b) => {
+    if (!a.criadoEm && !b.criadoEm) return 0;
+    if (!a.criadoEm) return 1;
+    if (!b.criadoEm) return -1;
+    return new Date(b.criadoEm) - new Date(a.criadoEm);
+  });
+}
+
+const BUSINESS_SETTINGS_COLUNAS_HERO = 'hero_media_type, hero_media_path, hero_poster_path';
+
+function _linhaSupabaseParaHeroMedia(linha) {
+  return {
+    tipo: linha.hero_media_type,
+    path: linha.hero_media_path,
+    posterPath: linha.hero_poster_path,
+  };
+}
+
+/**
+ * Lê só a configuração pública do Hero — nunca select('*'), nunca nenhuma outra coluna de
+ * business_settings. Mesma consulta serve tanto a futura home pública (anon) quanto
+ * Configurações (authenticated) — igual ao raciocínio de BUSINESS_SETTINGS_COLUNAS_PUBLICAS.
+ */
+async function getHeroMediaSettings() {
+  const { data, error } = await supabaseClient
+    .from('business_settings')
+    .select(BUSINESS_SETTINGS_COLUNAS_HERO)
+    .eq('id', 1)
+    .single();
+  if (error) throw new Error(error.message);
+  return _linhaSupabaseParaHeroMedia(data);
+}
+
+/**
+ * Grava a configuração do Hero — só 3 estados coerentes são aceitos:
+ *   - tipo:'image'  -> path obrigatório, posterPath sempre forçado a null;
+ *   - tipo:'video'  -> path e posterPath obrigatórios;
+ *   - tipo:null     -> remove a mídia do Hero (os 3 campos voltam a null).
+ * Validado aqui antes de qualquer UPDATE — nunca deixa a tabela num estado incoerente
+ * (ex.: video sem poster, ou null com path preenchido).
+ */
+async function updateHeroMediaSettings({ tipo, path, posterPath }) {
+  let linha;
+
+  if (tipo === 'image') {
+    if (!path) throw new Error('Selecione uma imagem para o Hero.');
+    linha = { hero_media_type: 'image', hero_media_path: path, hero_poster_path: null };
+  } else if (tipo === 'video') {
+    if (!path) throw new Error('Selecione um vídeo para o Hero.');
+    if (!posterPath) throw new Error('Selecione uma imagem de poster/fallback para o vídeo.');
+    linha = { hero_media_type: 'video', hero_media_path: path, hero_poster_path: posterPath };
+  } else if (tipo === null) {
+    linha = { hero_media_type: null, hero_media_path: null, hero_poster_path: null };
+  } else {
+    throw new Error('Tipo de mídia inválido.');
+  }
+
+  const { data, error } = await supabaseClient
+    .from('business_settings')
+    .update(linha)
+    .eq('id', 1)
+    .select(BUSINESS_SETTINGS_COLUNAS_HERO)
+    .single();
+  if (error) throw new Error(error.message);
+  return _linhaSupabaseParaHeroMedia(data);
+}
+
+/**
+ * Exclui uma mídia de site-media, mas nunca se ela estiver configurada como hero_media_path
+ * ou hero_poster_path no momento — lê a config atual antes de apagar. Proteção só de
+ * aplicação/UX (chamada a partir do client, sem RPC SECURITY DEFINER): não é garantia
+ * transacional server-side contra uma corrida entre "salvar Hero" e "excluir" ao mesmo
+ * tempo — endurecer isso com uma RPC fica pra depois, se necessário.
+ */
+async function excluirMidiaSite(path) {
+  if (!path) throw new Error('Nenhuma mídia selecionada para excluir.');
+
+  const heroAtual = await getHeroMediaSettings();
+  if (path === heroAtual.path || path === heroAtual.posterPath) {
+    throw new Error('Esta mídia está sendo usada atualmente pelo Hero.');
+  }
+
+  const { error } = await supabaseClient.storage.from(SITE_MEDIA_BUCKET).remove([path]);
+  if (error) throw new Error(error.message);
+}
