@@ -425,10 +425,14 @@
       </div>
       </section>
 
-      <!-- Aparência do site (redesign Larica, Etapa 2.4) — mídia do Hero em business_settings.hero_media_type/hero_media_path/hero_poster_path (Storage: bucket site-media) -->
+      <!-- Aparência do site (redesign Larica, Etapa 2.4 + Galeria de mídias) — mídia do Hero em
+           business_settings.hero_media_type/hero_media_path/hero_poster_path (Storage: bucket
+           site-media). O antigo formulário de upload único (imagem/vídeo/poster + Salvar) foi
+           substituído pela Galeria: "Use" grava direto via updateHeroMediaSettings(), sem etapa de
+           Salvar separada — mesmas funções de settings-service.js, nenhuma lógica duplicada. -->
       <section class="config-secao" data-config-secao="aparencia-site">
       <button type="button" class="config-botao-voltar" data-config-voltar>← Voltar para Configurações</button>
-      <div class="card" style="max-width:520px;">
+      <div class="card" style="max-width:900px;">
         <h2 class="titulo-grafico" style="margin-top:0;">Aparência do site</h2>
         <p class="dica-campo" style="margin-top:-8px;">Personalize a mídia principal exibida na página inicial.</p>
 
@@ -436,71 +440,46 @@
         <div class="estado-vazio" id="estado-erro-aparencia-site" style="display:none;"></div>
 
         <div id="conteudo-aparencia-site" style="display:none;">
-          <form id="form-aparencia-site">
-            <div class="form-grupo">
-              <label>Tipo de mídia</label>
-              <div style="display:flex; gap:var(--espaco-lg);">
-                <label style="display:flex; align-items:center; gap:6px; font-weight:500;">
-                  <input type="radio" name="hero-media-tipo" id="campo-hero-tipo-imagem" value="image" />
-                  Imagem
-                </label>
-                <label style="display:flex; align-items:center; gap:6px; font-weight:500;">
-                  <input type="radio" name="hero-media-tipo" id="campo-hero-tipo-video" value="video" />
-                  Vídeo
-                </label>
-              </div>
-            </div>
+          <h3 class="galeria-midia-subtitulo" style="margin-top:0;">Hero preview</h3>
+          <div id="hero-preview-atual"></div>
+          <button type="button" class="btn btn-secundario" id="botao-remover-aparencia-site">Remover mídia personalizada</button>
 
-            <div class="estado-vazio" id="estado-vazio-hero-media" style="display:none;">
-              Nenhuma mídia personalizada configurada.<br />A home continuará usando o visual padrão.
-            </div>
+          <hr class="galeria-midia-separador" />
 
-            <div id="bloco-hero-imagem" class="form-grupo" style="display:none;">
-              <label>Preview</label>
-              <img
-                id="preview-hero-imagem"
-                style="display:none; width:100%; max-width:360px; aspect-ratio:16/9; object-fit:cover; border-radius:var(--raio-md); background:var(--cor-cinza-claro); margin-bottom:var(--espaco-sm);"
-                alt="Prévia da imagem do Hero"
-              />
-              <input type="file" id="campo-hero-imagem" accept="image/jpeg,image/png,image/webp" style="display:none;" />
-              <button type="button" class="btn btn-secundario" id="botao-selecionar-hero-imagem">Selecionar imagem</button>
-              <p class="dica-campo">JPG, PNG ou WEBP — máximo 5 MB.</p>
-            </div>
+          <div class="galeria-midia-cabecalho">
+            <h3 class="galeria-midia-subtitulo" style="margin-top:0;">Site media</h3>
+            <button type="button" class="btn btn-primario" id="botao-upload-midia-site">+ Upload Media</button>
+            <input type="file" id="campo-upload-midia-site" accept="image/jpeg,image/png,image/webp,video/mp4" style="display:none;" />
+          </div>
+          <p class="dica-campo">JPG, PNG, WEBP (até 5 MB) ou MP4 (até 30 MB).</p>
+          <span class="campo-erro" id="erro-aparencia-site"></span>
 
-            <div id="bloco-hero-video" class="form-grupo" style="display:none;">
-              <label>Preview</label>
-              <video
-                id="preview-hero-video"
-                style="display:none; width:100%; max-width:360px; aspect-ratio:16/9; object-fit:cover; border-radius:var(--raio-md); background:var(--cor-cinza-claro); margin-bottom:var(--espaco-sm);"
-                controls
-                muted
-                playsinline
-              ></video>
-              <input type="file" id="campo-hero-video" accept="video/mp4" style="display:none;" />
-              <button type="button" class="btn btn-secundario" id="botao-selecionar-hero-video">Selecionar vídeo</button>
-              <p class="dica-campo">MP4 — máximo 30 MB.</p>
-
-              <label style="display:block; margin-top:var(--espaco-md);">Poster / Fallback</label>
-              <img
-                id="preview-hero-poster"
-                style="display:none; width:100%; max-width:360px; aspect-ratio:16/9; object-fit:cover; border-radius:var(--raio-md); background:var(--cor-cinza-claro); margin-bottom:var(--espaco-sm);"
-                alt="Prévia do poster/fallback"
-              />
-              <input type="file" id="campo-hero-poster" accept="image/jpeg,image/png,image/webp" style="display:none;" />
-              <button type="button" class="btn btn-secundario" id="botao-selecionar-hero-poster">Selecionar imagem</button>
-              <p class="dica-campo">Exibida enquanto o vídeo carrega ou se não puder ser reproduzido. JPG, PNG ou WEBP — máximo 5 MB.</p>
-            </div>
-
-            <span class="campo-erro" id="erro-aparencia-site"></span>
-
-            <button type="submit" class="btn btn-primario" id="botao-salvar-aparencia-site">Salvar alterações</button>
-            <button type="button" class="btn btn-secundario" id="botao-remover-aparencia-site" style="margin-left:var(--espaco-sm);">Remover mídia personalizada</button>
-          </form>
+          <div class="estado-vazio" id="estado-vazio-galeria-midia" style="display:none;">
+            Nenhuma mídia enviada ainda. Use "+ Upload Media" para começar.
+          </div>
+          <div class="galeria-midia-grade" id="galeria-midia-grade"></div>
         </div>
       </div>
       </section>
     </div>
   </main>
+
+  <!-- Modal: selecionar imagem da galeria para usar como poster de um vídeo do Hero -->
+  <div class="modal-overlay" id="modal-poster-hero-overlay">
+    <div class="modal">
+      <div class="modal-cabecalho">
+        <h2>Select a poster image</h2>
+        <button type="button" class="btn-icone" id="botao-fechar-modal-poster-hero" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-corpo">
+        <p class="dica-campo">Escolha uma imagem já enviada para usar como capa do vídeo.</p>
+        <div class="galeria-midia-grade" id="modal-poster-hero-grade"></div>
+      </div>
+      <div class="modal-rodape">
+        <button type="button" class="btn btn-secundario" id="botao-cancelar-modal-poster-hero">Cancelar</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Modal de cadastro/edição de cupom -->
   <div class="modal-overlay" id="modal-cupom-overlay">
