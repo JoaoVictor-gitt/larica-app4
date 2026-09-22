@@ -25,15 +25,15 @@
         <img src="logo.png" alt="Larica" />
       </a>
       <nav class="header-larica-nav">
-        <a href="index.html">Home</a>
-        <a href="pedido.html">Menu</a>
+        <a href="#home">Home</a>
+        <a href="#menu-larica-secao">Menu</a>
         <a class="header-larica-cta" href="pedido.html">Order Now</a>
       </nav>
     </div>
   </header>
 
   <main>
-    <section class="hero-larica">
+    <section class="hero-larica" id="home">
       <!-- Mídia de fundo do Hero — .hero-media-placeholder (gradiente) é o que aparece
            imediatamente, sem esperar rede nenhuma. js/home.js (Etapa 2.5, carregado com defer
            no fim da página) consulta business_settings.hero_media_* e, se houver mídia
@@ -65,7 +65,123 @@
         <a class="hero-cta" href="pedido.html">Order Now <span aria-hidden="true">→</span></a>
       </div>
     </section>
+
+    <!-- Vitrine "Our Menu" — mostra até 6 produtos reais em destaque, incentivando o pedido.
+         Não substitui pedido.html. Dados vêm da mesma fonte pública já usada lá
+         (carregarProdutosCache()/pesquisarProdutos(), js/storage.js + js/services/products-service.js),
+         nunca uma segunda fonte. Ver js/home.js para a lógica de carregamento/fallback. -->
+    <section class="menu-larica" id="menu-larica-secao">
+      <div class="menu-larica-cabecalho">
+        <p class="menu-larica-eyebrow">Brazilian Street Food</p>
+        <h2 class="menu-larica-titulo">Our Menu</h2>
+        <p class="menu-larica-subtitulo">From the grill to your table.<br />Discover some of our favourites.</p>
+      </div>
+
+      <div class="menu-larica-categorias" id="menu-larica-categorias"></div>
+
+      <!-- Skeletons estáticos (zero layout shift antes do JS decidir o resultado final) —
+           js/home.js substitui todo o conteúdo daqui quando os produtos chegarem (sucesso, vazio ou erro). -->
+      <div class="menu-larica-grade" id="menu-larica-grade">
+        <div class="menu-larica-skeleton"></div>
+        <div class="menu-larica-skeleton"></div>
+        <div class="menu-larica-skeleton"></div>
+        <div class="menu-larica-skeleton"></div>
+        <div class="menu-larica-skeleton"></div>
+        <div class="menu-larica-skeleton"></div>
+      </div>
+
+      <div class="menu-larica-cta-wrap">
+        <a class="hero-cta menu-larica-cta" href="pedido.html">View Full Menu <span aria-hidden="true">→</span></a>
+      </div>
+    </section>
+
+    <!-- About — placeholder institucional (sem foto real ainda, ver comentário no bloco de mídia abaixo) -->
+    <section class="about-larica" id="about-larica">
+      <div class="about-larica-media" aria-hidden="true">
+        <!-- Placeholder premium enquanto não há uma foto real do food truck/local — só logo.png/
+             favicon.png existem no projeto hoje, nenhum dos dois serve como foto institucional.
+             Sem upload, sem imagem externa, sem nova configuração Supabase nesta etapa. -->
+        <div class="about-larica-placeholder">
+          <span class="about-larica-placeholder-marca">LARICA</span>
+          <span class="about-larica-placeholder-sub">Brazilian Street Food</span>
+        </div>
+      </div>
+      <div class="about-larica-conteudo">
+        <p class="about-larica-eyebrow">Our Story</p>
+        <h2 class="about-larica-titulo">Brazilian flavour.<br />Dublin attitude.</h2>
+        <p class="about-larica-texto">Larica brings Brazilian street food to Dublin — grilled skewers, Brazilian favourites, and food made for sharing.</p>
+      </div>
+    </section>
+
+    <!-- Visit Us / Opening Hours — endereço é texto estático (nenhuma fonte estruturada encontrada
+         no projeto); horários vêm de business_hours via getElementById + js/home.js, mesma função
+         pública já usada por pedido.html (buscarHorariosFuncionamentoDoSupabase). -->
+    <section class="visita-larica" id="visita-larica">
+      <div class="visita-larica-bloco">
+        <p class="visita-larica-eyebrow">Visit Us</p>
+        <h2 class="visita-larica-titulo">Find Larica in Dublin</h2>
+        <address class="visita-larica-endereco">Ossory Industrial Estate<br />Dublin 3</address>
+        <a class="visita-larica-cta" href="https://www.google.com/maps/search/?api=1&amp;query=Ossory+Industrial+Estate%2C+Dublin+3" target="_blank" rel="noopener noreferrer">Get Directions</a>
+      </div>
+      <div class="visita-larica-bloco">
+        <p class="visita-larica-eyebrow">Hours</p>
+        <h2 class="visita-larica-titulo">Opening Hours</h2>
+        <!-- Placeholder estático (zero layout shift) — js/home.js substitui pelos horários reais,
+             ou por uma mensagem neutra se o carregamento falhar. Nunca horário inventado. -->
+        <ul class="visita-larica-horarios" id="horarios-lista-home">
+          <li class="visita-larica-horarios-skeleton"></li>
+          <li class="visita-larica-horarios-skeleton"></li>
+          <li class="visita-larica-horarios-skeleton"></li>
+          <li class="visita-larica-horarios-skeleton"></li>
+          <li class="visita-larica-horarios-skeleton"></li>
+          <li class="visita-larica-horarios-skeleton"></li>
+          <li class="visita-larica-horarios-skeleton"></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- CTA final -->
+    <section class="cta-final-larica">
+      <p class="cta-final-eyebrow">Hungry Yet?</p>
+      <h2 class="cta-final-titulo">Fire up your order.</h2>
+      <p class="cta-final-subtitulo">Brazilian street food, ready when you are.</p>
+      <a class="hero-cta cta-final-botao" href="pedido.html">Order Now <span aria-hidden="true">→</span></a>
+    </section>
   </main>
+
+  <footer class="rodape-larica">
+    <div class="rodape-larica-topo">
+      <div class="rodape-larica-marca">
+        <img src="logo.png" alt="Larica" class="rodape-larica-logo" />
+        <p class="rodape-larica-tagline">Brazilian Street Food<br />Dublin</p>
+        <a class="rodape-larica-instagram" href="https://www.instagram.com/larica.ie/" target="_blank" rel="noopener noreferrer">
+          <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r="1"/></svg>
+          <span>@larica.ie</span>
+        </a>
+      </div>
+
+      <nav class="rodape-larica-coluna" aria-label="Footer navigation">
+        <h3>Explore</h3>
+        <a href="#home">Home</a>
+        <a href="#menu-larica-secao">Menu</a>
+        <a href="#about-larica">Our Story</a>
+        <a href="#visita-larica">Visit Us</a>
+        <a href="pedido.html">Order Now</a>
+      </nav>
+
+      <div class="rodape-larica-coluna">
+        <h3>Visit Us</h3>
+        <address class="rodape-larica-endereco">
+          <a href="https://www.google.com/maps/search/?api=1&amp;query=Ossory+Industrial+Estate%2C+Dublin+3" target="_blank" rel="noopener noreferrer">Ossory Industrial Estate<br />Dublin 3</a>
+        </address>
+        <a href="#visita-larica">View opening hours</a>
+      </div>
+    </div>
+
+    <div class="rodape-larica-base">
+      <p>© 2026 Larica Brazilian Street Food</p>
+    </div>
+  </footer>
 
   <script src="js/utils.js"></script>
   <script src="js/storage.js"></script>
@@ -81,6 +197,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" defer></script>
   <script src="js/supabase.js" defer></script>
   <script src="js/services/settings-service.js" defer></script>
+  <!-- Produtos da vitrine "Our Menu" (mesma fonte pública usada em pedido.html) -->
+  <script src="js/services/products-service.js" defer></script>
   <script src="js/home.js" defer></script>
 </body>
 </html>

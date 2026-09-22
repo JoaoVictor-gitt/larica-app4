@@ -9,6 +9,11 @@
 
 .conteudo-pedido {
   padding-bottom: 96px; /* espaço para a barra fixa do carrinho não cobrir o conteúdo */
+  /* Base escura da página inteira (redesign Larica) — cobre as faixas entre header e etapas
+     (indicador/progresso/banner de disponibilidade, que ficam fora de qualquer .etapa-pedido).
+     Cada etapa também tem seu próprio fundo escuro escopado (ver seção "Redesign Larica —
+     checkout completo" no fim do arquivo), que cuida do bleed até a borda da viewport. */
+  background: #0a0a0a;
 }
 
 /* Carrinho (Etapa 2): tabela encostada nas bordas do card, cabeçalho discreto, quantidade/subtotal com hierarquia */
@@ -43,13 +48,43 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--espaco-md);
   height: 56px;
   padding: 0 var(--espaco-lg);
   background: #000000; /* casa com o fundo preto sólido de logo.png (marca oficial) */
-  border-bottom: 1px solid var(--cor-borda);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .cabecalho-pedido-logo { height: 28px; width: auto; }
+
+/* Navegação Home/Menu (redesign Larica) — mesmo espírito visual de .header-larica-nav
+   (css/home-larica.css), mas aqui o header é preto sólido, não transparente sobre um Hero. */
+.cabecalho-pedido-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-lg);
+  flex: 1;
+  margin-left: var(--espaco-lg);
+}
+
+.cabecalho-pedido-nav a,
+.cabecalho-pedido-nav button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: color var(--transicao-rapida);
+}
+
+.cabecalho-pedido-nav a:hover,
+.cabecalho-pedido-nav button:hover {
+  color: var(--cor-terracota);
+}
 
 .cabecalho-pedido-carrinho {
   position: relative;
@@ -59,12 +94,12 @@
   width: 40px;
   height: 40px;
   border-radius: var(--raio-pill);
-  border: none;
-  background: var(--cor-cinza-claro);
-  color: var(--cor-texto);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--cor-sobre-acento);
 }
 
-.cabecalho-pedido-carrinho:hover { background: var(--cor-borda); }
+.cabecalho-pedido-carrinho:hover { border-color: var(--cor-terracota); }
 
 .cabecalho-pedido-carrinho .badge-contador {
   position: absolute;
@@ -86,6 +121,45 @@
 @media (max-width: 480px) {
   .cabecalho-pedido { padding: 0 var(--espaco-md); height: 52px; }
   .cabecalho-pedido-logo { height: 24px; }
+  /* Só logo + carrinho no mobile — mantém o header limpo (item 2 do pedido) */
+  .cabecalho-pedido-nav { display: none; }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Introdução do cardápio (redesign Larica) — compacta, não é outro Hero.  */
+/* ---------------------------------------------------------------------- */
+/* .pagina-titulo (css/style.css) é flex/space-between (título + ação lado a lado, uso
+   admin) — aqui o conteúdo é só texto centralizado empilhado, então sobrescreve o layout. */
+.pagina-titulo-cardapio {
+  display: block;
+  text-align: center;
+  padding: var(--espaco-xl) 0 var(--espaco-lg);
+  margin-bottom: 0;
+}
+
+.cardapio-eyebrow {
+  color: var(--cor-terracota);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.78rem;
+  margin: 0 0 var(--espaco-xs);
+}
+
+/* Especificidade: precisa vencer ".pagina-titulo h1" (css/style.css), que fixaria font-size/margin */
+.pagina-titulo-cardapio .cardapio-titulo {
+  color: var(--cor-sobre-acento);
+  font-weight: 800;
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--espaco-sm);
+}
+
+.cardapio-subtitulo {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.95rem;
+  margin: 0;
 }
 
 /* Navegação por etapas: cada <section> vira uma "tela" dentro da mesma página */
@@ -121,9 +195,9 @@
 
 .progresso-etapas-pedido .ponto-etapa {
   flex: 1;
-  height: 4px;
+  height: 3px;
   border-radius: var(--raio-pill);
-  background: var(--cor-borda);
+  background: rgba(255, 255, 255, 0.15);
   transition: background var(--transicao-padrao);
 }
 
@@ -248,7 +322,7 @@
 
 .resumo-carrinho .linha-resumo-total span:last-child {
   color: var(--cor-terracota);
-  font-size: 1.6rem;
+  font-size: 1.8rem;
   font-weight: 800;
 }
 
@@ -267,8 +341,8 @@
   z-index: 40;
   display: flex;
   justify-content: center;
-  padding: var(--espaco-md);
-  background: linear-gradient(to top, var(--cor-fundo) 60%, transparent);
+  padding: var(--espaco-md) var(--espaco-md) calc(var(--espaco-md) + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, #0a0a0a 55%, transparent);
 }
 
 .barra-carrinho-fixa button {
@@ -279,9 +353,9 @@
   border: none;
   border-radius: var(--raio-pill);
   padding: var(--espaco-md) var(--espaco-lg);
-  font-weight: 700;
+  font-weight: 800;
   font-size: 1rem;
-  box-shadow: var(--sombra-lg);
+  box-shadow: 0 8px 24px rgba(255, 77, 0, 0.35);
 }
 
 .barra-carrinho-fixa button:active {
@@ -690,3 +764,418 @@
 .estado-vazio--carregando { color: var(--cor-texto-secundario); }
 .estado-vazio--erro { color: var(--cor-status-vermelho); }
 .estado-vazio--vazio { color: var(--cor-texto-secundario); font-style: italic; }
+
+/* ==========================================================================
+   Redesign Larica — checkout completo (Carrinho → Confirmação)
+   Todo override de componente compartilhado (.card, .input, .opcao-pagamento,
+   .stepper-combo-botao etc.) é escopado com o ancestral .etapa-pedido, que
+   cobre as 6 etapas do wizard mas NUNCA o modal de personalização de combo
+   (#modal-overlay-combo não é descendente de nenhuma .etapa-pedido) — o modal
+   mantém o visual atual nesta etapa, de propósito (ver plano).
+   ========================================================================== */
+
+/* Fundo escuro por etapa — mesmo padrão já usado no Cardápio (css/cardapio.css),
+   cuida do bleed até a borda da viewport (a base em .conteudo-pedido, acima,
+   cobre só as faixas fora de qualquer etapa: indicador/progresso/banner). */
+.etapa-pedido[data-etapa="carrinho"],
+.etapa-pedido[data-etapa="recebimento"],
+.etapa-pedido[data-etapa="dados-retirada"],
+.etapa-pedido[data-etapa="dados-entrega"],
+.etapa-pedido[data-etapa="pagamento"],
+.etapa-pedido[data-etapa="revisao"],
+.etapa-pedido[data-etapa="confirmacao"] {
+  background: #0a0a0a;
+  margin: 0 calc(-1 * var(--espaco-lg)) 0;
+  padding: var(--espaco-lg) var(--espaco-lg) var(--espaco-xl);
+}
+
+@media (max-width: 768px) {
+  .etapa-pedido[data-etapa="carrinho"],
+  .etapa-pedido[data-etapa="recebimento"],
+  .etapa-pedido[data-etapa="dados-retirada"],
+  .etapa-pedido[data-etapa="dados-entrega"],
+  .etapa-pedido[data-etapa="pagamento"],
+  .etapa-pedido[data-etapa="revisao"],
+  .etapa-pedido[data-etapa="confirmacao"] {
+    margin: 0 calc(-1 * var(--espaco-md)) 0;
+    padding: var(--espaco-md) var(--espaco-md) var(--espaco-xl);
+  }
+}
+
+/* Faixas fora de qualquer .etapa-pedido (banner de disponibilidade) */
+#banner-disponibilidade-pedido {
+  background: #151515;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* Cabeçalho de etapa: eyebrow + título + subtítulo (mesmo espírito de .pagina-titulo-cardapio) */
+.cabecalho-etapa { margin-bottom: var(--espaco-lg); }
+
+.cabecalho-etapa-eyebrow {
+  color: var(--cor-terracota);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  margin: 0 0 var(--espaco-xs);
+}
+
+.cabecalho-etapa-titulo {
+  font-size: clamp(1.4rem, 3vw, 1.9rem);
+  font-weight: 800;
+  margin: 0 0 var(--espaco-xs);
+}
+
+.cabecalho-etapa-subtitulo {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+/* Painéis e textos genéricos */
+.etapa-pedido .card {
+  background: #131313;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+
+.etapa-pedido h2 { color: var(--cor-sobre-acento); }
+
+.etapa-pedido .linha-resumo {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.etapa-pedido .linha-resumo-total { color: var(--cor-sobre-acento); }
+
+.etapa-pedido .aviso-info {
+  background: #151515;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* Campos de formulário (item 8) */
+.etapa-pedido .input,
+.etapa-pedido select.input,
+.etapa-pedido textarea.input {
+  background: #151515;
+  border-color: #333333;
+  color: var(--cor-sobre-acento);
+}
+
+.etapa-pedido .input::placeholder,
+.etapa-pedido textarea.input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.etapa-pedido .input:focus,
+.etapa-pedido select.input:focus,
+.etapa-pedido textarea.input:focus {
+  border-color: var(--cor-terracota);
+}
+
+.etapa-pedido .form-grupo label { color: rgba(255, 255, 255, 0.6); }
+
+/* Cards grandes selecionáveis — Recebimento (item 6) e Pagamento (item 8) reaproveitam
+   .opcao-pagamento/.opcao-grande/.selecionada já existentes, sem novo estado */
+.etapa-pedido .opcao-pagamento {
+  position: relative;
+  background: #151515;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--cor-sobre-acento);
+}
+
+.etapa-pedido .opcao-pagamento:hover { border-color: var(--cor-terracota); }
+
+.etapa-pedido .opcao-pagamento small { color: rgba(255, 255, 255, 0.55); }
+
+.etapa-pedido .opcao-pagamento.selecionada {
+  background: rgba(255, 77, 0, 0.14);
+  border-color: var(--cor-terracota);
+}
+
+.etapa-pedido .opcao-pagamento.selecionada::after {
+  content: '✓';
+  position: absolute;
+  top: var(--espaco-sm);
+  right: var(--espaco-sm);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--cor-terracota);
+  color: var(--cor-sobre-acento);
+  font-size: 0.68rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.etapa-pedido .opcao-pagamento.opcao-indisponivel:hover { border-color: rgba(255, 255, 255, 0.12); }
+
+/* Troco (Dinheiro) */
+.etapa-pedido .secao-troco {
+  background: #151515;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--cor-sobre-acento);
+}
+
+.etapa-pedido .pergunta-troco { color: var(--cor-sobre-acento); }
+
+/* Transferência / Revolut (Pagamento e Confirmação) */
+.etapa-pedido .dados-transferencia-titulo,
+.etapa-pedido .texto-cupom-aplicado { color: var(--cor-sobre-acento); }
+
+.etapa-pedido .texto-auxiliar-copiar-revolut,
+.etapa-pedido .qr-revolut-referencia { color: rgba(255, 255, 255, 0.55); }
+
+.etapa-pedido .separador-ou { color: rgba(255, 255, 255, 0.4); }
+.etapa-pedido .separador-ou::before,
+.etapa-pedido .separador-ou::after { background: rgba(255, 255, 255, 0.12); }
+
+.etapa-pedido .qr-revolut-placeholder {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Cupom (item 9/11) */
+.etapa-pedido .cartao-cupom-titulo { color: rgba(255, 255, 255, 0.55); }
+
+/* Revisão (item 12) — a estrutura de blocos já vem pronta de renderizarRevisao(),
+   só separa visualmente cada bloco */
+.etapa-pedido .resumo-revisao-titulo { color: var(--cor-terracota); }
+
+.etapa-pedido .resumo-revisao-secao {
+  padding-bottom: var(--espaco-md);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.etapa-pedido .resumo-revisao-secao:last-of-type { border-bottom: none; }
+
+/* Carrinho — tabela (item 4/5) */
+.etapa-pedido .tabela { background: transparent; }
+.etapa-pedido .tabela th,
+.etapa-pedido .tabela td { border-bottom-color: rgba(255, 255, 255, 0.08); }
+.etapa-pedido #tabela-pedido-carrinho th { color: rgba(255, 255, 255, 0.5); }
+.etapa-pedido .tabela tbody tr:hover { background: rgba(255, 255, 255, 0.04); }
+
+.etapa-pedido .miniatura-carrinho,
+.etapa-pedido .miniatura-carrinho-vazia { background: #1a1a1a; }
+
+.etapa-pedido .stepper-combo-botao {
+  background: #1a1a1a;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--cor-sobre-acento);
+}
+
+.etapa-pedido .stepper-combo-botao:not(:disabled):hover {
+  border-color: var(--cor-terracota);
+  color: var(--cor-terracota);
+}
+
+.etapa-pedido .btn-icone { color: rgba(255, 255, 255, 0.55); }
+.etapa-pedido .btn-icone:hover { background: rgba(255, 255, 255, 0.08); color: var(--cor-sobre-acento); }
+
+.etapa-pedido .resumo-combo-carrinho-rotulo,
+.etapa-pedido .resumo-combo-carrinho-precos,
+.etapa-pedido .combo-item-acrescimo { color: rgba(255, 255, 255, 0.55); }
+
+.etapa-pedido .combo-resumo-total { background: #151515; }
+
+/* Carrinho no mobile: tabela vira lista de cards (item 5 — nunca exige scroll horizontal/zoom) */
+@media (max-width: 640px) {
+  .etapa-pedido .tabela-carrinho-wrap { overflow-x: visible; }
+  .etapa-pedido .tabela-carrinho-wrap .tabela { min-width: 0; }
+
+  .etapa-pedido #tabela-pedido-carrinho thead { display: none; }
+
+  .etapa-pedido #tabela-pedido-carrinho,
+  .etapa-pedido #tabela-pedido-carrinho tbody,
+  .etapa-pedido #tabela-pedido-carrinho tr,
+  .etapa-pedido #tabela-pedido-carrinho td {
+    display: block;
+    width: 100%;
+  }
+
+  .etapa-pedido #tabela-pedido-carrinho tbody tr {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      'foto nome remover'
+      'foto preco preco'
+      'foto stepper stepper';
+    gap: var(--espaco-xs) var(--espaco-md);
+    align-items: center;
+    margin-bottom: var(--espaco-md);
+    padding: var(--espaco-md);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--raio-md);
+  }
+
+  .etapa-pedido #tabela-pedido-carrinho td {
+    padding: 0;
+    border-bottom: none;
+  }
+
+  .etapa-pedido #tabela-pedido-carrinho td:nth-child(1) { grid-area: foto; }
+  .etapa-pedido #tabela-pedido-carrinho td:nth-child(2) { grid-area: nome; font-weight: 700; }
+  .etapa-pedido #tabela-pedido-carrinho td:nth-child(3) { display: none; } /* preço unitário: já implícito no subtotal abaixo */
+  .etapa-pedido #tabela-pedido-carrinho td:nth-child(4) { grid-area: stepper; text-align: left; }
+  .etapa-pedido #tabela-pedido-carrinho td:nth-child(5) { grid-area: preco; color: var(--cor-terracota); font-weight: 700; }
+  .etapa-pedido #tabela-pedido-carrinho td:nth-child(6) { grid-area: remover; justify-self: end; }
+
+  .etapa-pedido .linha-combo-carrinho { display: block; }
+  .etapa-pedido .linha-combo-carrinho td[colspan] {
+    display: block;
+    padding: var(--espaco-md);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--raio-md);
+    margin-bottom: var(--espaco-md);
+  }
+}
+
+/* Confirmação (item 14) */
+.etapa-pedido .tela-confirmacao h2 { font-size: 1.6rem; }
+.etapa-pedido .tela-confirmacao p { color: rgba(255, 255, 255, 0.65); }
+.etapa-pedido .icone-confirmacao { font-size: 3.5rem; }
+.etapa-pedido .numero-pedido { font-size: 1.8rem; }
+
+/* Botões Voltar/Continuar (item 13) — reforça o padrão já existente, sem tocar ids/listeners */
+.etapa-pedido-acoes .btn-secundario {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--cor-sobre-acento);
+}
+
+.etapa-pedido-acoes .btn-secundario:hover { border-color: var(--cor-terracota); color: var(--cor-terracota); }
+
+@media (max-width: 480px) {
+  .etapa-pedido-acoes .btn { min-height: 48px; }
+}
+
+/* ==========================================================================
+   Redesign Larica — modal de personalização de combo
+   Ancestral exclusivo: #modal-overlay-combo (já existe, único no projeto —
+   confirmado via busca em pedido.html/js/pedido.js/css/pedido.css). Toda
+   regra abaixo é escopada por esse ID para nunca afetar .modal/.card/
+   .opcao-pagamento/.stepper-combo-botao em outros lugares (outros modais,
+   checkout, admin).
+   ========================================================================== */
+
+#modal-overlay-combo { background: rgba(0, 0, 0, 0.75); }
+
+#modal-overlay-combo .modal {
+  background: #151515;
+  border: 1px solid #2a2a2a;
+  border-radius: var(--raio-lg);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* a rolagem passa a ser só do .modal-corpo, ver abaixo */
+}
+
+#modal-overlay-combo .modal-cabecalho,
+#modal-overlay-combo .modal-rodape {
+  flex-shrink: 0;
+  border-color: #2a2a2a;
+}
+
+#modal-overlay-combo .modal-cabecalho h2 { color: var(--cor-sobre-acento); }
+
+#modal-overlay-combo .modal-corpo {
+  flex: 1 1 auto;
+  min-height: 0; /* permite o filho flex encolher e a rolagem funcionar */
+  overflow-y: auto;
+}
+
+#modal-overlay-combo .combo-descricao { color: rgba(255, 255, 255, 0.6); }
+
+#modal-overlay-combo .secao-combo { border-bottom-color: #2a2a2a; }
+
+#modal-overlay-combo .secao-combo-cabecalho h3 { color: var(--cor-sobre-acento); }
+
+#modal-overlay-combo .contador-escolha {
+  background: rgba(255, 77, 0, 0.15);
+  color: var(--cor-terracota);
+}
+
+#modal-overlay-combo .dica-campo,
+#modal-overlay-combo .lista-inclusos-combo { color: rgba(255, 255, 255, 0.55); }
+
+/* Itens de escolha única (limite = 1) — .opcao-combo-item é .opcao-pagamento;
+   mesmo tratamento visual do checkout, replicado aqui de propósito (ver nota no topo) */
+#modal-overlay-combo .opcao-pagamento {
+  position: relative;
+  background: #1a1a1a;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--cor-sobre-acento);
+}
+
+#modal-overlay-combo .opcao-pagamento:hover { border-color: var(--cor-terracota); }
+
+#modal-overlay-combo .opcao-pagamento.selecionada {
+  background: rgba(255, 77, 0, 0.14);
+  border-color: var(--cor-terracota);
+}
+
+#modal-overlay-combo .combo-item-acrescimo { color: rgba(255, 255, 255, 0.5); }
+
+/* Itens com stepper (limite > 1) */
+#modal-overlay-combo .linha-escolha-combo {
+  background: #1a1a1a;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+#modal-overlay-combo .linha-escolha-combo-nome { color: var(--cor-sobre-acento); }
+#modal-overlay-combo .linha-escolha-combo-acrescimo { color: rgba(255, 255, 255, 0.5); }
+
+#modal-overlay-combo .stepper-combo-valor { color: var(--cor-sobre-acento); }
+
+/* − grafite discreto / + laranja — usa data-acao já existente no HTML gerado, sem mudança de JS */
+#modal-overlay-combo .stepper-combo-botao {
+  background: #1f1f1f;
+  border-color: rgba(255, 255, 255, 0.16);
+  color: var(--cor-sobre-acento);
+}
+
+#modal-overlay-combo .stepper-combo-botao:not(:disabled):hover {
+  border-color: var(--cor-terracota);
+  color: var(--cor-terracota);
+}
+
+#modal-overlay-combo .stepper-combo-botao[data-acao="aumentar"]:not(:disabled) {
+  background: var(--cor-terracota);
+  border-color: var(--cor-terracota);
+  color: var(--cor-sobre-acento);
+}
+
+#modal-overlay-combo .stepper-combo-botao[data-acao="aumentar"]:not(:disabled):hover {
+  background: var(--cor-terracota-escura);
+  border-color: var(--cor-terracota-escura);
+  color: var(--cor-sobre-acento);
+}
+
+/* Total */
+#modal-overlay-combo .combo-resumo-total { background: #111111; }
+
+/* Botões do rodapé */
+#modal-overlay-combo .btn-secundario {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--cor-sobre-acento);
+}
+
+#modal-overlay-combo .btn-secundario:hover { border-color: var(--cor-terracota); color: var(--cor-terracota); }
+
+#modal-overlay-combo .btn-icone { color: rgba(255, 255, 255, 0.6); }
+#modal-overlay-combo .btn-icone:hover { background: rgba(255, 255, 255, 0.08); color: var(--cor-sobre-acento); }
+
+/* Aviso de itens inclusos indisponíveis — mantém cor de alerta, só reforça contraste no fundo escuro */
+#modal-overlay-combo .aviso-card-combo { background: rgba(224, 185, 78, 0.18); }
+
+/* Mobile: área de toque maior nos steppers */
+@media (max-width: 480px) {
+  #modal-overlay-combo .stepper-combo-botao { width: 40px; height: 40px; font-size: 1.2rem; }
+  #modal-overlay-combo .modal-cabecalho,
+  #modal-overlay-combo .modal-corpo,
+  #modal-overlay-combo .modal-rodape { padding: var(--espaco-md); }
+}

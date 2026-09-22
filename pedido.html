@@ -22,10 +22,6 @@
 <body data-pagina="pedido" data-area="pedido">
   <div id="layout-shell"></div>
   <main class="conteudo-pagina conteudo-pedido">
-    <div class="pagina-titulo">
-      <h1>Fazer Pedido</h1>
-    </div>
-
     <div class="indicador-etapa-pedido" id="indicador-etapa-pedido"></div>
     <div class="progresso-etapas-pedido" id="progresso-etapas-pedido"></div>
 
@@ -33,6 +29,11 @@
 
     <!-- Etapa 1: Cardápio -->
     <section class="etapa-pedido etapa-ativa" data-etapa="cardapio">
+      <div class="pagina-titulo pagina-titulo-cardapio">
+        <p class="cardapio-eyebrow">Brazilian Street Food</p>
+        <h1 class="cardapio-titulo">Our Menu</h1>
+        <p class="cardapio-subtitulo">Escolha seus favoritos e monte seu pedido.</p>
+      </div>
       <div class="filtro-categorias" id="filtro-categorias-pedido"></div>
       <div class="estado-vazio estado-vazio--carregando" id="estado-carregando-pedido">Carregando produtos...</div>
       <div class="estado-vazio estado-vazio--erro" id="estado-erro-pedido" style="display:none;">Não foi possível carregar os produtos.</div>
@@ -42,6 +43,11 @@
 
     <!-- Etapa 2: Carrinho -->
     <section class="etapa-pedido" data-etapa="carrinho">
+      <div class="cabecalho-etapa">
+        <p class="cabecalho-etapa-eyebrow">Seu pedido</p>
+        <h2 class="cabecalho-etapa-titulo">Carrinho</h2>
+        <p class="cabecalho-etapa-subtitulo">Confira os itens antes de continuar.</p>
+      </div>
       <div class="layout-carrinho">
         <div class="card tabela-carrinho-wrap">
           <table class="tabela" id="tabela-pedido-carrinho">
@@ -80,14 +86,18 @@
       </div>
 
       <div class="etapa-pedido-acoes">
-        <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar ao cardápio</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-carrinho">Continuar</button>
+        <button type="button" class="btn btn-secundario" data-acao="voltar">← Voltar ao cardápio</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-carrinho">Continuar →</button>
       </div>
     </section>
 
     <!-- Etapa 3: Retirada ou Entrega -->
     <section class="etapa-pedido" data-etapa="recebimento">
-      <h2>Como você quer receber seu pedido?</h2>
+      <div class="cabecalho-etapa">
+        <p class="cabecalho-etapa-eyebrow">Como você quer receber?</p>
+        <h2 class="cabecalho-etapa-titulo">Recebimento</h2>
+        <p class="cabecalho-etapa-subtitulo">Escolha uma opção para continuar.</p>
+      </div>
       <div class="opcoes-recebimento opcoes-recebimento-3">
         <button type="button" class="opcao-pagamento opcao-grande" data-fulfilment="retirada">
           <span class="icone-pagamento">
@@ -119,14 +129,18 @@
         Entrega e retirada estão indisponíveis no momento.
       </p>
       <div class="etapa-pedido-acoes">
-        <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-recebimento" disabled>Continuar</button>
+        <button type="button" class="btn btn-secundario" data-acao="voltar">← Voltar</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-recebimento" disabled>Continuar →</button>
       </div>
     </section>
 
     <!-- Etapa 4a: Dados para retirada -->
     <section class="etapa-pedido" data-etapa="dados-retirada">
-      <h2>Dados para retirada</h2>
+      <div class="cabecalho-etapa">
+        <p class="cabecalho-etapa-eyebrow">Quase lá</p>
+        <h2 class="cabecalho-etapa-titulo">Seus dados</h2>
+        <p class="cabecalho-etapa-subtitulo">Precisamos de algumas informações para finalizar.</p>
+      </div>
       <div class="card">
         <div class="form-grupo">
           <label for="retirada-nome">Nome do cliente</label>
@@ -167,14 +181,18 @@
         </div>
       </div>
       <div class="etapa-pedido-acoes">
-        <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-retirada">Continuar para pagamento</button>
+        <button type="button" class="btn btn-secundario" data-acao="voltar">← Voltar</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-retirada">Continuar para pagamento →</button>
       </div>
     </section>
 
     <!-- Etapa 4b: Dados para entrega -->
     <section class="etapa-pedido" data-etapa="dados-entrega">
-      <h2>Dados do cliente</h2>
+      <div class="cabecalho-etapa">
+        <p class="cabecalho-etapa-eyebrow">Quase lá</p>
+        <h2 class="cabecalho-etapa-titulo">Seus dados</h2>
+        <p class="cabecalho-etapa-subtitulo">Precisamos de algumas informações para finalizar.</p>
+      </div>
       <div class="card">
         <div class="form-grupo">
           <label for="entrega-nome">Nome completo</label>
@@ -235,14 +253,18 @@
       </div>
 
       <div class="etapa-pedido-acoes">
-        <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-entrega" disabled>Continuar para pagamento</button>
+        <button type="button" class="btn btn-secundario" data-acao="voltar">← Voltar</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-entrega" disabled>Continuar para pagamento →</button>
       </div>
     </section>
 
     <!-- Etapa 5: Forma de pagamento -->
     <section class="etapa-pedido" data-etapa="pagamento">
-      <h2>Forma de pagamento</h2>
+      <div class="cabecalho-etapa">
+        <p class="cabecalho-etapa-eyebrow">Pagamento</p>
+        <h2 class="cabecalho-etapa-titulo">Como deseja pagar?</h2>
+        <p class="cabecalho-etapa-subtitulo">Escolha a forma de pagamento para continuar.</p>
+      </div>
       <div class="opcoes-pagamento" id="opcoes-pagamento-pedido">
         <button type="button" class="opcao-pagamento" data-forma="cartao">
           <span class="icone-pagamento"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg></span>
@@ -285,14 +307,18 @@
         </div>
       </div>
       <div class="etapa-pedido-acoes">
-        <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-pagamento" disabled>Continuar</button>
+        <button type="button" class="btn btn-secundario" data-acao="voltar">← Voltar</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-pagamento" disabled>Continuar →</button>
       </div>
     </section>
 
     <!-- Etapa 6: Revisão do pedido -->
     <section class="etapa-pedido" data-etapa="revisao">
-      <h2>Revisar pedido</h2>
+      <div class="cabecalho-etapa">
+        <p class="cabecalho-etapa-eyebrow">Confira tudo</p>
+        <h2 class="cabecalho-etapa-titulo">Revisão do pedido</h2>
+        <p class="cabecalho-etapa-subtitulo">Confirme os detalhes antes de finalizar.</p>
+      </div>
 
       <div class="card cartao-cupom" id="cartao-cupom-pedido">
         <h2 class="cartao-cupom-titulo">Cupom de desconto</h2>
@@ -311,8 +337,8 @@
 
       <div id="conteudo-revisao"></div>
       <div class="etapa-pedido-acoes">
-        <button type="button" class="btn btn-secundario" data-acao="voltar">Voltar</button>
-        <button type="button" class="btn btn-primario" id="botao-confirmar-pedido">Confirmar pedido</button>
+        <button type="button" class="btn btn-secundario" data-acao="voltar">← Voltar</button>
+        <button type="button" class="btn btn-primario" id="botao-confirmar-pedido">Finalizar pedido</button>
       </div>
     </section>
 

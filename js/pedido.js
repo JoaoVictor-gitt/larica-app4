@@ -186,7 +186,9 @@ function estagioProgressoPedido(etapa) {
 function renderizarProgressoEtapasPedido(etapa) {
   const container = document.getElementById('progresso-etapas-pedido');
   if (!container) return;
-  if (etapa === 'cardapio') {
+  // Confirmação não deve parecer uma etapa pendente (redesign Larica) — mesmo tratamento já
+  // usado para o cardápio, só estendendo a condição existente.
+  if (etapa === 'cardapio' || etapa === 'confirmacao') {
     container.style.display = 'none';
     return;
   }
@@ -716,6 +718,23 @@ function ligarEventosGerais() {
     });
   }
 
+  // "Menu" no cabeçalho (redesign Larica): reaproveita voltarEtapaPedido() repetidamente até a
+  // pilha voltar à base ('cardapio') — nunca apaga carrinho/dados já preenchidos, ao contrário
+  // de reiniciarPedido().
+  const botaoCabecalhoMenu = document.getElementById('botao-cabecalho-menu');
+  if (botaoCabecalhoMenu) {
+    botaoCabecalhoMenu.addEventListener('click', () => {
+      // QA pré-deploy: a confirmação Revolut/transferência abre um canal Realtime que só
+      // reiniciarPedido() fechava até agora — sem isso, sair da confirmação pelo "Menu" deixava
+      // o canal órfão em segundo plano.
+      if (etapaAtualPedido() === 'confirmacao') {
+        cancelarAssinaturaConfirmacaoRevolut();
+        cancelarAssinaturaConfirmacaoTransferencia();
+      }
+      while (pilhaEtapasPedido.length > 1) voltarEtapaPedido();
+    });
+  }
+
   document.getElementById('botao-continuar-carrinho').addEventListener('click', () => {
     if (obterCarrinho().length === 0) return;
     const disponibilidade = disponibilidadeNegocioAtual();
@@ -880,6 +899,12 @@ function cardProdutoPedidoHtml(produto, moeda) {
     ? `<img src="${produto.foto}" alt="${escaparHtml(produto.nome)}" />`
     : `<div class="card-produto-foto-vazia">🍢</div>`;
 
+  // Habilitado: botão compacto "+" (aria-label carrega o texto completo). Bloqueado: mantém texto
+  // legível ("Esgotado"/"Indisponível") em vez de "+", para nunca parecer comprável.
+  const rotuloBotao = indisponivel ? 'Indisponível' : esgotado ? 'Esgotado' : '+';
+  const tituloBotao = indisponivel ? 'Indisponível' : esgotado ? 'Esgotado' : 'Adicionar';
+  const ariaLabelBotao = `${tituloBotao} ${escaparHtml(produto.nome)}`;
+
   return `
     <div class="card-produto">
       <div class="card-produto-foto-wrap">
@@ -896,8 +921,8 @@ function cardProdutoPedidoHtml(produto, moeda) {
         </div>
         <div class="card-produto-acao">
           <input type="number" class="seletor-quantidade" id="pedido-qtd-${produto.id}" min="1" max="${produto.quantidadeEstoque}" value="1" ${bloqueado ? 'disabled' : ''} />
-          <button class="btn btn-primario botao-adicionar" data-acao="adicionar" data-id="${produto.id}" ${bloqueado ? 'disabled' : ''}>
-            ${indisponivel ? 'Indisponível' : esgotado ? 'Esgotado' : 'Adicionar'}
+          <button class="btn btn-primario botao-adicionar" data-acao="adicionar" data-id="${produto.id}" aria-label="${ariaLabelBotao}" title="${tituloBotao}" ${bloqueado ? 'disabled' : ''}>
+            ${rotuloBotao}
           </button>
         </div>
       </div>
@@ -916,6 +941,13 @@ function cardComboPedidoHtml(combo, moeda) {
     ? '<div class="aviso-card-combo">Alguns itens inclusos deste combo estão temporariamente indisponíveis.</div>'
     : '';
 
+  // "+" aqui abre a personalização (data-acao="personalizar-combo" continua igual) — o
+  // aria-label deixa isso explícito, já que o rótulo visual sozinho não diferenciaria de "adicionar direto".
+  const rotuloBotao = indisponivel ? 'Indisponível' : '+';
+  const ariaLabelBotao = indisponivel
+    ? `Indisponível ${escaparHtml(combo.nome)}`
+    : `Personalizar combo ${escaparHtml(combo.nome)}`;
+
   return `
     <div class="card-produto">
       <div class="card-produto-foto-wrap">
@@ -932,8 +964,8 @@ function cardComboPedidoHtml(combo, moeda) {
           ${indisponivel ? '<span class="card-produto-estoque">Indisponível</span>' : ''}
         </div>
         <div class="card-produto-acao">
-          <button class="btn btn-primario botao-adicionar" data-acao="personalizar-combo" data-id="${combo.id}" ${indisponivel ? 'disabled' : ''}>
-            ${indisponivel ? 'Indisponível' : 'Personalizar'}
+          <button class="btn btn-primario botao-adicionar" data-acao="personalizar-combo" data-id="${combo.id}" aria-label="${ariaLabelBotao}" title="${indisponivel ? 'Indisponível' : 'Personalizar combo'}" ${indisponivel ? 'disabled' : ''}>
+            ${rotuloBotao}
           </button>
         </div>
       </div>

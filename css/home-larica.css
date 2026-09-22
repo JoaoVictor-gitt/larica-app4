@@ -7,12 +7,29 @@
  * --transicao-rapida) sem redefini-los — nada aqui afeta admin/pedido/checkout.
  */
 
+/* Navegação suave por âncora (Footer + navegação final) — não existe em
+   nenhum outro CSS do projeto; escopado aqui porque só index.html navega
+   por âncora dentro da mesma página. */
+html {
+  scroll-behavior: smooth;
+}
+
 /* Fundo sempre preto — a identidade desta home é fixa, não segue o toggle de
    tema claro/escuro usado no resto do sistema (mesmo espírito do preto sólido
    já usado em .cabecalho-pedido, css/pedido.css). */
 .home-larica-body {
   background: #000000;
   min-height: 100vh;
+}
+
+/* Respiro visual ao chegar via âncora — o header (.header-larica) é
+   position:absolute só sobre o Hero, nunca sticky/fixed, então não chega a
+   cobrir estas seções; o scroll-margin aqui é só conforto visual. */
+#home,
+#menu-larica-secao,
+#about-larica,
+#visita-larica {
+  scroll-margin-top: var(--espaco-xl);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -279,4 +296,538 @@
      onde a comida normalmente fica no enquadramento (ajustar conforme a foto/
      vídeo real escolhido na Galeria) em vez do centro puro usado no desktop. */
   .hero-media-elemento { object-position: 65% center; }
+}
+
+/* ========================================================================
+   Vitrine "Our Menu" — logo abaixo do Hero. Vitrine de produtos reais para
+   incentivar o pedido; não é o cardápio completo (isso continua em
+   pedido.html/css/cardapio.css, arquivos independentes, não compartilhados
+   com este). Fundo preto sólido (mesmo espírito de .home-larica-body).
+   ======================================================================== */
+.menu-larica {
+  background: #000000;
+  padding: var(--espaco-2xl) var(--espaco-lg);
+}
+
+.menu-larica-cabecalho {
+  max-width: 640px;
+  margin: 0 auto var(--espaco-xl);
+  text-align: center;
+}
+
+.menu-larica-eyebrow {
+  color: var(--cor-terracota);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.8rem;
+  margin: 0 0 var(--espaco-xs);
+}
+
+.menu-larica-titulo {
+  color: var(--cor-sobre-acento);
+  font-weight: 800;
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--espaco-md);
+}
+
+.menu-larica-subtitulo {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 1rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Pills de categoria — navegacionais (levam a pedido.html), não um filtro interativo */
+.menu-larica-categorias {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--espaco-sm);
+  margin-bottom: var(--espaco-2xl);
+}
+
+.menu-larica-categorias a {
+  padding: var(--espaco-xs) var(--espaco-md);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--raio-pill);
+  background: #151515;
+  color: var(--cor-sobre-acento);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  transition: border-color var(--transicao-rapida), color var(--transicao-rapida);
+}
+
+.menu-larica-categorias a:hover {
+  border-color: var(--cor-terracota);
+  color: var(--cor-terracota);
+}
+
+.menu-larica-grade {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--espaco-xl);
+  max-width: 1200px;
+  margin: 0 auto var(--espaco-2xl);
+}
+
+@media (max-width: 1024px) {
+  .menu-larica-grade { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .menu-larica-grade { grid-template-columns: 1fr; gap: var(--espaco-lg); }
+}
+
+/* Skeleton — estático no HTML, some assim que js/home.js decide o resultado final (nunca spinner) */
+.menu-larica-skeleton {
+  aspect-ratio: 3 / 4;
+  border-radius: var(--raio-md);
+  background: linear-gradient(100deg, #131313 30%, #1c1c1c 50%, #131313 70%);
+  background-size: 200% 100%;
+  animation: menu-larica-skeleton-pulso 1.6s ease-in-out infinite;
+}
+
+@keyframes menu-larica-skeleton-pulso {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.menu-larica-card {
+  display: flex;
+  flex-direction: column;
+  background: #131313;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--raio-md);
+  overflow: hidden;
+  transition: border-color var(--transicao-padrao), transform var(--transicao-padrao);
+}
+
+.menu-larica-card:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.menu-larica-card-foto-wrap {
+  aspect-ratio: 4 / 3;
+  background: #1a1a1a;
+}
+
+.menu-larica-card-foto-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.menu-larica-card-foto-vazia {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.4rem;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(255, 77, 0, 0.16), transparent 60%),
+    #161616;
+}
+
+.menu-larica-card-corpo {
+  padding: var(--espaco-md) var(--espaco-lg) var(--espaco-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-xs);
+}
+
+.menu-larica-card-nome {
+  color: var(--cor-sobre-acento);
+  font-weight: 800;
+  font-size: 1.05rem;
+  text-transform: uppercase;
+}
+
+.menu-larica-card-descricao {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.menu-larica-card-preco {
+  color: var(--cor-terracota);
+  font-weight: 800;
+  font-size: 1.2rem;
+  margin-top: var(--espaco-xs);
+}
+
+.menu-larica-cta-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.menu-larica-cta-wrap .menu-larica-cta {
+  box-shadow: none; /* .hero-cta já traz sombra pensada pro Hero sobre imagem; aqui o fundo é preto sólido */
+}
+
+@media (max-width: 768px) {
+  .menu-larica { padding: var(--espaco-2xl) var(--espaco-md); }
+}
+
+/* ========================================================================
+   About Larica — fundo levemente diferente do preto puro do Hero/Our Menu,
+   pra criar ritmo entre seções sem abandonar a identidade (item 9 do pedido).
+   ======================================================================== */
+.about-larica {
+  background: #0d0d0d;
+  padding: var(--espaco-2xl) var(--espaco-lg);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--espaco-2xl);
+  align-items: center;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.about-larica-media { width: 100%; }
+
+.about-larica-placeholder {
+  aspect-ratio: 4 / 3;
+  border-radius: var(--raio-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--espaco-sm);
+  background:
+    radial-gradient(circle at 30% 25%, rgba(255, 77, 0, 0.22), transparent 55%),
+    radial-gradient(circle at 75% 80%, rgba(255, 106, 43, 0.14), transparent 50%),
+    #0a0a0a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.about-larica-placeholder-marca {
+  color: var(--cor-sobre-acento);
+  font-weight: 800;
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  letter-spacing: 0.06em;
+}
+
+.about-larica-placeholder-sub {
+  color: var(--cor-terracota);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.85rem;
+}
+
+.about-larica-eyebrow {
+  color: var(--cor-terracota);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.8rem;
+  margin: 0 0 var(--espaco-xs);
+}
+
+.about-larica-titulo {
+  color: var(--cor-sobre-acento);
+  font-weight: 800;
+  font-size: clamp(1.9rem, 4vw, 2.8rem);
+  line-height: 1.15;
+  margin: 0 0 var(--espaco-md);
+}
+
+.about-larica-texto {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 1rem;
+  line-height: 1.6;
+  max-width: 46ch;
+  margin: 0;
+}
+
+/* ========================================================================
+   Visit Us / Opening Hours
+   ======================================================================== */
+.visita-larica {
+  background: #111111;
+  padding: var(--espaco-2xl) var(--espaco-lg);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--espaco-2xl);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.visita-larica-eyebrow {
+  color: var(--cor-terracota);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.8rem;
+  margin: 0 0 var(--espaco-xs);
+}
+
+.visita-larica-titulo {
+  color: var(--cor-sobre-acento);
+  font-weight: 800;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  margin: 0 0 var(--espaco-md);
+}
+
+.visita-larica-endereco {
+  color: rgba(255, 255, 255, 0.75);
+  font-style: normal;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  margin: 0 0 var(--espaco-lg);
+}
+
+.visita-larica-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: var(--cor-sobre-acento);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.85rem;
+  padding: var(--espaco-sm) var(--espaco-xl);
+  border-radius: var(--raio-pill);
+  transition: border-color var(--transicao-rapida), color var(--transicao-rapida);
+}
+
+.visita-larica-cta:hover {
+  border-color: var(--cor-terracota);
+  color: var(--cor-terracota);
+}
+
+.visita-larica-cta:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: 2px;
+}
+
+.visita-larica-horarios {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* :not() exclui skeleton/mensagem de erro — QA pré-deploy: esses 2 casos especiais não
+   devem herdar o layout "dia + horário" (evita o !important que existia antes aqui). */
+.visita-larica-horarios li:not(.visita-larica-horarios-skeleton):not(.visita-larica-horarios-indisponivel) {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--espaco-md);
+  padding: var(--espaco-sm) 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.92rem;
+}
+
+.visita-larica-horarios li:last-child { border-bottom: none; }
+
+.visita-larica-horarios li span:first-child {
+  color: var(--cor-sobre-acento);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.8rem;
+}
+
+.visita-larica-horarios li span:last-child {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.visita-larica-horarios-skeleton {
+  height: 1.4rem;
+  margin: var(--espaco-xs) 0;
+  border-radius: var(--raio-sm);
+  background: linear-gradient(100deg, #1a1a1a 30%, #232323 50%, #1a1a1a 70%);
+  background-size: 200% 100%;
+  animation: menu-larica-skeleton-pulso 1.6s ease-in-out infinite;
+}
+
+.visita-larica-horarios-indisponivel {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.88rem;
+  font-style: italic;
+}
+
+/* ========================================================================
+   CTA final — última seção antes do futuro footer
+   ======================================================================== */
+.cta-final-larica {
+  background: #000000;
+  padding: calc(var(--espaco-2xl) * 1.5) var(--espaco-lg);
+  text-align: center;
+}
+
+.cta-final-eyebrow {
+  color: var(--cor-terracota);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.85rem;
+  margin: 0 0 var(--espaco-sm);
+}
+
+.cta-final-titulo {
+  color: var(--cor-sobre-acento);
+  font-weight: 800;
+  font-size: clamp(2.4rem, 6vw, 4rem);
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--espaco-md);
+}
+
+.cta-final-subtitulo {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 1.1rem;
+  line-height: 1.5;
+  margin: 0 0 var(--espaco-xl);
+}
+
+/* Foco visível só no botão desta seção (seletor composto) — nunca .hero-cta:focus-visible
+   sozinho, pra não adicionar comportamento ao CTA do Hero/Our Menu já aprovados. */
+.cta-final-botao.hero-cta:focus-visible {
+  outline: 2px solid var(--cor-sobre-acento);
+  outline-offset: 3px;
+}
+
+@media (max-width: 900px) {
+  .about-larica,
+  .visita-larica {
+    grid-template-columns: 1fr;
+  }
+
+  .about-larica-conteudo { text-align: left; }
+}
+
+@media (max-width: 768px) {
+  .about-larica,
+  .visita-larica {
+    padding: var(--espaco-xl) var(--espaco-md);
+    gap: var(--espaco-xl);
+  }
+
+  .cta-final-larica { padding: var(--espaco-2xl) var(--espaco-md); }
+}
+
+/* ========================================================================
+   Footer — compacto, fecha o preto do restante da Home.
+   ======================================================================== */
+.rodape-larica {
+  background: #000000;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: var(--espaco-2xl) var(--espaco-lg) var(--espaco-lg);
+}
+
+.rodape-larica-topo {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: var(--espaco-2xl);
+}
+
+.rodape-larica-logo {
+  height: 28px;
+  width: auto;
+  display: block;
+  margin-bottom: var(--espaco-sm);
+}
+
+.rodape-larica-tagline {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0 0 var(--espaco-md);
+}
+
+.rodape-larica-instagram {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--espaco-xs);
+  color: rgba(255, 255, 255, 0.75);
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: color var(--transicao-rapida);
+}
+
+.rodape-larica-instagram:hover { color: var(--cor-terracota); }
+
+.rodape-larica-coluna h3 {
+  color: var(--cor-terracota);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.78rem;
+  margin: 0 0 var(--espaco-md);
+}
+
+.rodape-larica-coluna {
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-sm);
+}
+
+.rodape-larica-coluna a {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.92rem;
+  width: fit-content;
+  transition: color var(--transicao-rapida);
+}
+
+.rodape-larica-coluna a:hover { color: var(--cor-terracota); }
+
+.rodape-larica-endereco {
+  font-style: normal;
+}
+
+.rodape-larica-endereco a {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  transition: color var(--transicao-rapida);
+}
+
+.rodape-larica-endereco a:hover { color: var(--cor-terracota); }
+
+.rodape-larica-marca a:focus-visible,
+.rodape-larica-coluna a:focus-visible,
+.rodape-larica-endereco a:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: 2px;
+}
+
+.rodape-larica-base {
+  max-width: 1200px;
+  margin: var(--espaco-xl) auto 0;
+  padding-top: var(--espaco-lg);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.rodape-larica-base p {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .rodape-larica-topo { grid-template-columns: 1fr 1fr; }
+  .rodape-larica-marca { grid-column: 1 / -1; }
+}
+
+@media (max-width: 640px) {
+  .rodape-larica { padding: var(--espaco-xl) var(--espaco-md) var(--espaco-md); }
+  .rodape-larica-topo { grid-template-columns: 1fr; gap: var(--espaco-xl); }
+  .rodape-larica-marca { grid-column: auto; }
 }

@@ -1,7 +1,24 @@
 /*
  * cardapio.css
  * Estilos da tela Cardápio: barra de filtros e grid de cards de produto.
+ * Redesign Larica: fundo preto/grafite independente do toggle de tema
+ * claro/escuro (mesmo espírito de .cabecalho-pedido e .home-larica-body, que
+ * já usam preto fixo) — escopado só à etapa "cardapio" para não vazar para
+ * as etapas de checkout (css/pedido.css seção 12 do plano).
  */
+
+.etapa-pedido[data-etapa="cardapio"] {
+  background: #0a0a0a;
+  margin: 0 calc(-1 * var(--espaco-lg)) 0;
+  padding: 0 var(--espaco-lg) var(--espaco-xl);
+}
+
+@media (max-width: 768px) {
+  .etapa-pedido[data-etapa="cardapio"] {
+    margin: 0 calc(-1 * var(--espaco-md)) 0;
+    padding: 0 var(--espaco-md) var(--espaco-xl);
+  }
+}
 
 .filtros-cardapio {
   display: flex;
@@ -16,13 +33,14 @@
   overflow-x: auto;
   scrollbar-width: none;
   gap: var(--espaco-sm);
+  justify-content: center;
   position: sticky;
   top: 56px; /* altura de .cabecalho-pedido (css/pedido.css) */
   z-index: 15;
-  background: var(--cor-fundo);
-  padding: var(--espaco-sm) var(--espaco-lg);
+  background: #0a0a0a;
+  padding: var(--espaco-md) var(--espaco-lg);
   margin: 0 calc(-1 * var(--espaco-lg)) var(--espaco-lg);
-  border-bottom: 1px solid var(--cor-borda);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .filtro-categorias::-webkit-scrollbar { display: none; }
@@ -31,10 +49,10 @@
   flex-shrink: 0;
   white-space: nowrap;
   padding: var(--espaco-xs) var(--espaco-md);
-  border: 1px solid var(--cor-borda);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: var(--raio-pill);
-  background: var(--cor-branco);
-  color: var(--cor-texto-secundario);
+  background: #151515;
+  color: var(--cor-sobre-acento);
   font-size: 0.85rem;
   font-weight: 600;
   transition: background var(--transicao-rapida), color var(--transicao-rapida), border-color var(--transicao-rapida);
@@ -55,27 +73,35 @@
 
 .grade-cardapio {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: var(--espaco-xl);
 }
 
+@media (max-width: 1024px) {
+  .grade-cardapio { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .grade-cardapio { grid-template-columns: 1fr; gap: var(--espaco-lg); }
+}
+
 .card-produto {
-  background: var(--cor-branco);
-  border: 1px solid var(--cor-borda);
+  background: #131313;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--raio-md);
-  box-shadow: var(--sombra-sm);
+  box-shadow: none;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  transition: box-shadow var(--transicao-padrao), transform var(--transicao-padrao);
+  transition: border-color var(--transicao-padrao), transform var(--transicao-padrao);
 }
 
-.card-produto:hover { box-shadow: var(--sombra-md); transform: translateY(-2px); }
+.card-produto:hover { border-color: rgba(255, 255, 255, 0.18); transform: translateY(-2px); }
 
 .card-produto-foto-wrap {
   position: relative;
   aspect-ratio: 4 / 3;
-  background: var(--cor-cinza-claro);
+  background: #1a1a1a;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -83,23 +109,23 @@
 
 .card-produto-foto-wrap img { width: 100%; height: 100%; object-fit: cover; }
 
-/* Emoji de fallback (sem foto) num círculo sutil, em vez de emoji cru direto no fundo */
+/* Fallback sem foto: parece proposital (glow laranja sutil), não um espaço quebrado/vazio */
 .card-produto-foto-vazia {
-  width: 76px;
-  height: 76px;
-  border-radius: 50%;
-  background: var(--cor-acento-sutil);
-  border: 1px solid var(--cor-borda);
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 2rem;
+  font-size: 2.4rem;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(255, 77, 0, 0.16), transparent 60%),
+    #161616;
 }
 
 .selo-esgotado {
   position: absolute;
   inset: 0;
-  background: rgba(20, 16, 14, 0.62);
+  background: rgba(0, 0, 0, 0.72);
   color: var(--cor-sobre-acento);
   display: flex;
   align-items: center;
@@ -109,16 +135,24 @@
   font-size: 1rem;
 }
 
+/* Card com produto esgotado/indisponível: foto dessaturada e escurecida por baixo do selo */
+.card-produto:has(.selo-esgotado) .card-produto-foto-wrap img {
+  filter: grayscale(0.6) brightness(0.55);
+}
+
 .card-produto-categoria {
   position: absolute;
   top: var(--espaco-sm);
   left: var(--espaco-sm);
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--cor-carvao);
-  font-size: 0.7rem;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--cor-sobre-acento);
+  font-size: 0.68rem;
   font-weight: 700;
-  padding: 2px var(--espaco-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px var(--espaco-sm);
   border-radius: var(--raio-pill);
+  backdrop-filter: blur(3px);
 }
 
 .card-produto-corpo {
@@ -129,11 +163,17 @@
   flex: 1;
 }
 
-.card-produto-nome { font-weight: 700; font-size: 1.05rem; }
+.card-produto-nome {
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--cor-sobre-acento);
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
 
 .card-produto-descricao {
   font-size: 0.82rem;
-  color: var(--cor-texto-secundario);
+  color: rgba(255, 255, 255, 0.6);
   line-height: 1.4;
   flex: 1;
   display: -webkit-box;
@@ -149,16 +189,17 @@
   gap: var(--espaco-sm);
   margin-top: var(--espaco-sm);
   padding-top: var(--espaco-sm);
-  border-top: 1px solid var(--cor-borda);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.card-produto-preco { font-weight: 800; color: var(--cor-terracota); font-size: 1.2rem; }
+.card-produto-preco { font-weight: 800; color: var(--cor-terracota); font-size: 1.35rem; }
 
-.card-produto-estoque { font-size: 0.75rem; color: var(--cor-texto-secundario); }
+.card-produto-estoque { font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); }
 
 .card-produto-acao {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--espaco-sm);
   margin-top: var(--espaco-sm);
 }
@@ -166,17 +207,36 @@
 .seletor-quantidade {
   width: 56px;
   padding: 6px;
-  border: 1px solid var(--cor-borda);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: var(--raio-sm);
   text-align: center;
-  background: var(--cor-branco);
-  color: var(--cor-texto);
+  background: #1a1a1a;
+  color: var(--cor-sobre-acento);
 }
 
-.botao-adicionar { flex: 1; }
+/* Botão de ação compacto ("+"), não mais um botão largo de texto — círculo laranja confortável ao toque */
+.botao-adicionar {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: var(--raio-pill);
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1;
+}
 
 .card-produto-acao .seletor-quantidade { min-height: 44px; font-size: 0.95rem; }
 .card-produto-acao .botao-adicionar { min-height: 44px; }
+
+/* Estados bloqueados (Esgotado/Indisponível) continuam com texto, não cabem no círculo de 44px */
+.card-produto-acao .botao-adicionar:disabled {
+  width: auto;
+  padding: 0 var(--espaco-md);
+  border-radius: var(--raio-pill);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
 
 @media (max-width: 768px) {
   .filtro-categorias {
