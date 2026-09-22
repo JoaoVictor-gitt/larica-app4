@@ -314,11 +314,12 @@ const ROTULOS_STATUS_PAGAMENTO = {
 const ROTULOS_TIPO_MOVIMENTACAO_ESTOQUE = { sale: 'Venda', manual_addition: 'Entrada', manual_removal: 'Saída' };
 
 /** Converte a duração da Edge Function calculate-delivery (ex.: "532s") num texto amigável em minutos, ou '' se inválida */
+// Único caller: js/pedido.js (checkout público). Texto em inglês por isso — não é usado no admin.
 function formatarDuracaoBicicleta(duracaoTexto) {
   const segundos = parseInt(String(duracaoTexto || '').replace(/[^0-9]/g, ''), 10);
   if (!segundos || isNaN(segundos)) return '';
   const minutos = Math.max(1, Math.round(segundos / 60));
-  return `Tempo estimado de bicicleta: aproximadamente ${minutos} min`;
+  return `Estimated cycling time: approximately ${minutos} min`;
 }
 
 /** Troco = valorPago - total, arredondado a 2 casas; null se valorPago inválido ou menor que o total (nunca negativo) */

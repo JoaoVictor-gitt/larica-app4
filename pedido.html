@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -12,7 +12,7 @@
       } catch (erro) {}
     })();
   </script>
-  <title>Fazer Pedido | Larica Food Truck</title>
+  <title>Order | Larica Food Truck</title>
   <link rel="icon" type="image/png" href="favicon.png" />
   <link rel="stylesheet" href="css/style.css" />
   <link rel="stylesheet" href="css/cardapio.css" />
@@ -32,21 +32,21 @@
       <div class="pagina-titulo pagina-titulo-cardapio">
         <p class="cardapio-eyebrow">Brazilian Street Food</p>
         <h1 class="cardapio-titulo">Our Menu</h1>
-        <p class="cardapio-subtitulo">Escolha seus favoritos e monte seu pedido.</p>
+        <p class="cardapio-subtitulo">Choose your favourites and build your order.</p>
       </div>
       <div class="filtro-categorias" id="filtro-categorias-pedido"></div>
-      <div class="estado-vazio estado-vazio--carregando" id="estado-carregando-pedido">Carregando produtos...</div>
-      <div class="estado-vazio estado-vazio--erro" id="estado-erro-pedido" style="display:none;">Não foi possível carregar os produtos.</div>
+      <div class="estado-vazio estado-vazio--carregando" id="estado-carregando-pedido">Loading products...</div>
+      <div class="estado-vazio estado-vazio--erro" id="estado-erro-pedido" style="display:none;">We couldn't load the products.</div>
       <div class="grade-cardapio" id="grade-pedido"></div>
-      <div class="estado-vazio estado-vazio--vazio" id="estado-vazio-pedido" style="display:none;">Nenhum produto encontrado.</div>
+      <div class="estado-vazio estado-vazio--vazio" id="estado-vazio-pedido" style="display:none;">No products found.</div>
     </section>
 
     <!-- Etapa 2: Carrinho -->
     <section class="etapa-pedido" data-etapa="carrinho">
       <div class="cabecalho-etapa">
-        <p class="cabecalho-etapa-eyebrow">Seu pedido</p>
-        <h2 class="cabecalho-etapa-titulo">Carrinho</h2>
-        <p class="cabecalho-etapa-subtitulo">Confira os itens antes de continuar.</p>
+        <p class="cabecalho-etapa-eyebrow">Your Order</p>
+        <h2 class="cabecalho-etapa-titulo">Cart</h2>
+        <p class="cabecalho-etapa-subtitulo">Check your items before continuing.</p>
       </div>
       <div class="layout-carrinho">
         <div class="card tabela-carrinho-wrap">
@@ -54,9 +54,9 @@
             <thead>
               <tr>
                 <th></th>
-                <th>Produto</th>
-                <th>Preço unit.</th>
-                <th>Quantidade</th>
+                <th>Product</th>
+                <th>Unit Price</th>
+                <th>Quantity</th>
                 <th>Subtotal</th>
                 <th></th>
               </tr>
@@ -64,39 +64,39 @@
             <tbody id="corpo-tabela-pedido-carrinho"></tbody>
           </table>
           <div class="estado-vazio estado-vazio--vazio" id="estado-vazio-pedido-carrinho" style="display:none;">
-            Seu carrinho está vazio. Volte ao cardápio para adicionar produtos.
+            Your cart is empty. Go back to the menu to add products.
           </div>
         </div>
 
         <div class="card resumo-carrinho">
-          <h2 style="margin-top:0;">Resumo do Pedido</h2>
+          <h2 style="margin-top:0;">Order Summary</h2>
           <div class="linha-resumo">
             <span>Subtotal</span>
             <span id="pedido-valor-subtotal">—</span>
           </div>
           <div class="linha-resumo">
-            <span>Taxa de entrega</span>
-            <span id="pedido-valor-taxa">A definir</span>
+            <span>Delivery Fee</span>
+            <span id="pedido-valor-taxa">To be confirmed</span>
           </div>
           <div class="linha-resumo linha-resumo-total">
-            <span>Total (sem taxa de entrega)</span>
+            <span>Total (excluding delivery fee)</span>
             <span id="pedido-valor-total">—</span>
           </div>
         </div>
       </div>
 
       <div class="etapa-pedido-acoes">
-        <button type="button" class="btn btn-secundario" data-acao="voltar">← Voltar ao cardápio</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-carrinho">Continuar →</button>
+        <button type="button" class="btn btn-secundario" data-acao="voltar">← Back to Menu</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-carrinho">Continue →</button>
       </div>
     </section>
 
     <!-- Etapa 3: Retirada ou Entrega -->
     <section class="etapa-pedido" data-etapa="recebimento">
       <div class="cabecalho-etapa">
-        <p class="cabecalho-etapa-eyebrow">Como você quer receber?</p>
-        <h2 class="cabecalho-etapa-titulo">Recebimento</h2>
-        <p class="cabecalho-etapa-subtitulo">Escolha uma opção para continuar.</p>
+        <p class="cabecalho-etapa-eyebrow">How would you like to receive it?</p>
+        <h2 class="cabecalho-etapa-titulo">Order Type</h2>
+        <p class="cabecalho-etapa-subtitulo">Choose an option to continue.</p>
       </div>
       <div class="opcoes-recebimento opcoes-recebimento-3">
         <button type="button" class="opcao-pagamento opcao-grande" data-fulfilment="retirada">
@@ -104,15 +104,15 @@
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>
           </span>
           <span>
-            <strong>Retirada</strong>
-            <small>Buscar o pedido no food truck</small>
+            <strong>Pick Up</strong>
+            <small>Collect your order from the food truck</small>
           </span>
         </button>
         <button type="button" class="opcao-pagamento opcao-grande" data-fulfilment="comer_no_local">
           <span class="icone-pagamento">🍽️</span>
           <span>
-            <strong>Comer no local</strong>
-            <small>Vamos preparar para você comer aqui no food truck</small>
+            <strong>Dine In</strong>
+            <small>We'll get your order ready to enjoy here at the food truck</small>
           </span>
         </button>
         <button type="button" class="opcao-pagamento opcao-grande" data-fulfilment="entrega">
@@ -120,225 +120,225 @@
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 18l5-9h3l4 9M11 9h3l2 3"/></svg>
           </span>
           <span>
-            <strong>Entrega</strong>
-            <small>Receber no endereço informado</small>
+            <strong>Delivery</strong>
+            <small>Get it delivered to your address</small>
           </span>
         </button>
       </div>
       <p class="aviso-info aviso-atencao" id="aviso-recebimento-indisponivel" style="display:none;">
-        Entrega e retirada estão indisponíveis no momento.
+        Delivery and pick up are currently unavailable.
       </p>
       <div class="etapa-pedido-acoes">
-        <button type="button" class="btn btn-secundario" data-acao="voltar">← Voltar</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-recebimento" disabled>Continuar →</button>
+        <button type="button" class="btn btn-secundario" data-acao="voltar">← Back</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-recebimento" disabled>Continue →</button>
       </div>
     </section>
 
     <!-- Etapa 4a: Dados para retirada -->
     <section class="etapa-pedido" data-etapa="dados-retirada">
       <div class="cabecalho-etapa">
-        <p class="cabecalho-etapa-eyebrow">Quase lá</p>
-        <h2 class="cabecalho-etapa-titulo">Seus dados</h2>
-        <p class="cabecalho-etapa-subtitulo">Precisamos de algumas informações para finalizar.</p>
+        <p class="cabecalho-etapa-eyebrow">Almost there</p>
+        <h2 class="cabecalho-etapa-titulo">Your Details</h2>
+        <p class="cabecalho-etapa-subtitulo">We need a few details to finish your order.</p>
       </div>
       <div class="card">
         <div class="form-grupo">
-          <label for="retirada-nome">Nome do cliente</label>
-          <input type="text" class="input" id="retirada-nome" placeholder="Seu nome completo" />
+          <label for="retirada-nome">Customer Name</label>
+          <input type="text" class="input" id="retirada-nome" placeholder="Your full name" />
           <span class="campo-erro" id="erro-retirada-nome"></span>
         </div>
         <div class="form-grupo">
-          <label for="retirada-telefone">Número de telefone</label>
+          <label for="retirada-telefone">Phone Number</label>
           <input type="tel" class="input" id="retirada-telefone" placeholder="08X XXX XXXX" maxlength="17" />
           <span class="campo-erro" id="erro-retirada-telefone"></span>
         </div>
         <div class="form-grupo">
-          <label>Horário para retirada</label>
+          <label>Pick Up Time</label>
           <div class="opcoes-recebimento" id="opcoes-modo-retirada">
             <button type="button" class="opcao-pagamento opcao-grande" data-modo-retirada="asap">
               <span class="icone-pagamento">⚡</span>
               <span>
-                <strong>Assim que possível</strong>
-                <small>Prepararemos seu pedido o mais rápido possível.</small>
+                <strong>As Soon As Possible</strong>
+                <small>We'll get your order ready as quickly as possible.</small>
               </span>
             </button>
             <button type="button" class="opcao-pagamento opcao-grande" data-modo-retirada="horario">
               <span class="icone-pagamento">🕒</span>
               <span>
-                <strong>Escolher horário</strong>
-                <small>Você escolhe o horário exato de retirada.</small>
+                <strong>Choose a Time</strong>
+                <small>Choose the exact time for pick up.</small>
               </span>
             </button>
           </div>
           <div class="form-grupo" id="grupo-horario-retirada-escolhido" style="display:none;">
-            <label for="campo-horario-retirada">Horário para retirada</label>
+            <label for="campo-horario-retirada">Pick Up Time</label>
             <input type="time" class="input" id="campo-horario-retirada" />
             <span class="campo-erro" id="erro-horario-retirada"></span>
           </div>
         </div>
         <div class="aviso-info" id="endereco-estabelecimento">
-          Retirada no Larica Food Truck — endereço informado no local, Dublin.
+          Pick up at the Larica Food Truck — address provided on site, Dublin.
         </div>
       </div>
       <div class="etapa-pedido-acoes">
-        <button type="button" class="btn btn-secundario" data-acao="voltar">← Voltar</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-retirada">Continuar para pagamento →</button>
+        <button type="button" class="btn btn-secundario" data-acao="voltar">← Back</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-retirada">Continue to Payment →</button>
       </div>
     </section>
 
     <!-- Etapa 4b: Dados para entrega -->
     <section class="etapa-pedido" data-etapa="dados-entrega">
       <div class="cabecalho-etapa">
-        <p class="cabecalho-etapa-eyebrow">Quase lá</p>
-        <h2 class="cabecalho-etapa-titulo">Seus dados</h2>
-        <p class="cabecalho-etapa-subtitulo">Precisamos de algumas informações para finalizar.</p>
+        <p class="cabecalho-etapa-eyebrow">Almost there</p>
+        <h2 class="cabecalho-etapa-titulo">Your Details</h2>
+        <p class="cabecalho-etapa-subtitulo">We need a few details to finish your order.</p>
       </div>
       <div class="card">
         <div class="form-grupo">
-          <label for="entrega-nome">Nome completo</label>
-          <input type="text" class="input" id="entrega-nome" placeholder="Seu nome completo" />
+          <label for="entrega-nome">Full Name</label>
+          <input type="text" class="input" id="entrega-nome" placeholder="Your full name" />
           <span class="campo-erro" id="erro-entrega-nome"></span>
         </div>
         <div class="form-grupo">
-          <label for="entrega-telefone">Número de telefone</label>
+          <label for="entrega-telefone">Phone Number</label>
           <input type="tel" class="input" id="entrega-telefone" placeholder="08X XXX XXXX" maxlength="17" />
           <span class="campo-erro" id="erro-entrega-telefone"></span>
         </div>
       </div>
 
-      <h2>Endereço de entrega</h2>
-      <div class="aviso-info">Entrega disponível apenas em Dublin no momento.</div>
+      <h2>Delivery Address</h2>
+      <div class="aviso-info">Delivery is currently only available in Dublin.</div>
       <div class="card">
         <div class="form-grupo">
           <label for="entrega-eircode">Eircode</label>
-          <input type="text" class="input" id="entrega-eircode" placeholder="Ex.: D03 FX92" maxlength="8" />
+          <input type="text" class="input" id="entrega-eircode" placeholder="e.g. D03 FX92" maxlength="8" />
           <span class="campo-erro" id="erro-entrega-eircode"></span>
         </div>
         <div class="form-grupo">
-          <label for="entrega-linha1">Endereço (linha 1)</label>
-          <input type="text" class="input" id="entrega-linha1" placeholder="Rua, número" />
+          <label for="entrega-linha1">Address (Line 1)</label>
+          <input type="text" class="input" id="entrega-linha1" placeholder="Street, number" />
           <span class="campo-erro" id="erro-entrega-linha1"></span>
         </div>
         <div class="form-grupo">
-          <label for="entrega-linha2">Endereço (linha 2) — opcional</label>
-          <input type="text" class="input" id="entrega-linha2" placeholder="Apartamento, bloco, etc." />
+          <label for="entrega-linha2">Address (Line 2) — optional</label>
+          <input type="text" class="input" id="entrega-linha2" placeholder="Apartment, block, etc." />
         </div>
         <div class="form-grupo">
-          <label for="entrega-area">Área / bairro — opcional</label>
-          <input type="text" class="input" id="entrega-area" placeholder="Ex.: Rathmines" />
+          <label for="entrega-area">Area / Neighbourhood — optional</label>
+          <input type="text" class="input" id="entrega-area" placeholder="e.g. Rathmines" />
         </div>
         <div class="form-grupo">
-          <label for="entrega-distrito">Distrito postal de Dublin — opcional</label>
-          <input type="text" class="input" id="entrega-distrito" placeholder="Ex.: Dublin 6" />
+          <label for="entrega-distrito">Dublin Postal District — optional</label>
+          <input type="text" class="input" id="entrega-distrito" placeholder="e.g. Dublin 6" />
         </div>
         <div class="form-grupo">
-          <label for="entrega-instrucoes">Instruções adicionais — opcional</label>
-          <textarea class="input" id="entrega-instrucoes" rows="3" placeholder="Número do apartamento, código do portão, ponto de referência, etc."></textarea>
+          <label for="entrega-instrucoes">Additional Instructions — optional</label>
+          <textarea class="input" id="entrega-instrucoes" rows="3" placeholder="Apartment number, gate code, landmark, etc."></textarea>
         </div>
       </div>
 
       <div class="card" id="cartao-calculo-entrega">
-        <button type="button" class="btn btn-primario" id="botao-calcular-entrega" style="width:100%;">Calcular entrega</button>
+        <button type="button" class="btn btn-primario" id="botao-calcular-entrega" style="width:100%;">Calculate Delivery</button>
         <span class="campo-erro" id="erro-calculo-entrega"></span>
 
         <div id="resultado-calculo-entrega" style="display:none; margin-top:16px;">
-          <div class="linha-resumo"><span>Distância de entrega</span><span id="entrega-distancia-valor">—</span></div>
-          <div class="linha-resumo"><span>Taxa de entrega</span><span id="entrega-taxa-valor">—</span></div>
+          <div class="linha-resumo"><span>Delivery Distance</span><span id="entrega-distancia-valor">—</span></div>
+          <div class="linha-resumo"><span>Delivery Fee</span><span id="entrega-taxa-valor">—</span></div>
           <p class="aviso-info" id="entrega-tempo-estimado" style="display:none;"></p>
         </div>
 
         <p style="font-size:12px; color:var(--cor-texto-secundario); margin-top:12px; margin-bottom:0;">
-          A distância é estimada com base em rota de bicicleta.
+          Distance is estimated based on a cycling route.
         </p>
       </div>
 
       <div class="etapa-pedido-acoes">
-        <button type="button" class="btn btn-secundario" data-acao="voltar">← Voltar</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-entrega" disabled>Continuar para pagamento →</button>
+        <button type="button" class="btn btn-secundario" data-acao="voltar">← Back</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-entrega" disabled>Continue to Payment →</button>
       </div>
     </section>
 
     <!-- Etapa 5: Forma de pagamento -->
     <section class="etapa-pedido" data-etapa="pagamento">
       <div class="cabecalho-etapa">
-        <p class="cabecalho-etapa-eyebrow">Pagamento</p>
-        <h2 class="cabecalho-etapa-titulo">Como deseja pagar?</h2>
-        <p class="cabecalho-etapa-subtitulo">Escolha a forma de pagamento para continuar.</p>
+        <p class="cabecalho-etapa-eyebrow">Payment</p>
+        <h2 class="cabecalho-etapa-titulo">How would you like to pay?</h2>
+        <p class="cabecalho-etapa-subtitulo">Choose a payment method to continue.</p>
       </div>
       <div class="opcoes-pagamento" id="opcoes-pagamento-pedido">
         <button type="button" class="opcao-pagamento" data-forma="cartao">
           <span class="icone-pagamento"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg></span>
-          <span>Cartão na retirada/entrega</span>
+          <span>Card on Pick Up/Delivery</span>
         </button>
         <button type="button" class="opcao-pagamento" data-forma="dinheiro">
-          <span class="icone-pagamento"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="7" width="19" height="10" rx="1.5"/><circle cx="12" cy="12" r="2.3"/></svg></span> Dinheiro
+          <span class="icone-pagamento"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="7" width="19" height="10" rx="1.5"/><circle cx="12" cy="12" r="2.3"/></svg></span> Cash
         </button>
 
         <div class="secao-troco" id="secao-troco-dinheiro" style="display:none;">
-          <p class="pergunta-troco">Precisa de troco?</p>
+          <p class="pergunta-troco">Need change?</p>
           <div class="opcoes-troco-sim-nao">
-            <button type="button" class="opcao-pagamento opcao-troco" data-troco="nao">Não</button>
-            <button type="button" class="opcao-pagamento opcao-troco" data-troco="sim">Sim</button>
+            <button type="button" class="opcao-pagamento opcao-troco" data-troco="nao">No</button>
+            <button type="button" class="opcao-pagamento opcao-troco" data-troco="sim">Yes</button>
           </div>
           <div class="form-grupo" id="grupo-valor-troco" style="display:none;">
-            <label for="campo-valor-pago">Troco para quanto?</label>
-            <input type="number" class="input" id="campo-valor-pago" min="0" step="0.01" inputmode="decimal" placeholder="€ 0,00" />
+            <label for="campo-valor-pago">Change for how much?</label>
+            <input type="number" class="input" id="campo-valor-pago" min="0" step="0.01" inputmode="decimal" placeholder="€0.00" />
             <span class="campo-erro" id="erro-valor-pago"></span>
             <p class="troco-estimado" id="troco-estimado" style="display:none;"></p>
           </div>
         </div>
 
         <button type="button" class="opcao-pagamento" data-forma="revolut">
-          <span class="icone-pagamento"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 4v4h-4"/><path d="M20 12a8 8 0 0 1-14 5.3M4 20v-4h4"/></svg></span> Revolut — pagar agora
+          <span class="icone-pagamento"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 4v4h-4"/><path d="M20 12a8 8 0 0 1-14 5.3M4 20v-4h4"/></svg></span> Revolut — pay now
         </button>
 
         <button type="button" class="opcao-pagamento" data-forma="transferencia">
-          <span class="icone-pagamento"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10l9-6 9 6"/><path d="M5 10v8M9 10v8M15 10v8M19 10v8"/><path d="M3 20h18"/></svg></span> Transferência bancária
+          <span class="icone-pagamento"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10l9-6 9 6"/><path d="M5 10v8M9 10v8M15 10v8M19 10v8"/><path d="M3 20h18"/></svg></span> Bank Transfer
         </button>
 
         <!-- Preenchido por atualizarVisibilidadeDadosTransferencia() (js/pedido.js) a partir de business_settings — nunca hardcoded -->
         <div class="card dados-transferencia-wrap" id="secao-dados-transferencia" style="display:none;">
-          <p class="dados-transferencia-titulo">Dados para transferência</p>
-          <div class="linha-resumo"><span>Beneficiário</span><span id="transferencia-beneficiario-inline">—</span></div>
+          <p class="dados-transferencia-titulo">Transfer Details</p>
+          <div class="linha-resumo"><span>Beneficiary</span><span id="transferencia-beneficiario-inline">—</span></div>
           <div class="linha-resumo"><span>IBAN</span><span id="transferencia-iban-inline">—</span></div>
           <div class="linha-resumo"><span>BIC</span><span id="transferencia-bic-inline">—</span></div>
-          <button type="button" class="btn btn-secundario" id="botao-copiar-iban-inline">Copiar IBAN</button>
-          <p class="texto-auxiliar-copiar-revolut">Faça a transferência utilizando os dados acima. Seu pedido será confirmado após a verificação do pagamento.</p>
+          <button type="button" class="btn btn-secundario" id="botao-copiar-iban-inline">Copy IBAN</button>
+          <p class="texto-auxiliar-copiar-revolut">Make the transfer using the details above. Your order will be confirmed once payment is verified.</p>
         </div>
       </div>
       <div class="etapa-pedido-acoes">
-        <button type="button" class="btn btn-secundario" data-acao="voltar">← Voltar</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-pagamento" disabled>Continuar →</button>
+        <button type="button" class="btn btn-secundario" data-acao="voltar">← Back</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-pagamento" disabled>Continue →</button>
       </div>
     </section>
 
     <!-- Etapa 6: Revisão do pedido -->
     <section class="etapa-pedido" data-etapa="revisao">
       <div class="cabecalho-etapa">
-        <p class="cabecalho-etapa-eyebrow">Confira tudo</p>
-        <h2 class="cabecalho-etapa-titulo">Revisão do pedido</h2>
-        <p class="cabecalho-etapa-subtitulo">Confirme os detalhes antes de finalizar.</p>
+        <p class="cabecalho-etapa-eyebrow">Check everything</p>
+        <h2 class="cabecalho-etapa-titulo">Review Order</h2>
+        <p class="cabecalho-etapa-subtitulo">Confirm the details before placing your order.</p>
       </div>
 
       <div class="card cartao-cupom" id="cartao-cupom-pedido">
-        <h2 class="cartao-cupom-titulo">Cupom de desconto</h2>
+        <h2 class="cartao-cupom-titulo">Discount Coupon</h2>
         <div id="grupo-cupom-input">
           <div class="cupom-input-linha">
-            <input type="text" class="input campo-cupom-codigo" id="campo-cupom-codigo-pedido" placeholder="Código do cupom" maxlength="40" />
-            <button type="button" class="btn btn-secundario" id="botao-aplicar-cupom">Aplicar</button>
+            <input type="text" class="input campo-cupom-codigo" id="campo-cupom-codigo-pedido" placeholder="Coupon code" maxlength="40" />
+            <button type="button" class="btn btn-secundario" id="botao-aplicar-cupom">Apply</button>
           </div>
           <span class="campo-erro" id="erro-cupom-pedido"></span>
         </div>
         <div id="cupom-aplicado-info" style="display:none;">
           <p class="texto-cupom-aplicado" id="texto-cupom-aplicado"></p>
-          <button type="button" class="btn btn-secundario" id="botao-remover-cupom">Remover cupom</button>
+          <button type="button" class="btn btn-secundario" id="botao-remover-cupom">Remove Coupon</button>
         </div>
       </div>
 
       <div id="conteudo-revisao"></div>
       <div class="etapa-pedido-acoes">
-        <button type="button" class="btn btn-secundario" data-acao="voltar">← Voltar</button>
-        <button type="button" class="btn btn-primario" id="botao-confirmar-pedido">Finalizar pedido</button>
+        <button type="button" class="btn btn-secundario" data-acao="voltar">← Back</button>
+        <button type="button" class="btn btn-primario" id="botao-confirmar-pedido">Place Order</button>
       </div>
     </section>
 
@@ -346,19 +346,19 @@
     <section class="etapa-pedido" data-etapa="confirmacao">
       <div class="tela-confirmacao" id="tela-confirmacao-padrao">
         <div class="icone-confirmacao">✅</div>
-        <h2>Pedido recebido!</h2>
-        <p>Obrigado! Seu pedido foi criado com sucesso.</p>
+        <h2>Order Received!</h2>
+        <p>Thank you! Your order has been placed successfully.</p>
         <div class="numero-pedido" id="numero-pedido-confirmado"></div>
         <div id="resumo-confirmacao" class="card"></div>
-        <button type="button" class="btn btn-secundario" id="botao-imprimir-pedido-confirmacao">🖨️ Imprimir pedido</button>
+        <button type="button" class="btn btn-secundario" id="botao-imprimir-pedido-confirmacao">🖨️ Print Order</button>
       </div>
 
       <!-- Revolut: pedido já foi criado (estoque reservado), mas payment_status='pending' até um staff
            confirmar manualmente no Kanban (Etapa 4). Nunca afirma "Pagamento confirmado" aqui. -->
       <div class="tela-confirmacao" id="tela-confirmacao-revolut" style="display:none;">
         <div class="icone-confirmacao" id="revolut-icone">⏳</div>
-        <h2 id="revolut-titulo">Aguardando confirmação de pagamento</h2>
-        <p id="revolut-instrucao-transferencia">Faça a transferência de <strong id="revolut-valor-total">—</strong> pelo Revolut usando o QR Code abaixo.</p>
+        <h2 id="revolut-titulo">Awaiting Payment Confirmation</h2>
+        <p id="revolut-instrucao-transferencia">Transfer <strong id="revolut-valor-total">—</strong> via Revolut using the QR code below.</p>
         <div class="numero-pedido" id="numero-pedido-confirmado-revolut"></div>
 
         <!-- Preenchido inteiramente por renderizarQrRevolut() (js/pedido.js) a partir do QR real
@@ -368,37 +368,37 @@
         <!-- Alternativa ao QR para quem está fazendo o pedido pelo mesmo celular — só aparece quando
              há um código/link cadastrado em Configurações (ver atualizarBotaoCopiarCodigoRevolut()). -->
         <div id="revolut-copiar-codigo-wrap" style="display:none;">
-          <div class="separador-ou"><span>ou</span></div>
-          <button type="button" class="btn btn-secundario" id="botao-copiar-codigo-revolut">Copiar código Revolut</button>
-          <p class="texto-auxiliar-copiar-revolut">Use esta opção se você estiver fazendo o pedido pelo mesmo celular.</p>
+          <div class="separador-ou"><span>or</span></div>
+          <button type="button" class="btn btn-secundario" id="botao-copiar-codigo-revolut">Copy Revolut Code</button>
+          <p class="texto-auxiliar-copiar-revolut">Use this option if you're placing the order from the same phone.</p>
         </div>
 
         <!-- Trocado in-place pela Etapa 5 (Realtime) quando payment_status vira 'paid', sem reconstruir a tela -->
-        <p class="aviso-info" id="status-pagamento-revolut">Após recebermos o pagamento, confirmaremos seu pedido e ele seguirá para preparo.</p>
+        <p class="aviso-info" id="status-pagamento-revolut">Once we receive your payment, we'll confirm your order and send it to the kitchen.</p>
       </div>
 
       <!-- Transferência bancária: mesmo padrão da tela Revolut acima — pedido já foi criado
            (estoque reservado), payment_status='pending' até um staff confirmar manualmente no Kanban. -->
       <div class="tela-confirmacao" id="tela-confirmacao-transferencia" style="display:none;">
         <div class="icone-confirmacao" id="transferencia-icone">⏳</div>
-        <h2 id="transferencia-titulo">Aguardando confirmação de pagamento</h2>
-        <p id="transferencia-instrucao">Faça a transferência de <strong id="transferencia-valor-total">—</strong> usando os dados abaixo.</p>
+        <h2 id="transferencia-titulo">Awaiting Payment Confirmation</h2>
+        <p id="transferencia-instrucao">Transfer <strong id="transferencia-valor-total">—</strong> using the details below.</p>
         <div class="numero-pedido" id="numero-pedido-confirmado-transferencia"></div>
 
         <!-- Preenchido por renderizarConfirmacaoTransferencia() (js/pedido.js) a partir de business_settings — nunca hardcoded -->
         <div class="card dados-transferencia-wrap" id="transferencia-dados-wrap">
-          <div class="linha-resumo"><span>Beneficiário</span><span id="transferencia-beneficiario-confirmacao">—</span></div>
+          <div class="linha-resumo"><span>Beneficiary</span><span id="transferencia-beneficiario-confirmacao">—</span></div>
           <div class="linha-resumo"><span>IBAN</span><span id="transferencia-iban-confirmacao">—</span></div>
           <div class="linha-resumo"><span>BIC</span><span id="transferencia-bic-confirmacao">—</span></div>
-          <button type="button" class="btn btn-secundario" id="botao-copiar-iban-confirmacao">Copiar IBAN</button>
+          <button type="button" class="btn btn-secundario" id="botao-copiar-iban-confirmacao">Copy IBAN</button>
         </div>
 
         <!-- Trocado in-place pelo Realtime quando payment_status vira 'paid', sem reconstruir a tela -->
-        <p class="aviso-info" id="status-pagamento-transferencia">Após recebermos o pagamento, confirmaremos seu pedido e ele seguirá para preparo.</p>
+        <p class="aviso-info" id="status-pagamento-transferencia">Once we receive your payment, we'll confirm your order and send it to the kitchen.</p>
       </div>
 
-      <button type="button" class="btn btn-primario" id="botao-acompanhar-pedido">Acompanhar pedido</button>
-      <button type="button" class="btn btn-secundario" id="botao-novo-pedido">Voltar ao cardápio</button>
+      <button type="button" class="btn btn-primario" id="botao-acompanhar-pedido">Track Order</button>
+      <button type="button" class="btn btn-secundario" id="botao-novo-pedido">Back to Menu</button>
     </section>
   </main>
 
@@ -410,35 +410,35 @@
   <div class="modal-overlay" id="modal-overlay-combo">
     <div class="modal modal-combo">
       <div class="modal-cabecalho">
-        <h2 id="combo-modal-nome">Personalizar combo</h2>
-        <button class="btn-icone" id="botao-fechar-modal-combo" aria-label="Fechar">✕</button>
+        <h2 id="combo-modal-nome">Customise Combo</h2>
+        <button class="btn-icone" id="botao-fechar-modal-combo" aria-label="Close">✕</button>
       </div>
       <div class="modal-corpo modal-corpo-combo-personalizacao">
         <p class="combo-descricao" id="combo-modal-descricao"></p>
 
         <div class="secao-combo">
           <div class="secao-combo-cabecalho">
-            <h3 id="combo-titulo-espetos">Escolha seu espeto</h3>
-            <span class="contador-escolha" id="combo-contador-espetos">0 de 0 selecionados</span>
+            <h3 id="combo-titulo-espetos">Choose Your Skewer</h3>
+            <span class="contador-escolha" id="combo-contador-espetos">0 of 0 selected</span>
           </div>
           <div id="combo-lista-espetos"></div>
         </div>
 
         <div class="secao-combo" id="combo-secao-acompanhamentos">
           <div class="secao-combo-cabecalho">
-            <h3 id="combo-titulo-acompanhamentos">Escolha os acompanhamentos</h3>
-            <span class="contador-escolha" id="combo-contador-acompanhamentos">0 de 0 selecionados</span>
+            <h3 id="combo-titulo-acompanhamentos">Choose Your Sides</h3>
+            <span class="contador-escolha" id="combo-contador-acompanhamentos">0 of 0 selected</span>
           </div>
           <div id="combo-lista-acompanhamentos"></div>
         </div>
 
         <div class="secao-combo" id="combo-secao-inclusos" style="display:none;">
-          <h3>Incluso no combo</h3>
+          <h3>Included in the Combo</h3>
           <ul class="lista-inclusos-combo" id="combo-lista-inclusos"></ul>
         </div>
 
         <p class="aviso-card-combo" id="combo-aviso-inclusos-indisponiveis" style="display:none;">
-          Alguns itens inclusos deste combo estão temporariamente indisponíveis.
+          Some items included in this combo are temporarily unavailable.
         </p>
 
         <div class="card resumo-carrinho combo-resumo-total">
@@ -448,8 +448,8 @@
         </div>
       </div>
       <div class="modal-rodape">
-        <button type="button" class="btn btn-secundario" id="botao-cancelar-combo">Cancelar</button>
-        <button type="button" class="btn btn-primario" id="botao-adicionar-combo" disabled>Adicionar ao carrinho</button>
+        <button type="button" class="btn btn-secundario" id="botao-cancelar-combo">Cancel</button>
+        <button type="button" class="btn btn-primario" id="botao-adicionar-combo" disabled>Add to Cart</button>
       </div>
     </div>
   </div>

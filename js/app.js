@@ -199,14 +199,14 @@ function montarShell(contextoPermissoes) {
 function montarShellPedido(placeholder) {
   placeholder.outerHTML = `
     <header class="cabecalho-pedido">
-      <a class="cabecalho-pedido-marca" href="index.html" aria-label="Larica — início">
+      <a class="cabecalho-pedido-marca" href="index.html" aria-label="Larica — Home">
         <img src="logo.png" alt="Larica" class="cabecalho-pedido-logo" />
       </a>
       <nav class="cabecalho-pedido-nav">
         <a href="index.html">Home</a>
         <button type="button" id="botao-cabecalho-menu">Menu</button>
       </nav>
-      <button type="button" class="cabecalho-pedido-carrinho" id="botao-carrinho-cabecalho" aria-label="Ver carrinho">
+      <button type="button" class="cabecalho-pedido-carrinho" id="botao-carrinho-cabecalho" aria-label="View cart">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="9" cy="20" r="1.4" /><circle cx="18" cy="20" r="1.4" />
           <path d="M2 3h2l2.2 12.2a2 2 0 0 0 2 1.8h8.6a2 2 0 0 0 2-1.6L21 8H6" />

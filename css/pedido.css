@@ -286,6 +286,13 @@
   border-left-color: var(--cor-status-vermelho);
 }
 
+/* Banner de "fechado para pedidos" (topo da página) — só ele fica mais compacto (item 5 da
+   localização); os demais .aviso-info da página mantêm o padding padrão acima. */
+#banner-disponibilidade-pedido {
+  padding: var(--espaco-sm) var(--espaco-md);
+  margin-bottom: var(--espaco-sm);
+}
+
 .opcao-pagamento:active { transform: scale(0.98); }
 
 /* Opção de recebimento (Retirada/Entrega) desativada nas configurações do negócio */

@@ -76,7 +76,7 @@ function aguardarTurnstileDisponivel(timeoutMs) {
         return;
       }
       if (Date.now() - inicio >= timeoutMs) {
-        reject(new Error('Verificação de segurança indisponível. Recarregue a página e tente novamente.'));
+        reject(new Error('Security check unavailable. Please reload the page and try again.'));
         return;
       }
       setTimeout(tentar, 100);
@@ -98,7 +98,7 @@ function inicializarTurnstile() {
 
     const container = document.getElementById('turnstile-container');
     if (!container) {
-      throw new Error('Verificação de segurança indisponível. Recarregue a página e tente novamente.');
+      throw new Error('Security check unavailable. Please reload the page and try again.');
     }
 
     try {
@@ -115,14 +115,14 @@ function inicializarTurnstile() {
         },
         'error-callback': () => {
           if (turnstileRejeitarPendente) {
-            turnstileRejeitarPendente(new Error('Não foi possível carregar a verificação de segurança. Recarregue a página e tente novamente.'));
+            turnstileRejeitarPendente(new Error('Could not load the security check. Please reload the page and try again.'));
             turnstileResolverPendente = null;
             turnstileRejeitarPendente = null;
           }
         },
       });
     } catch (erro) {
-      throw new Error('Não foi possível carregar a verificação de segurança. Recarregue a página e tente novamente.');
+      throw new Error('Could not load the security check. Please reload the page and try again.');
     }
   });
 
@@ -134,7 +134,7 @@ async function obterTokenTurnstile() {
   await inicializarTurnstile(); // propaga o erro fail-closed se a API nunca carregar dentro do timeout
 
   if (typeof turnstile === 'undefined' || turnstileWidgetId === null) {
-    throw new Error('Verificação de segurança indisponível. Recarregue a página e tente novamente.');
+    throw new Error('Security check unavailable. Please reload the page and try again.');
   }
 
   return new Promise((resolve, reject) => {
@@ -145,7 +145,7 @@ async function obterTokenTurnstile() {
     } catch (erro) {
       turnstileResolverPendente = null;
       turnstileRejeitarPendente = null;
-      reject(new Error('Não foi possível iniciar a verificação de segurança.'));
+      reject(new Error('Could not start the security check.'));
     }
   });
 }
@@ -163,15 +163,17 @@ function invalidarTokenTurnstileUsado() {
 let canalConfirmacaoRevolut = null;
 let canalConfirmacaoTransferencia = null;
 
+// Textos em inglês (interface pública) — data-etapa/pilhaEtapasPedido continuam com as chaves internas
+// em português, nunca renomeadas (usadas pela lógica de navegação/histórico).
 const ROTULOS_ETAPA_PEDIDO = {
-  cardapio: 'Cardápio',
-  carrinho: 'Carrinho',
-  recebimento: 'Retirada, comer no local ou entrega',
-  'dados-retirada': 'Seus dados',
-  'dados-entrega': 'Seus dados e endereço',
-  pagamento: 'Forma de pagamento',
-  revisao: 'Revisar pedido',
-  confirmacao: 'Confirmação',
+  cardapio: 'Menu',
+  carrinho: 'Cart',
+  recebimento: 'Pick Up, Dine In or Delivery',
+  'dados-retirada': 'Your Details',
+  'dados-entrega': 'Your Details',
+  pagamento: 'Payment Method',
+  revisao: 'Review Order',
+  confirmacao: 'Confirmation',
 };
 
 // Barra de progresso visual do checkout (#progresso-etapas-pedido) — só indicativo, derivado do
@@ -371,7 +373,7 @@ async function carregarDisponibilidadeNegocio() {
     horariosNegocio = horarios;
     erroConfiguracoesNegocio = null;
   } catch (erro) {
-    erroConfiguracoesNegocio = (erro && erro.message) || 'Não foi possível verificar se os pedidos estão disponíveis. Tente novamente.';
+    erroConfiguracoesNegocio = (erro && erro.message) || 'Could not check whether ordering is available. Please try again.';
   } finally {
     configuracoesNegocioCarregadas = true;
     aplicarDisponibilidadeFulfilment();
@@ -512,12 +514,12 @@ function obterStatusFuncionamentoAgora(config, horarios, agora) {
  */
 function calcularDisponibilidadeNegocio(config, horarios, agora) {
   if (!config.pedidosAtivos) {
-    return { podeFinalizar: false, motivo: 'orders_disabled', mensagem: config.mensagemFechado || 'Pedidos fechados no momento.' };
+    return { podeFinalizar: false, motivo: 'orders_disabled', mensagem: config.mensagemFechado || "We're currently closed for orders." };
   }
 
   const status = obterStatusFuncionamentoAgora(config, horarios, agora);
   if (status.configurado && !status.aberto) {
-    return { podeFinalizar: false, motivo: 'outside_hours', mensagem: config.mensagemFechado || 'Pedidos fechados no momento.' };
+    return { podeFinalizar: false, motivo: 'outside_hours', mensagem: config.mensagemFechado || "We're currently closed for orders." };
   }
 
   // "Comer no local" não tem toggle nesta fase — está sempre disponível,
@@ -530,10 +532,10 @@ function calcularDisponibilidadeNegocio(config, horarios, agora) {
 /** Envolve calcularDisponibilidadeNegocio() com os estados de loading/erro do carregamento inicial */
 function disponibilidadeNegocioAtual() {
   if (erroConfiguracoesNegocio) {
-    return { podeFinalizar: false, motivo: 'error', mensagem: 'Não foi possível verificar se os pedidos estão disponíveis. Tente novamente.' };
+    return { podeFinalizar: false, motivo: 'error', mensagem: 'Could not check whether ordering is available. Please try again.' };
   }
   if (!configuracoesNegocioCarregadas) {
-    return { podeFinalizar: false, motivo: 'loading', mensagem: 'Verificando disponibilidade...' };
+    return { podeFinalizar: false, motivo: 'loading', mensagem: 'Checking availability...' };
   }
   return calcularDisponibilidadeNegocio(configuracoesNegocio, horariosNegocio, new Date());
 }
@@ -575,7 +577,7 @@ function aplicarDisponibilidadeBotaoFulfilment(fulfilment, disponivel) {
   if (!disponivel && !selo) {
     selo = document.createElement('small');
     selo.className = 'selo-indisponivel';
-    selo.textContent = 'Indisponível';
+    selo.textContent = 'Unavailable';
     botao.querySelector('span:last-child').appendChild(selo);
   } else if (disponivel && selo) {
     selo.remove();
@@ -597,7 +599,7 @@ function invalidarFulfilmentSeIndisponivel() {
   document.querySelectorAll('.opcoes-recebimento .opcao-pagamento[data-fulfilment]').forEach((b) => b.classList.remove('selecionada'));
   document.getElementById('botao-continuar-recebimento').disabled = true;
   salvarProgressoPedido();
-  mostrarToast('A opção de recebimento escolhida não está mais disponível. Escolha novamente.', 'erro');
+  mostrarToast('The selected order type is no longer available. Please choose again.', 'erro');
 }
 
 /** Desabilita + esmaece visualmente o botão Revolut quando revolutDisponivel() for false — mesmo padrão já usado pro fulfilment */
@@ -630,7 +632,7 @@ function aplicarDisponibilidadeCartao() {
   if (!disponivel && !selo) {
     selo = document.createElement('small');
     selo.className = 'selo-indisponivel';
-    selo.textContent = 'Disponível somente para retirada';
+    selo.textContent = 'Available for pick up only';
     botao.appendChild(selo);
   } else if (disponivel && selo) {
     selo.remove();
@@ -644,7 +646,7 @@ function invalidarFormaPagamentoSeIndisponivel() {
     document.querySelectorAll('#opcoes-pagamento-pedido .opcao-pagamento[data-forma]').forEach((b) => b.classList.remove('selecionada'));
     document.getElementById('botao-continuar-pagamento').disabled = true;
     salvarProgressoPedido();
-    mostrarToast('Pagamento via Revolut temporariamente indisponível. Escolha outra forma de pagamento.', 'erro');
+    mostrarToast('Revolut payment is temporarily unavailable. Please choose another payment method.', 'erro');
     return;
   }
 
@@ -654,7 +656,7 @@ function invalidarFormaPagamentoSeIndisponivel() {
     document.getElementById('secao-dados-transferencia').style.display = 'none';
     document.getElementById('botao-continuar-pagamento').disabled = true;
     salvarProgressoPedido();
-    mostrarToast('Pagamento via transferência bancária temporariamente indisponível. Escolha outra forma de pagamento.', 'erro');
+    mostrarToast('Bank transfer is temporarily unavailable. Please choose another payment method.', 'erro');
     return;
   }
 
@@ -663,7 +665,7 @@ function invalidarFormaPagamentoSeIndisponivel() {
     document.querySelectorAll('#opcoes-pagamento-pedido .opcao-pagamento[data-forma]').forEach((b) => b.classList.remove('selecionada'));
     document.getElementById('botao-continuar-pagamento').disabled = true;
     salvarProgressoPedido();
-    mostrarToast('Cartão disponível apenas para retirada. Escolha outra forma de pagamento.', 'erro');
+    mostrarToast('Card payment is only available for pick up. Please choose another payment method.', 'erro');
   }
 }
 
@@ -693,8 +695,10 @@ function mostrarEtapaAtual() {
   document.querySelectorAll('.etapa-pedido').forEach((secao) => {
     secao.classList.toggle('etapa-ativa', secao.dataset.etapa === etapa);
   });
+  // No Menu (cardápio), o rótulo "Step N · ..." fica escondido — dá aparência de sistema
+  // administrativo numa vitrine pública. Nenhuma outra etapa muda; data-etapa/navegação intactos.
   document.getElementById('indicador-etapa-pedido').textContent =
-    `Etapa ${pilhaEtapasPedido.length} · ${ROTULOS_ETAPA_PEDIDO[etapa] || ''}`;
+    etapa === 'cardapio' ? '' : `Step ${pilhaEtapasPedido.length} · ${ROTULOS_ETAPA_PEDIDO[etapa] || ''}`;
   renderizarProgressoEtapasPedido(etapa);
   atualizarBarraCarrinhoFixa();
   window.scrollTo(0, 0);
@@ -783,13 +787,13 @@ async function imprimirPedidoConfirmacaoNaEpson(botao) {
   const rotuloOriginal = botao.textContent;
   _impressaoClientePedidoEmAndamento = true;
   botao.disabled = true;
-  botao.textContent = '🖨️ Imprimindo...';
+  botao.textContent = '🖨️ Printing...';
 
   let xml;
   try {
     xml = gerarComandaEposPrintXml(ultimoPedidoConfirmado);
   } catch (erroBuilder) {
-    mostrarToast('Não foi possível montar o recibo para a Epson: ' + (erroBuilder && erroBuilder.message ? erroBuilder.message : erroBuilder), 'erro');
+    mostrarToast('Could not build the receipt for the printer: ' + (erroBuilder && erroBuilder.message ? erroBuilder.message : erroBuilder), 'erro');
     botao.disabled = false;
     botao.textContent = rotuloOriginal;
     _impressaoClientePedidoEmAndamento = false;
@@ -799,7 +803,7 @@ async function imprimirPedidoConfirmacaoNaEpson(botao) {
   const resultado = await EpsonPrinterService.imprimir(xml);
 
   if (resultado.codigo === 'SUCESSO') {
-    botao.textContent = '✓ Pedido impresso';
+    botao.textContent = '✓ Order printed';
     // Permanece desabilitado — já imprimiu e cortou; reimprimir exigiria um novo clique intencional
     // (não implementado ainda, é só a primeira validação física deste caminho).
     _impressaoClientePedidoEmAndamento = false;
@@ -810,7 +814,7 @@ async function imprimirPedidoConfirmacaoNaEpson(botao) {
   // ter impresso mesmo sem confirmação. Por isso, igual ao admin, nunca reenvia sozinho aqui.
   const mensagem =
     resultado.codigo === 'TIMEOUT' || resultado.codigo === 'ERRO_REDE'
-      ? 'Não foi possível confirmar se a Epson imprimiu. Verifique a impressora antes de tentar novamente.'
+      ? 'Could not confirm whether the receipt printed. Please check the printer before trying again.'
       : resultado.mensagem;
 
   mostrarToast(mensagem, 'erro');
@@ -822,6 +826,20 @@ async function imprimirPedidoConfirmacaoNaEpson(botao) {
 // ---------------------------------------------------------------------------
 // Etapa 1: Cardápio
 // ---------------------------------------------------------------------------
+
+// Rótulo em inglês só para exibição — data-categoria, categoriaSelecionadaPedido e o filtro em si
+// continuam usando o valor interno em português (nunca renomeado, é o que a lógica de filtro usa).
+const ROTULO_CATEGORIA_EXIBICAO = {
+  Combos: 'Combos',
+  Espetinhos: 'Skewers',
+  Acompanhamentos: 'Sides',
+  Bebidas: 'Drinks',
+  Outro: 'Other',
+};
+
+function rotuloCategoriaExibicao(categoria) {
+  return ROTULO_CATEGORIA_EXIBICAO[categoria] || categoria;
+}
 
 /**
  * Monta os botões de categoria na ordem fixa ORDEM_CATEGORIAS_PEDIDO
@@ -844,7 +862,7 @@ function renderizarFiltroCategoriasPedido() {
   container.innerHTML = categorias
     .map(
       (c) =>
-        `<button class="filtro-categoria-botao ${c === categoriaSelecionadaPedido ? 'ativo' : ''}" data-categoria="${escaparHtml(c)}">${escaparHtml(c)}</button>`
+        `<button class="filtro-categoria-botao ${c === categoriaSelecionadaPedido ? 'ativo' : ''}" data-categoria="${escaparHtml(c)}">${escaparHtml(rotuloCategoriaExibicao(c))}</button>`
     )
     .join('');
 
@@ -893,23 +911,23 @@ function cardProdutoPedidoHtml(produto, moeda) {
   const bloqueado = esgotado || indisponivel;
   // Estoque zerado e indisponibilidade manual usam o mesmo tratamento visual
   // (item continua visível, ação desabilitada) — só o texto muda conforme a causa.
-  const rotulo = indisponivel ? 'INDISPONÍVEL' : 'ESGOTADO';
+  const rotulo = indisponivel ? 'UNAVAILABLE' : 'SOLD OUT';
 
   const foto = produto.foto
     ? `<img src="${produto.foto}" alt="${escaparHtml(produto.nome)}" />`
     : `<div class="card-produto-foto-vazia">🍢</div>`;
 
   // Habilitado: botão compacto "+" (aria-label carrega o texto completo). Bloqueado: mantém texto
-  // legível ("Esgotado"/"Indisponível") em vez de "+", para nunca parecer comprável.
-  const rotuloBotao = indisponivel ? 'Indisponível' : esgotado ? 'Esgotado' : '+';
-  const tituloBotao = indisponivel ? 'Indisponível' : esgotado ? 'Esgotado' : 'Adicionar';
+  // legível ("Sold Out"/"Unavailable") em vez de "+", para nunca parecer comprável.
+  const rotuloBotao = indisponivel ? 'Unavailable' : esgotado ? 'Sold Out' : '+';
+  const tituloBotao = indisponivel ? 'Unavailable' : esgotado ? 'Sold Out' : 'Add';
   const ariaLabelBotao = `${tituloBotao} ${escaparHtml(produto.nome)}`;
 
   return `
     <div class="card-produto">
       <div class="card-produto-foto-wrap">
         ${foto}
-        <span class="card-produto-categoria">${escaparHtml(produto.categoria)}</span>
+        <span class="card-produto-categoria">${escaparHtml(rotuloCategoriaExibicao(produto.categoria))}</span>
         ${bloqueado ? `<div class="selo-esgotado">${rotulo}</div>` : ''}
       </div>
       <div class="card-produto-corpo">
@@ -917,7 +935,7 @@ function cardProdutoPedidoHtml(produto, moeda) {
         <div class="card-produto-descricao">${escaparHtml(produto.descricao || '')}</div>
         <div class="card-produto-rodape">
           <span class="card-produto-preco">${formatarMoeda(produto.preco, moeda)}</span>
-          ${bloqueado ? `<span class="card-produto-estoque">${indisponivel ? 'Indisponível' : 'Sem estoque'}</span>` : ''}
+          ${bloqueado ? `<span class="card-produto-estoque">${indisponivel ? 'Unavailable' : 'Out of Stock'}</span>` : ''}
         </div>
         <div class="card-produto-acao">
           <input type="number" class="seletor-quantidade" id="pedido-qtd-${produto.id}" min="1" max="${produto.quantidadeEstoque}" value="1" ${bloqueado ? 'disabled' : ''} />
@@ -938,33 +956,33 @@ function cardComboPedidoHtml(combo, moeda) {
 
   const inclusos = itensInclusosDisponiveisCombo((combo.comboConfig || {}).includedItems);
   const avisoInclusos = inclusos.temIndisponivel
-    ? '<div class="aviso-card-combo">Alguns itens inclusos deste combo estão temporariamente indisponíveis.</div>'
+    ? '<div class="aviso-card-combo">Some items included in this combo are temporarily unavailable.</div>'
     : '';
 
   // "+" aqui abre a personalização (data-acao="personalizar-combo" continua igual) — o
   // aria-label deixa isso explícito, já que o rótulo visual sozinho não diferenciaria de "adicionar direto".
-  const rotuloBotao = indisponivel ? 'Indisponível' : '+';
+  const rotuloBotao = indisponivel ? 'Unavailable' : '+';
   const ariaLabelBotao = indisponivel
-    ? `Indisponível ${escaparHtml(combo.nome)}`
-    : `Personalizar combo ${escaparHtml(combo.nome)}`;
+    ? `Unavailable ${escaparHtml(combo.nome)}`
+    : `Customise combo ${escaparHtml(combo.nome)}`;
 
   return `
     <div class="card-produto">
       <div class="card-produto-foto-wrap">
         ${foto}
         <span class="card-produto-categoria">Combos</span>
-        ${indisponivel ? '<div class="selo-esgotado">INDISPONÍVEL</div>' : ''}
+        ${indisponivel ? '<div class="selo-esgotado">UNAVAILABLE</div>' : ''}
       </div>
       <div class="card-produto-corpo">
         <div class="card-produto-nome">${escaparHtml(combo.nome)}</div>
         <div class="card-produto-descricao">${escaparHtml(combo.descricao || '')}</div>
         ${avisoInclusos}
         <div class="card-produto-rodape">
-          <span class="card-produto-preco">A partir de ${formatarMoeda(combo.preco, moeda)}</span>
-          ${indisponivel ? '<span class="card-produto-estoque">Indisponível</span>' : ''}
+          <span class="card-produto-preco">From ${formatarMoeda(combo.preco, moeda)}</span>
+          ${indisponivel ? '<span class="card-produto-estoque">Unavailable</span>' : ''}
         </div>
         <div class="card-produto-acao">
-          <button class="btn btn-primario botao-adicionar" data-acao="personalizar-combo" data-id="${combo.id}" aria-label="${ariaLabelBotao}" title="${indisponivel ? 'Indisponível' : 'Personalizar combo'}" ${indisponivel ? 'disabled' : ''}>
+          <button class="btn btn-primario botao-adicionar" data-acao="personalizar-combo" data-id="${combo.id}" aria-label="${ariaLabelBotao}" title="${indisponivel ? 'Unavailable' : 'Customise combo'}" ${indisponivel ? 'disabled' : ''}>
             ${rotuloBotao}
           </button>
         </div>
@@ -983,7 +1001,7 @@ function adicionarProdutoAoPedido(produtoId) {
   adicionarAoCarrinho(produtoId, quantidade);
   atualizarContadorCarrinho();
   atualizarBarraCarrinhoFixa();
-  mostrarToast(`${quantidade}x ${produto.nome} adicionado ao pedido.`, 'sucesso');
+  mostrarToast(`${quantidade}x ${produto.nome} added to your order.`, 'sucesso');
 }
 
 /** Barra fixa inferior "Ver carrinho • N itens • €X" — só existe nesta área */
@@ -1032,7 +1050,7 @@ function renderizarCarrinhoPedido() {
   const subtotal = calcularSubtotalCarrinho(carrinho);
   document.getElementById('pedido-valor-subtotal').textContent = formatarMoeda(subtotal, config.moeda);
   document.getElementById('pedido-valor-total').textContent = formatarMoeda(subtotal, config.moeda);
-  document.getElementById('pedido-valor-taxa').textContent = 'A definir na próxima etapa';
+  document.getElementById('pedido-valor-taxa').textContent = 'To be confirmed in the next step';
 }
 
 // Ícone de remover (linha de carrinho simples e de combo) — SVG inline em vez de emoji cru,
@@ -1041,7 +1059,7 @@ const ICONE_LIXEIRA_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill=
 
 function linhaCarrinhoPedidoHtml(item, moeda) {
   const produto = obterProdutoPorId(item.produtoId);
-  const nome = produto ? produto.nome : '(produto removido)';
+  const nome = produto ? produto.nome : '(product removed)';
   const estoqueMaximo = produto ? produto.quantidadeEstoque : item.quantidade;
   const foto = produto && produto.foto
     ? `<img class="miniatura-carrinho" src="${produto.foto}" alt="${escaparHtml(nome)}" />`
@@ -1061,7 +1079,7 @@ function linhaCarrinhoPedidoHtml(item, moeda) {
         </div>
       </td>
       <td>${formatarMoeda(subtotalItem, moeda)}</td>
-      <td><button class="btn-icone" data-acao="remover-pedido" data-id="${item.produtoId}" title="Remover">${ICONE_LIXEIRA_SVG}</button></td>
+      <td><button class="btn-icone" data-acao="remover-pedido" data-id="${item.produtoId}" title="Remove">${ICONE_LIXEIRA_SVG}</button></td>
     </tr>`;
 }
 
@@ -1087,16 +1105,16 @@ function linhaComboCarrinhoHtml(item, moeda) {
             <strong>${escaparHtml(c.nome)}</strong>
             <span>${formatarMoeda(item.precoUnitario, moeda)}</span>
           </div>
-          ${linhasEspetos ? `<div class="resumo-combo-carrinho-grupo"><span class="resumo-combo-carrinho-rotulo">Espetos</span><ul>${linhasEspetos}</ul></div>` : ''}
-          ${linhasAcompanhamentos ? `<div class="resumo-combo-carrinho-grupo"><span class="resumo-combo-carrinho-rotulo">Acompanhamentos</span><ul>${linhasAcompanhamentos}</ul></div>` : ''}
-          ${linhasInclusos ? `<div class="resumo-combo-carrinho-grupo"><span class="resumo-combo-carrinho-rotulo">Incluído</span><ul>${linhasInclusos}</ul></div>` : ''}
+          ${linhasEspetos ? `<div class="resumo-combo-carrinho-grupo"><span class="resumo-combo-carrinho-rotulo">Skewers</span><ul>${linhasEspetos}</ul></div>` : ''}
+          ${linhasAcompanhamentos ? `<div class="resumo-combo-carrinho-grupo"><span class="resumo-combo-carrinho-rotulo">Sides</span><ul>${linhasAcompanhamentos}</ul></div>` : ''}
+          ${linhasInclusos ? `<div class="resumo-combo-carrinho-grupo"><span class="resumo-combo-carrinho-rotulo">Included</span><ul>${linhasInclusos}</ul></div>` : ''}
           <div class="resumo-combo-carrinho-precos">
-            <span>Preço base: ${formatarMoeda(c.precoBase, moeda)}</span>
+            <span>Base price: ${formatarMoeda(c.precoBase, moeda)}</span>
             <span>Extras: ${formatarMoeda(c.extras, moeda)}</span>
           </div>
           <div class="resumo-combo-carrinho-acoes">
-            <button type="button" class="btn btn-secundario" data-acao="editar-combo" data-item-id="${item.itemId}">Editar escolhas</button>
-            <button type="button" class="btn-icone" data-acao="remover-combo" data-item-id="${item.itemId}" title="Remover">${ICONE_LIXEIRA_SVG}</button>
+            <button type="button" class="btn btn-secundario" data-acao="editar-combo" data-item-id="${item.itemId}">Edit Choices</button>
+            <button type="button" class="btn-icone" data-acao="remover-combo" data-item-id="${item.itemId}" title="Remove">${ICONE_LIXEIRA_SVG}</button>
           </div>
         </div>
       </td>
@@ -1131,7 +1149,7 @@ function ligarEventosLinhasPedido() {
       removerDoCarrinho(botao.dataset.id);
       atualizarContadorCarrinho();
       renderizarCarrinhoPedido();
-      mostrarToast('Item removido do pedido.', 'info');
+      mostrarToast('Item removed from your order.', 'info');
     });
   });
 
@@ -1148,7 +1166,7 @@ function ligarEventosLinhasPedido() {
       removerItemDoCarrinho(botao.dataset.itemId);
       atualizarContadorCarrinho();
       renderizarCarrinhoPedido();
-      mostrarToast('Combo removido do pedido.', 'info');
+      mostrarToast('Combo removed from your order.', 'info');
     });
   });
 }
@@ -1216,9 +1234,9 @@ function abrirModalCombo(produtoId, itemIdParaEditar) {
   document.getElementById('combo-modal-nome').textContent = combo.nome;
   document.getElementById('combo-modal-descricao').textContent = combo.descricao || '';
   document.getElementById('combo-titulo-espetos').textContent =
-    combo.allowedSkewers === 1 ? 'Escolha seu espeto' : `Escolha ${combo.allowedSkewers} espetos`;
+    combo.allowedSkewers === 1 ? 'Choose Your Skewer' : `Choose ${combo.allowedSkewers} Skewers`;
   document.getElementById('combo-titulo-acompanhamentos').textContent =
-    combo.allowedSides === 1 ? 'Escolha 1 acompanhamento' : `Escolha ${combo.allowedSides} acompanhamentos`;
+    combo.allowedSides === 1 ? 'Choose 1 Side' : `Choose ${combo.allowedSides} Sides`;
 
   document.getElementById('combo-secao-acompanhamentos').style.display = combo.allowedSides > 0 ? '' : 'none';
 
@@ -1261,7 +1279,7 @@ function ligarEventosModalCombo() {
  */
 function seletorComboItensHtml({ tipo, itens, limite, escolhidos, moeda }) {
   if (itens.length === 0) {
-    return '<p class="dica-campo">Nenhuma opção disponível no momento.</p>';
+    return '<p class="dica-campo">No options available at the moment.</p>';
   }
 
   if (limite === 1) {
@@ -1334,7 +1352,7 @@ function renderizarSeletorAcompanhamentosCombo() {
 }
 
 function atualizarContadorEscolhaCombo(grupo, atual, limite) {
-  document.getElementById('combo-contador-' + grupo).textContent = `${atual} de ${limite} selecionados`;
+  document.getElementById('combo-contador-' + grupo).textContent = `${atual} of ${limite} selected`;
 }
 
 function ligarEventosSeletorCombo(tipo) {
@@ -1446,10 +1464,10 @@ function confirmarComboNoCarrinho() {
 
   if (comboEmEdicaoItemId) {
     atualizarComboNoCarrinho(comboEmEdicaoItemId, composicao.total, composicao);
-    mostrarToast('Combo atualizado.', 'sucesso');
+    mostrarToast('Combo updated.', 'sucesso');
   } else {
     adicionarComboAoCarrinho(comboAtual.id, composicao.total, composicao);
-    mostrarToast(`${composicao.nome} adicionado ao pedido.`, 'sucesso');
+    mostrarToast(`${composicao.nome} added to your order.`, 'sucesso');
   }
 
   atualizarContadorCarrinho();
@@ -1520,18 +1538,18 @@ function ligarEventosDadosRetirada() {
     const telefone = document.getElementById('retirada-telefone').value.trim();
 
     let valido = true;
-    valido = exibirErroCampo('erro-retirada-nome', nome ? '' : 'Informe seu nome.') && valido;
+    valido = exibirErroCampo('erro-retirada-nome', nome ? '' : 'Please enter your name.') && valido;
     valido = exibirErroCampo('erro-retirada-telefone', mensagemErroTelefone(telefone)) && valido;
 
     if (!estadoPedido.retirada.modo) {
-      mostrarToast('Escolha quando você quer retirar o pedido.', 'erro');
+      mostrarToast('Choose when you want to pick up your order.', 'erro');
       valido = false;
     } else if (estadoPedido.retirada.modo === 'horario') {
       const horario = estadoPedido.retirada.horario;
       const mensagemHorario = !horario
-        ? 'Escolha um horário para retirada.'
+        ? 'Choose a pick up time.'
         : !validarHorarioRetirada(horario)
-        ? `Escolha um horário a partir de ${horarioMinimoRetirada()}.`
+        ? `Choose a time from ${horarioMinimoRetirada()} onwards.`
         : '';
       valido = exibirErroCampo('erro-horario-retirada', mensagemHorario) && valido;
     }
@@ -1575,14 +1593,14 @@ function ligarEventosDadosEntrega() {
     const instrucoes = document.getElementById('entrega-instrucoes').value.trim();
 
     let valido = true;
-    valido = exibirErroCampo('erro-entrega-nome', nome ? '' : 'Informe seu nome.') && valido;
+    valido = exibirErroCampo('erro-entrega-nome', nome ? '' : 'Please enter your name.') && valido;
     valido = exibirErroCampo('erro-entrega-telefone', mensagemErroTelefone(telefone)) && valido;
-    valido = exibirErroCampo('erro-entrega-eircode', validarFormatoEircode(eircode) ? '' : 'Informe um Eircode válido.') && valido;
-    valido = exibirErroCampo('erro-entrega-linha1', linha1 ? '' : 'Informe o endereço.') && valido;
+    valido = exibirErroCampo('erro-entrega-eircode', validarFormatoEircode(eircode) ? '' : 'Please enter a valid Eircode.') && valido;
+    valido = exibirErroCampo('erro-entrega-linha1', linha1 ? '' : 'Please enter the address.') && valido;
     if (!valido) return;
 
     if (!cotacaoEntregaValida()) {
-      mostrarToast('Calcule a taxa de entrega antes de continuar.', 'erro');
+      mostrarToast('Calculate the delivery fee before continuing.', 'erro');
       return;
     }
 
@@ -1649,12 +1667,12 @@ function exibirResultadoCalculoEntrega() {
 
 /** Mapeia status HTTP de /api/delivery pra mensagem amigável — preserva mensagem de negócio da Edge Function quando houver. */
 function _mensagemErroRotaApiDelivery(status, corpo) {
-  if (status === 403) return 'Não foi possível validar a verificação de segurança. Tente novamente.';
-  if (status === 429) return 'Muitas tentativas. Aguarde alguns instantes e tente novamente.';
-  if (status === 502 || status === 503) return 'Serviço temporariamente indisponível. Tente novamente.';
+  if (status === 403) return 'Could not validate the security check. Please try again.';
+  if (status === 429) return 'Too many attempts. Please wait a moment and try again.';
+  if (status === 502 || status === 503) return 'Service temporarily unavailable. Please try again.';
   if (corpo && typeof corpo.error === 'string') return corpo.error;
   if (corpo && typeof corpo.message === 'string') return corpo.message;
-  return 'Não foi possível calcular a entrega para este endereço.';
+  return 'Could not calculate delivery for this address.';
 }
 
 /**
@@ -1669,8 +1687,8 @@ async function calcularEntrega() {
   const { eircode, linha1, linha2, area } = enderecoEntregaDoFormulario();
 
   let valido = true;
-  valido = exibirErroCampo('erro-entrega-eircode', validarFormatoEircode(eircode) ? '' : 'Informe um Eircode válido.') && valido;
-  valido = exibirErroCampo('erro-entrega-linha1', linha1 ? '' : 'Informe o endereço.') && valido;
+  valido = exibirErroCampo('erro-entrega-eircode', validarFormatoEircode(eircode) ? '' : 'Please enter a valid Eircode.') && valido;
+  valido = exibirErroCampo('erro-entrega-linha1', linha1 ? '' : 'Please enter the address.') && valido;
   if (!valido) return;
 
   const botao = document.getElementById('botao-calcular-entrega');
@@ -1683,7 +1701,7 @@ async function calcularEntrega() {
   atualizarEstadoBotaoContinuarEntrega();
 
   botao.disabled = true;
-  botao.textContent = 'Calculando entrega...';
+  botao.textContent = 'Calculating delivery...';
 
   try {
     const token = await obterTokenTurnstile(); // fail closed: rejeita (cai no catch) sem chamar /api/delivery se não conseguir token
@@ -1706,7 +1724,7 @@ async function calcularEntrega() {
       throw new Error(_mensagemErroRotaApiDelivery(resposta.status, data));
     }
     if (!data || data.success !== true || typeof data.delivery_fee !== 'number' || typeof data.distance_km !== 'number') {
-      throw new Error((data && data.error) || 'Não foi possível calcular a entrega para este endereço.');
+      throw new Error((data && data.error) || 'Could not calculate delivery for this address.');
     }
 
     estadoPedido.cotacaoEntrega = {
@@ -1721,7 +1739,7 @@ async function calcularEntrega() {
     exibirResultadoCalculoEntrega();
   } catch (erro) {
     console.error('[Delivery] erro:', erro);
-    erroCalculo.textContent = erro && erro.message ? erro.message : 'Não foi possível calcular a entrega para este endereço.';
+    erroCalculo.textContent = erro && erro.message ? erro.message : 'Could not calculate delivery for this address.';
   } finally {
     botao.disabled = false;
     botao.textContent = rotuloOriginal;
@@ -1745,8 +1763,8 @@ function ligarFormatacaoTelefone(idCampo) {
 
 /** Mensagem de erro pro campo de telefone (vazio ou formato inválido), ou '' se estiver ok */
 function mensagemErroTelefone(telefone) {
-  if (!telefone) return 'Informe um telefone para contato.';
-  if (!validarFormatoTelefoneIrlandes(telefone)) return 'Insira um número de telefone irlandês válido.';
+  if (!telefone) return 'Please enter a contact phone number.';
+  if (!validarFormatoTelefoneIrlandes(telefone)) return 'Please enter a valid Irish phone number.';
   return '';
 }
 
@@ -1767,15 +1785,15 @@ function ligarEventosPagamento() {
       // Defesa client-side além do disabled/opacidade visual — cobre inclusive o período em que
       // business_settings ainda está carregando (revolutDisponivel()/transferenciaDisponivel() já são false nesse momento).
       if (botao.dataset.forma === 'revolut' && !revolutDisponivel()) {
-        mostrarToast('Pagamento via Revolut temporariamente indisponível.', 'erro');
+        mostrarToast('Revolut payment is temporarily unavailable.', 'erro');
         return;
       }
       if (botao.dataset.forma === 'transferencia' && !transferenciaDisponivel()) {
-        mostrarToast('Pagamento via transferência bancária temporariamente indisponível.', 'erro');
+        mostrarToast('Bank transfer is temporarily unavailable.', 'erro');
         return;
       }
       if (botao.dataset.forma === 'cartao' && !cartaoDisponivel()) {
-        mostrarToast('Cartão disponível apenas para retirada.', 'erro');
+        mostrarToast('Card payment is only available for pick up.', 'erro');
         return;
       }
 
@@ -1802,8 +1820,8 @@ function ligarEventosPagamento() {
     if (!pagamentoEstaCompleto()) {
       const mensagem =
         estadoPedido.dinheiro && estadoPedido.dinheiro.precisaTroco
-          ? 'O valor informado para troco deve ser igual ou superior ao total do pedido.'
-          : 'Escolha uma forma de pagamento para continuar.';
+          ? 'The change amount must be equal to or greater than the order total.'
+          : 'Choose a payment method to continue.';
       mostrarToast(mensagem, 'erro');
       return;
     }
@@ -1812,7 +1830,10 @@ function ligarEventosPagamento() {
   });
 }
 
-// ROTULOS_FORMA_PAGAMENTO agora vem de utils.js (reaproveitado também pela área Pedidos do admin)
+// ROTULOS_FORMA_PAGAMENTO (js/utils.js) é compartilhado com a área Pedidos do admin (em português) —
+// nunca traduzido ali. Aqui, só para a interface pública do cliente, usa-se este mapeamento local em
+// inglês (mesmas chaves internas, nunca renomeadas).
+const ROTULOS_FORMA_PAGAMENTO_CLIENTE = { cartao: 'Card', dinheiro: 'Cash', revolut: 'Revolut', transferencia: 'Bank Transfer' };
 
 /** Mostra/esconde o bloco "Precisa de troco?" conforme a forma de pagamento escolhida */
 function atualizarVisibilidadeSecaoTroco() {
@@ -1850,10 +1871,10 @@ async function copiarIban(contexto) {
 
   try {
     await copiarTextoParaClipboard(iban);
-    botao.textContent = '✓ IBAN copiado';
-    mostrarToast('IBAN copiado!', 'sucesso');
+    botao.textContent = '✓ IBAN copied';
+    mostrarToast('IBAN copied!', 'sucesso');
   } catch (erro) {
-    mostrarToast('Não foi possível copiar o IBAN. Copie manualmente.', 'erro');
+    mostrarToast('Could not copy the IBAN. Please copy it manually.', 'erro');
   } finally {
     setTimeout(() => {
       botao.textContent = rotuloOriginal;
@@ -1992,16 +2013,16 @@ function atualizarUiCupom() {
   grupoInput.style.display = 'none';
   infoAplicado.style.display = '';
   const moeda = obterConfiguracoes().moeda;
-  const rotuloTipo = cupom.tipoDesconto === 'percentage' ? `${cupom.valorDesconto}% de desconto` : `desconto de ${formatarMoeda(cupom.valorDesconto, moeda)}`;
+  const rotuloTipo = cupom.tipoDesconto === 'percentage' ? `${cupom.valorDesconto}% off` : `${formatarMoeda(cupom.valorDesconto, moeda)} off`;
   document.getElementById('texto-cupom-aplicado').textContent =
-    `${cupom.codigo} aplicado — ${rotuloTipo} (-${formatarMoeda(cupom.valorDescontoCalculado, moeda)})`;
+    `${cupom.codigo} applied — ${rotuloTipo} (-${formatarMoeda(cupom.valorDescontoCalculado, moeda)})`;
 }
 
 /** Linha "Cupom CODIGO (rótulo) -€X" do resumo de totais — '' quando não há desconto. `rotulo` opcional (ex.: "10%"), null pra omitir. */
 function linhaCupomResumoHtml(codigoCupom, valorDescontoCalculado, moeda, rotulo) {
   if (!codigoCupom || !valorDescontoCalculado) return '';
   const parteRotulo = rotulo ? ` (${escaparHtml(rotulo)})` : '';
-  return `<div class="linha-resumo"><span>Cupom ${escaparHtml(codigoCupom)}${parteRotulo}</span><span>-${formatarMoeda(valorDescontoCalculado, moeda)}</span></div>`;
+  return `<div class="linha-resumo"><span>Coupon ${escaparHtml(codigoCupom)}${parteRotulo}</span><span>-${formatarMoeda(valorDescontoCalculado, moeda)}</span></div>`;
 }
 
 async function aplicarCupomPedido() {
@@ -2011,7 +2032,7 @@ async function aplicarCupomPedido() {
   const campo = document.getElementById('campo-cupom-codigo-pedido');
   const codigo = campo.value.trim().toUpperCase();
   if (!codigo) {
-    erroEl.textContent = 'Informe o código do cupom.';
+    erroEl.textContent = 'Please enter the coupon code.';
     return;
   }
 
@@ -2019,7 +2040,7 @@ async function aplicarCupomPedido() {
   const botao = document.getElementById('botao-aplicar-cupom');
   const textoOriginal = botao.textContent;
   botao.disabled = true;
-  botao.textContent = 'Aplicando...';
+  botao.textContent = 'Applying...';
 
   const meuToken = ++tokenRevalidacaoCupom;
   try {
@@ -2030,7 +2051,7 @@ async function aplicarCupomPedido() {
     salvarProgressoPedido();
     atualizarUiCupom();
     await renderizarRevisao();
-    mostrarToast('Cupom aplicado.', 'sucesso');
+    mostrarToast('Coupon applied.', 'sucesso');
   } catch (erro) {
     if (meuToken !== tokenRevalidacaoCupom) return;
     erroEl.textContent = erro.message; // mensagem real da RPC (item 20): "Cupom não encontrado.", "Este cupom está inativo.", etc.
@@ -2093,14 +2114,14 @@ function recalcularTroco() {
   const troco = calcularTroco(valorPago, total);
   if (troco === null) {
     estadoPedido.dinheiro.troco = null;
-    erro.textContent = 'O valor informado para troco deve ser igual ou superior ao total do pedido.';
+    erro.textContent = 'The change amount must be equal to or greater than the order total.';
     estimado.style.display = 'none';
     return;
   }
 
   erro.textContent = '';
   estadoPedido.dinheiro.troco = troco;
-  estimado.textContent = `Troco estimado: ${formatarMoeda(troco, moeda)}`;
+  estimado.textContent = `Estimated change: ${formatarMoeda(troco, moeda)}`;
   estimado.style.display = '';
 }
 
@@ -2121,7 +2142,7 @@ function pagamentoEstaCompleto() {
 
 /** Bloco "Pagamento" da Revisão — mostra o troco quando a forma escolhida for Dinheiro */
 function blocoPagamentoRevisaoHtml(moeda) {
-  const rotulo = `<p>${escaparHtml(ROTULOS_FORMA_PAGAMENTO[estadoPedido.formaPagamento] || '')}</p>`;
+  const rotulo = `<p>${escaparHtml(ROTULOS_FORMA_PAGAMENTO_CLIENTE[estadoPedido.formaPagamento] || '')}</p>`;
   if (estadoPedido.formaPagamento !== 'dinheiro') return rotulo;
 
   const d = estadoPedido.dinheiro;
@@ -2132,8 +2153,8 @@ function blocoPagamentoRevisaoHtml(moeda) {
   }
   const blocoTroco =
     d && d.precisaTroco
-      ? `<p>Troco para: ${formatarMoeda(d.valorPago, moeda)}<br/>Troco necessário: ${formatarMoeda(d.troco, moeda)}</p>`
-      : '<p>Sem troco</p>';
+      ? `<p>Change for: ${formatarMoeda(d.valorPago, moeda)}<br/>Change due: ${formatarMoeda(d.troco, moeda)}</p>`
+      : '<p>No change needed</p>';
   return rotulo + blocoTroco;
 }
 
@@ -2147,7 +2168,7 @@ async function renderizarRevisao() {
   salvarProgressoPedido();
   atualizarUiCupom();
   if (motivoRemocaoCupom) {
-    mostrarToast('O cupom não é mais válido: ' + motivoRemocaoCupom, 'info');
+    mostrarToast('The coupon is no longer valid: ' + motivoRemocaoCupom, 'info');
   }
 
   const carrinho = obterCarrinho();
@@ -2159,19 +2180,23 @@ async function renderizarRevisao() {
         return `<div class="linha-resumo"><span>${escaparHtml(item.combo.nome)}</span><span>${formatarMoeda(item.precoUnitario * item.quantidade, moeda)}</span></div>`;
       }
       const produto = obterProdutoPorId(item.produtoId);
-      const nome = produto ? produto.nome : '(produto removido)';
+      const nome = produto ? produto.nome : '(product removed)';
       return `<div class="linha-resumo"><span>${item.quantidade}x ${escaparHtml(nome)}</span><span>${formatarMoeda(item.precoUnitario * item.quantidade, moeda)}</span></div>`;
     })
     .join('');
 
   // Rótulo por fulfilment — as 3 modalidades nomeadas explicitamente, nunca um fallback genérico.
-  const ROTULO_FULFILMENT_REVISAO = { entrega: 'Entrega', comer_no_local: 'Comer no local', retirada: 'Retirada' };
+  // Só para a interface pública: rotuloHorarioRetirada() (js/utils.js) é compartilhada com o admin
+  // (em português) e não é usada aqui — o texto "As soon as possible" é local a este bloco.
+  const ROTULO_FULFILMENT_REVISAO = { entrega: 'Delivery', comer_no_local: 'Dine In', retirada: 'Pick Up' };
+  const horarioRetiradaClienteTexto =
+    estadoPedido.retirada.modo === 'horario' && estadoPedido.retirada.horario ? estadoPedido.retirada.horario : 'As soon as possible';
 
   const blocoEntrega =
     estadoPedido.fulfilment === 'entrega'
       ? `
       <div class="resumo-revisao-secao">
-        <div class="resumo-revisao-titulo">Endereço</div>
+        <div class="resumo-revisao-titulo">Address</div>
         <p>${escaparHtml(estadoPedido.endereco.eircode)}<br/>
         ${escaparHtml(estadoPedido.endereco.linha1)}${estadoPedido.endereco.linha2 ? ', ' + escaparHtml(estadoPedido.endereco.linha2) : ''}<br/>
         ${[estadoPedido.endereco.area, estadoPedido.endereco.distrito].filter(Boolean).map(escaparHtml).join(' — ')}</p>
@@ -2179,28 +2204,28 @@ async function renderizarRevisao() {
       </div>`
       : `
       <div class="resumo-revisao-secao">
-        <div class="resumo-revisao-titulo">${ROTULO_FULFILMENT_REVISAO[estadoPedido.fulfilment] || 'Retirada'}</div>
-        <p>Horário: ${escaparHtml(rotuloHorarioRetirada(estadoPedido))}</p>
+        <div class="resumo-revisao-titulo">${ROTULO_FULFILMENT_REVISAO[estadoPedido.fulfilment] || 'Pick Up'}</div>
+        <p>Time: ${escaparHtml(horarioRetiradaClienteTexto)}</p>
       </div>`;
 
   document.getElementById('conteudo-revisao').innerHTML = `
     <div class="resumo-revisao-secao">
-      <div class="resumo-revisao-titulo">Produtos</div>
+      <div class="resumo-revisao-titulo">Items</div>
       ${linhasItens}
     </div>
     <div class="resumo-revisao-secao">
-      <div class="resumo-revisao-titulo">${ROTULO_FULFILMENT_REVISAO[estadoPedido.fulfilment] || 'Retirada'}</div>
-      <p>Cliente: ${escaparHtml(estadoPedido.cliente.nome)} · ${escaparHtml(estadoPedido.cliente.telefone)}</p>
+      <div class="resumo-revisao-titulo">${ROTULO_FULFILMENT_REVISAO[estadoPedido.fulfilment] || 'Pick Up'}</div>
+      <p>Customer: ${escaparHtml(estadoPedido.cliente.nome)} · ${escaparHtml(estadoPedido.cliente.telefone)}</p>
     </div>
     ${blocoEntrega}
     <div class="resumo-revisao-secao">
-      <div class="resumo-revisao-titulo">Pagamento</div>
+      <div class="resumo-revisao-titulo">Payment</div>
       ${blocoPagamentoRevisaoHtml(moeda)}
     </div>
     <div class="card resumo-carrinho">
       <div class="linha-resumo"><span>Subtotal</span><span>${formatarMoeda(subtotal, moeda)}</span></div>
       ${linhaCupomResumoHtml(estadoPedido.cupom ? estadoPedido.cupom.codigo : null, desconto, moeda, estadoPedido.cupom && estadoPedido.cupom.tipoDesconto === 'percentage' ? `${estadoPedido.cupom.valorDesconto}%` : null)}
-      <div class="linha-resumo"><span>Taxa de entrega</span><span>${formatarMoeda(taxaEntrega, moeda)}</span></div>
+      <div class="linha-resumo"><span>Delivery Fee</span><span>${formatarMoeda(taxaEntrega, moeda)}</span></div>
       <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoeda(total, moeda)}</span></div>
     </div>
   `;
@@ -2238,7 +2263,7 @@ async function confirmarPedido() {
   try {
     const carrinho = obterCarrinho();
     if (carrinho.length === 0) {
-      mostrarToast('Seu carrinho está vazio.', 'erro');
+      mostrarToast('Your cart is empty.', 'erro');
       return;
     }
 
@@ -2251,14 +2276,14 @@ async function confirmarPedido() {
     }
 
     if (!estadoPedido.fulfilment) {
-      mostrarToast('Escolha retirada, comer no local ou entrega para continuar.', 'erro');
+      mostrarToast('Choose pick up, dine in or delivery to continue.', 'erro');
       return;
     }
 
     // Reconfere contra os campos atuais (não só o que foi salvo ao sair da etapa de entrega) —
     // mesma lógica de "nunca confiar em cotação potencialmente obsoleta" do item 8/12 do pedido.
     if (estadoPedido.fulfilment === 'entrega' && !cotacaoEntregaValida()) {
-      mostrarToast('Calcule a taxa de entrega antes de continuar.', 'erro');
+      mostrarToast('Calculate the delivery fee before continuing.', 'erro');
       return;
     }
 
@@ -2270,18 +2295,18 @@ async function confirmarPedido() {
     if (estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro && estadoPedido.dinheiro.precisaTroco) {
       estadoPedido.dinheiro.troco = calcularTroco(estadoPedido.dinheiro.valorPago, total);
       if (estadoPedido.dinheiro.troco === null) {
-        mostrarToast('O valor informado para troco deve ser igual ou superior ao total do pedido.', 'erro');
+        mostrarToast('The change amount must be equal to or greater than the order total.', 'erro');
         return;
       }
     }
 
     if (!pagamentoEstaCompleto()) {
-      mostrarToast('Verifique a forma de pagamento antes de confirmar.', 'erro');
+      mostrarToast('Check the payment method before confirming.', 'erro');
       return;
     }
 
     botaoConfirmar.disabled = true; // evita duplo clique / pedido duplicado enquanto a requisição está em andamento
-    botaoConfirmar.textContent = 'Enviando pedido...';
+    botaoConfirmar.textContent = 'Placing order...';
 
     const itensPedido = carrinho.map((item) => {
       if (item.combo) {
@@ -2297,7 +2322,7 @@ async function confirmarPedido() {
       const produto = obterProdutoPorId(item.produtoId);
       return {
         produtoId: item.produtoId,
-        nome: produto ? produto.nome : '(produto removido)',
+        nome: produto ? produto.nome : '(product removed)',
         quantidade: item.quantidade,
         valorUnitario: item.precoUnitario,
         valorTotal: item.precoUnitario * item.quantidade,
@@ -2333,13 +2358,13 @@ async function confirmarPedido() {
     // create_customer_order) mas ainda não está "confirmado" — nunca mostrar a mensagem genérica aqui.
     if (ultimoPedidoConfirmado.formaPagamento === 'revolut') {
       renderizarConfirmacaoRevolut(ultimoPedidoConfirmado, config.moeda);
-      mostrarToast('Pedido criado! Aguardando confirmação de pagamento.', 'info');
+      mostrarToast('Order placed! Awaiting payment confirmation.', 'info');
     } else if (ultimoPedidoConfirmado.formaPagamento === 'transferencia') {
       renderizarConfirmacaoTransferencia(ultimoPedidoConfirmado, config.moeda);
-      mostrarToast('Pedido criado! Aguardando confirmação de pagamento.', 'info');
+      mostrarToast('Order placed! Awaiting payment confirmation.', 'info');
     } else {
       renderizarConfirmacao(ultimoPedidoConfirmado, config.moeda);
-      mostrarToast('Pedido confirmado!', 'sucesso');
+      mostrarToast('Order confirmed!', 'sucesso');
     }
 
     irParaEtapaPedido('confirmacao');
@@ -2352,11 +2377,11 @@ async function confirmarPedido() {
     // criado, carrinho continua intacto. Se havia cupom aplicado, ele é limpo defensivamente (pode não
     // ter sido a causa real da falha — ex. estoque —, mas de qualquer forma exige nova revisão/aplicação
     // antes de tentar de novo, nunca reaproveita um estado de cupom que pode estar obsoleto).
-    mostrarToast(erro && erro.message ? erro.message : 'Não foi possível finalizar o pedido.', 'erro');
+    mostrarToast(erro && erro.message ? erro.message : 'Could not complete your order.', 'erro');
     if (estadoPedido.cupom) {
       estadoPedido.cupom = null;
       await renderizarRevisao();
-      mostrarToast('O cupom foi removido — revise seu pedido antes de tentar novamente.', 'info');
+      mostrarToast('The coupon was removed — please review your order before trying again.', 'info');
     }
     botaoConfirmar.disabled = false;
     botaoConfirmar.textContent = rotuloOriginalBotao;
@@ -2377,15 +2402,15 @@ function renderizarConfirmacao(pedido, moeda) {
 
   // Cartão é sempre presencial (não há pagamento online nesta versão) — reforça isso na confirmação.
   const avisoCartao =
-    pedido.formaPagamento === 'cartao' ? '<p class="aviso-info">Pagamento na retirada/entrega/local, presencialmente.</p>' : '';
+    pedido.formaPagamento === 'cartao' ? '<p class="aviso-info">Payment on pick up/delivery/at the truck, in person.</p>' : '';
 
   // Rótulo por fulfilment — as 3 modalidades nomeadas explicitamente, nunca um fallback genérico.
-  const ROTULO_FULFILMENT_CONFIRMACAO = { entrega: 'Entrega', comer_no_local: 'Comer no local', retirada: 'Retirada' };
+  const ROTULO_FULFILMENT_CONFIRMACAO = { entrega: 'Delivery', comer_no_local: 'Dine In', retirada: 'Pick Up' };
 
   document.getElementById('resumo-confirmacao').innerHTML = `
     ${linhasItens}
-    <div class="linha-resumo"><span>${ROTULO_FULFILMENT_CONFIRMACAO[pedido.fulfilment] || 'Retirada'}</span><span></span></div>
-    <div class="linha-resumo"><span>Pagamento</span><span>${escaparHtml(ROTULOS_FORMA_PAGAMENTO[pedido.formaPagamento] || '')}</span></div>
+    <div class="linha-resumo"><span>${ROTULO_FULFILMENT_CONFIRMACAO[pedido.fulfilment] || 'Pick Up'}</span><span></span></div>
+    <div class="linha-resumo"><span>Payment</span><span>${escaparHtml(ROTULOS_FORMA_PAGAMENTO_CLIENTE[pedido.formaPagamento] || '')}</span></div>
     ${linhaCupomResumoHtml(pedido.codigoCupom, pedido.valorDesconto, moeda, null)}
     <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoeda(pedido.total, moeda)}</span></div>
     ${avisoCartao}
@@ -2405,11 +2430,11 @@ function renderizarConfirmacaoRevolut(pedido, moeda) {
 
   // Reseta pro estado "aguardando" — importante se o cliente fizer mais de um pedido Revolut na mesma sessão
   document.getElementById('revolut-icone').textContent = '⏳';
-  document.getElementById('revolut-titulo').textContent = 'Aguardando confirmação de pagamento';
+  document.getElementById('revolut-titulo').textContent = 'Awaiting Payment Confirmation';
   document.getElementById('revolut-instrucao-transferencia').style.display = '';
   document.getElementById('revolut-qr-wrap').style.display = '';
   document.getElementById('status-pagamento-revolut').textContent =
-    'Após recebermos o pagamento, confirmaremos seu pedido e ele seguirá para preparo.';
+    "Once we receive your payment, we'll confirm your order and send it to the kitchen.";
 
   document.getElementById('numero-pedido-confirmado-revolut').textContent = pedido.numero;
   document.getElementById('revolut-valor-total').textContent = formatarMoeda(pedido.total, moeda);
@@ -2441,11 +2466,11 @@ function renderizarConfirmacaoTransferencia(pedido, moeda) {
 
   // Reseta pro estado "aguardando" — importante se o cliente fizer mais de um pedido por transferência na mesma sessão
   document.getElementById('transferencia-icone').textContent = '⏳';
-  document.getElementById('transferencia-titulo').textContent = 'Aguardando confirmação de pagamento';
+  document.getElementById('transferencia-titulo').textContent = 'Awaiting Payment Confirmation';
   document.getElementById('transferencia-instrucao').style.display = '';
   document.getElementById('transferencia-dados-wrap').style.display = '';
   document.getElementById('status-pagamento-transferencia').textContent =
-    'Após recebermos o pagamento, confirmaremos seu pedido e ele seguirá para preparo.';
+    "Once we receive your payment, we'll confirm your order and send it to the kitchen.";
 
   document.getElementById('numero-pedido-confirmado-transferencia').textContent = pedido.numero;
   document.getElementById('transferencia-valor-total').textContent = formatarMoeda(pedido.total, moeda);
@@ -2483,13 +2508,13 @@ function renderizarQrRevolut() {
 
   const img = document.createElement('img');
   img.className = 'qr-revolut-imagem';
-  img.alt = 'QR Code para pagamento via Revolut';
+  img.alt = 'QR code for Revolut payment';
   img.onerror = () => exibirQrRevolutIndisponivel(wrap);
   img.src = url;
 
   const referencia = document.createElement('p');
   referencia.className = 'qr-revolut-referencia';
-  referencia.textContent = 'Se o Revolut permitir adicionar referência/nota, use o número do pedido acima.';
+  referencia.textContent = 'If Revolut allows you to add a reference/note, use the order number above.';
 
   wrap.appendChild(img);
   wrap.appendChild(referencia);
@@ -2501,7 +2526,7 @@ function exibirQrRevolutIndisponivel(wrap) {
   const aviso = document.createElement('p');
   aviso.className = 'aviso-info aviso-atencao';
   aviso.textContent =
-    'Pagamento via Revolut temporariamente indisponível. Entre em contato com a equipe para concluir o pagamento.';
+    'Revolut payment is temporarily unavailable. Please contact our team to complete the payment.';
   wrap.appendChild(aviso);
 }
 
@@ -2530,10 +2555,10 @@ async function copiarCodigoRevolut() {
 
   try {
     await copiarTextoParaClipboard(codigo);
-    botao.textContent = '✓ Código copiado';
-    mostrarToast('Código Revolut copiado.', 'sucesso');
+    botao.textContent = '✓ Code copied';
+    mostrarToast('Revolut code copied.', 'sucesso');
   } catch (erro) {
-    mostrarToast('Não foi possível copiar o código. Copie manualmente.', 'erro');
+    mostrarToast('Could not copy the code. Please copy it manually.', 'erro');
   } finally {
     setTimeout(() => {
       botao.textContent = rotuloOriginal;
@@ -2574,10 +2599,10 @@ function exibirPagamentoConfirmadoRevolut() {
   cancelarAssinaturaConfirmacaoRevolut(); // já confirmado, não precisa mais escutar
 
   document.getElementById('revolut-icone').textContent = '✅';
-  document.getElementById('revolut-titulo').textContent = 'Pagamento confirmado';
+  document.getElementById('revolut-titulo').textContent = 'Payment Confirmed';
   document.getElementById('revolut-instrucao-transferencia').style.display = 'none';
   document.getElementById('revolut-qr-wrap').style.display = 'none';
-  document.getElementById('status-pagamento-revolut').textContent = 'Seu pedido foi recebido e seguirá para preparo.';
+  document.getElementById('status-pagamento-revolut').textContent = "Your order has been received and will be sent to the kitchen.";
 }
 
 /** Mesmo padrão de assinarConfirmacaoRevolut(), canal isolado por pedido, pra Transferência Bancária */
@@ -2609,10 +2634,10 @@ function exibirPagamentoConfirmadoTransferencia() {
   cancelarAssinaturaConfirmacaoTransferencia(); // já confirmado, não precisa mais escutar
 
   document.getElementById('transferencia-icone').textContent = '✅';
-  document.getElementById('transferencia-titulo').textContent = 'Pagamento confirmado';
+  document.getElementById('transferencia-titulo').textContent = 'Payment Confirmed';
   document.getElementById('transferencia-instrucao').style.display = 'none';
   document.getElementById('transferencia-dados-wrap').style.display = 'none';
-  document.getElementById('status-pagamento-transferencia').textContent = 'Seu pedido foi recebido e seguirá para preparo.';
+  document.getElementById('status-pagamento-transferencia').textContent = "Your order has been received and will be sent to the kitchen.";
 }
 
 function reiniciarPedido() {
