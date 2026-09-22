@@ -222,8 +222,8 @@ const CSP_REPORT_ONLY =
   "default-src 'self'; " +
   "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://challenges.cloudflare.com https://cdnjs.cloudflare.com; " +
   "style-src 'self' 'unsafe-inline'; " +
-  "img-src 'self' data:; " +
-  "font-src 'self'; " +
+  "img-src 'self' data: https://ghntpyqdbgxaisfgytto.supabase.co; " +
+  "font-src 'self' https://fonts.gstatic.com; " +
   // Epson TM-m30III (teste de conexão ePOS, epson-connection-test.html) — hostname fixo do
   // Automatic Certificate Update (SHA-256+Base32 do serial, confirmado contra o sample oficial
   // da Epson), porta 8043. O SDK (epos-2.27.0.js) embute Socket.IO 0.8.7, que faz handshake por
