@@ -1,8 +1,10 @@
 /*
  * pedido.js
  * Área de pedidos completa para o cliente: cardápio -> carrinho -> retirada
- * ou entrega -> dados do cliente/endereço -> forma de pagamento -> revisão
- * -> confirmação. Tudo simulado em front-end (sem backend/API/pagamento
+ * ou entrega -> dados do cliente/endereço -> revisão -> forma de pagamento
+ * -> confirmação. Review vem ANTES de Payment (o método de pagamento ainda
+ * não foi escolhido quando a Revisão é exibida pela primeira vez — nunca
+ * mostrada ali). Tudo simulado em front-end (sem backend/API/pagamento
  * real), reaproveitando as mesmas funções de carrinho/produtos de
  * storage.js. Depende de utils.js, storage.js e app.js (carregados antes
  * deste).
@@ -18,13 +20,23 @@
  *                        é um combo, ganha um `itemId` próprio e um campo
  *                        `combo` com a composição escolhida (ver
  *                        montarComposicaoCombo())
- *   Customer          -> { nome, telefone }
+ *   Customer          -> { nome, telefone } — telefone é opcional nos 3
+ *                        fulfilments (interface pública não bloqueia vazio)
  *   DeliveryAddress   -> { eircode, linha1, linha2, area, distrito, instrucoes }
+ *                        — linha2/area/distrito não têm mais campo na
+ *                        interface pública (removidos do HTML), sempre '';
+ *                        só eircode continua obrigatório, linha1 é opcional
  *   PaymentMethod     -> 'cartao' | 'dinheiro' | 'revolut' | 'transferencia'
  *   CashPaymentInfo   -> { precisaTroco, valorPago, troco } — só quando
  *                        formaPagamento === 'dinheiro'; ponto único a trocar
  *                        futuramente por uma integração real (ex.: Revolut)
  *   FulfilmentType    -> 'retirada' | 'comer_no_local' | 'entrega'
+ *   Coupon            -> { codigo, cupomId, tipoDesconto, valorDesconto,
+ *                        valorDescontoCalculado, subtotalValidado } —
+ *                        tipoDesconto 'percentage'/'fixed' descontam produto;
+ *                        'free_delivery' nunca desconta produto
+ *                        (valorDescontoCalculado sempre 0), só a taxa de
+ *                        entrega (ver descontoEntregaAtual())
  *   Order             -> { itens, fulfilment, cliente, retirada, endereco,
  *                          formaPagamento, pagamentoDinheiro, subtotal,
  *                          taxaEntrega, total }
@@ -179,7 +191,7 @@ const ROTULOS_ETAPA_PEDIDO = {
 // Barra de progresso visual do checkout (#progresso-etapas-pedido) — só indicativo, derivado do
 // estado já existente (pilhaEtapasPedido/etapaAtualPedido), nenhum estado novo. 'dados-retirada' e
 // 'dados-entrega' contam como o mesmo estágio "recebimento"; some durante o cardápio (não é checkout).
-const ESTAGIOS_PROGRESSO_PEDIDO = ['carrinho', 'recebimento', 'pagamento', 'revisao', 'confirmacao'];
+const ESTAGIOS_PROGRESSO_PEDIDO = ['carrinho', 'recebimento', 'revisao', 'pagamento', 'confirmacao'];
 
 function estagioProgressoPedido(etapa) {
   return etapa === 'dados-retirada' || etapa === 'dados-entrega' ? 'recebimento' : etapa;
@@ -261,7 +273,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderizarFiltroCategoriasPedido();
   renderizarGradePedido();
   renderizarCarrinhoPedido(); // garante a tabela preenchida mesmo se a etapa restaurada não for 'cardapio'
-  if (etapaAtualPedido() === 'revisao') await renderizarRevisao(); // já revalida um cupom restaurado (ver revalidarCupomSeNecessario)
+  // Review agora vem ANTES de Payment — 'revisao' pode estar no meio da pilha restaurada (não só no
+  // topo) quando o cliente recarrega a página já na etapa Payment. Sem isso, #conteudo-revisao
+  // ficaria vazio depois do reload e um "Back" a partir de Payment mostraria uma Revisão em branco.
+  if (pilhaEtapasPedido.includes('revisao')) await renderizarRevisao(); // já revalida um cupom restaurado (ver revalidarCupomSeNecessario)
   atualizarBarraCarrinhoFixa();
   mostrarEtapaAtual();
   ligarEventosGerais();
@@ -320,9 +335,6 @@ function preencherCamposComEstado() {
   document.getElementById('entrega-telefone').value = estadoPedido.cliente.telefone || '';
   document.getElementById('entrega-eircode').value = estadoPedido.endereco.eircode || '';
   document.getElementById('entrega-linha1').value = estadoPedido.endereco.linha1 || '';
-  document.getElementById('entrega-linha2').value = estadoPedido.endereco.linha2 || '';
-  document.getElementById('entrega-area').value = estadoPedido.endereco.area || '';
-  document.getElementById('entrega-distrito').value = estadoPedido.endereco.distrito || '';
   document.getElementById('entrega-instrucoes').value = estadoPedido.endereco.instrucoes || '';
   exibirResultadoCalculoEntrega(); // só mostra algo se cotacaoEntrega existir e ainda bater com os campos restaurados acima
   atualizarEstadoBotaoContinuarEntrega();
@@ -354,7 +366,7 @@ function preencherCamposComEstado() {
       }
     }
 
-    document.getElementById('botao-continuar-pagamento').disabled = !pagamentoEstaCompleto();
+    document.getElementById('botao-confirmar-pedido').disabled = !pagamentoEstaCompleto();
   }
 }
 
@@ -644,7 +656,7 @@ function invalidarFormaPagamentoSeIndisponivel() {
   if (estadoPedido.formaPagamento === 'revolut' && !revolutDisponivel()) {
     estadoPedido.formaPagamento = '';
     document.querySelectorAll('#opcoes-pagamento-pedido .opcao-pagamento[data-forma]').forEach((b) => b.classList.remove('selecionada'));
-    document.getElementById('botao-continuar-pagamento').disabled = true;
+    document.getElementById('botao-confirmar-pedido').disabled = true;
     salvarProgressoPedido();
     mostrarToast('Revolut payment is temporarily unavailable. Please choose another payment method.', 'erro');
     return;
@@ -654,7 +666,7 @@ function invalidarFormaPagamentoSeIndisponivel() {
     estadoPedido.formaPagamento = '';
     document.querySelectorAll('#opcoes-pagamento-pedido .opcao-pagamento[data-forma]').forEach((b) => b.classList.remove('selecionada'));
     document.getElementById('secao-dados-transferencia').style.display = 'none';
-    document.getElementById('botao-continuar-pagamento').disabled = true;
+    document.getElementById('botao-confirmar-pedido').disabled = true;
     salvarProgressoPedido();
     mostrarToast('Bank transfer is temporarily unavailable. Please choose another payment method.', 'erro');
     return;
@@ -663,7 +675,7 @@ function invalidarFormaPagamentoSeIndisponivel() {
   if (estadoPedido.formaPagamento === 'cartao' && !cartaoDisponivel()) {
     estadoPedido.formaPagamento = '';
     document.querySelectorAll('#opcoes-pagamento-pedido .opcao-pagamento[data-forma]').forEach((b) => b.classList.remove('selecionada'));
-    document.getElementById('botao-continuar-pagamento').disabled = true;
+    document.getElementById('botao-confirmar-pedido').disabled = true;
     salvarProgressoPedido();
     mostrarToast('Card payment is only available for pick up. Please choose another payment method.', 'erro');
   }
@@ -751,6 +763,12 @@ function ligarEventosGerais() {
 
   document.getElementById('botao-copiar-codigo-revolut').addEventListener('click', copiarCodigoRevolut);
   document.getElementById('botao-copiar-iban-confirmacao').addEventListener('click', () => copiarIban('confirmacao'));
+
+  // Review agora vem antes de Payment: este botão só avança de etapa — a validação real e definitiva
+  // do pagamento acontece dentro de confirmarPedido(), já ligado ao botão físico "Place Order" (Etapa Payment).
+  document.getElementById('botao-continuar-revisao').addEventListener('click', () => {
+    irParaEtapaPedido('pagamento');
+  });
 
   ligarEventosRecebimento();
   ligarEventosDadosRetirada();
@@ -1545,7 +1563,7 @@ function ligarEventosDadosRetirada() {
     salvarProgressoPedido();
   });
 
-  document.getElementById('botao-continuar-retirada').addEventListener('click', () => {
+  document.getElementById('botao-continuar-retirada').addEventListener('click', async () => {
     const nome = document.getElementById('retirada-nome').value.trim();
     const telefone = document.getElementById('retirada-telefone').value.trim();
 
@@ -1570,7 +1588,8 @@ function ligarEventosDadosRetirada() {
 
     estadoPedido.cliente = { nome, telefone };
     salvarProgressoPedido();
-    irParaEtapaPedido('pagamento');
+    await renderizarRevisao();
+    irParaEtapaPedido('revisao');
   });
 }
 
@@ -1586,29 +1605,23 @@ function ligarEventosDadosEntrega() {
     if (posicaoCursorNoFim) campoEircode.setSelectionRange(campoEircode.value.length, campoEircode.value.length);
     invalidarCotacaoEntrega();
   });
-  ['entrega-linha1', 'entrega-linha2', 'entrega-area'].forEach((id) => {
-    document.getElementById(id).addEventListener('input', invalidarCotacaoEntrega);
-  });
+  document.getElementById('entrega-linha1').addEventListener('input', invalidarCotacaoEntrega);
 
   ligarFormatacaoTelefone('entrega-telefone');
 
   document.getElementById('botao-calcular-entrega').addEventListener('click', calcularEntrega);
 
-  document.getElementById('botao-continuar-entrega').addEventListener('click', () => {
+  document.getElementById('botao-continuar-entrega').addEventListener('click', async () => {
     const nome = document.getElementById('entrega-nome').value.trim();
     const telefone = document.getElementById('entrega-telefone').value.trim();
     const eircode = document.getElementById('entrega-eircode').value.trim();
     const linha1 = document.getElementById('entrega-linha1').value.trim();
-    const linha2 = document.getElementById('entrega-linha2').value.trim();
-    const area = document.getElementById('entrega-area').value.trim();
-    const distrito = document.getElementById('entrega-distrito').value.trim();
     const instrucoes = document.getElementById('entrega-instrucoes').value.trim();
 
     let valido = true;
     valido = exibirErroCampo('erro-entrega-nome', nome ? '' : 'Please enter your name.') && valido;
     valido = exibirErroCampo('erro-entrega-telefone', mensagemErroTelefone(telefone)) && valido;
     valido = exibirErroCampo('erro-entrega-eircode', validarFormatoEircode(eircode) ? '' : 'Please enter a valid Eircode.') && valido;
-    valido = exibirErroCampo('erro-entrega-linha1', linha1 ? '' : 'Please enter the address.') && valido;
     if (!valido) return;
 
     if (!cotacaoEntregaValida()) {
@@ -1617,9 +1630,13 @@ function ligarEventosDadosEntrega() {
     }
 
     estadoPedido.cliente = { nome, telefone };
-    estadoPedido.endereco = { eircode, linha1, linha2, area, distrito, instrucoes };
+    // linha2/area/distrito não existem mais na interface pública (removidos do HTML) — sempre '' daqui em
+    // diante. As colunas continuam existindo no banco (address_line_2/area) e create_customer_order
+    // continua aceitando esses campos vazios; nada foi removido do payload, só nunca mais preenchido pelo cliente.
+    estadoPedido.endereco = { eircode, linha1, linha2: '', area: '', distrito: '', instrucoes };
     salvarProgressoPedido();
-    irParaEtapaPedido('pagamento');
+    await renderizarRevisao();
+    irParaEtapaPedido('revisao');
   });
 }
 
@@ -1628,8 +1645,9 @@ function enderecoEntregaDoFormulario() {
   return {
     eircode: document.getElementById('entrega-eircode').value.trim(),
     linha1: document.getElementById('entrega-linha1').value.trim(),
-    linha2: document.getElementById('entrega-linha2').value.trim(),
-    area: document.getElementById('entrega-area').value.trim(),
+    // linha2/area não têm mais campo na interface pública — sempre '' (ver ligarEventosDadosEntrega()).
+    linha2: '',
+    area: '',
   };
 }
 
@@ -1700,7 +1718,7 @@ async function calcularEntrega() {
 
   let valido = true;
   valido = exibirErroCampo('erro-entrega-eircode', validarFormatoEircode(eircode) ? '' : 'Please enter a valid Eircode.') && valido;
-  valido = exibirErroCampo('erro-entrega-linha1', linha1 ? '' : 'Please enter the address.') && valido;
+  exibirErroCampo('erro-entrega-linha1', ''); // Address Line 1 é opcional — nunca bloqueia o cálculo
   if (!valido) return;
 
   const botao = document.getElementById('botao-calcular-entrega');
@@ -1773,9 +1791,9 @@ function ligarFormatacaoTelefone(idCampo) {
   });
 }
 
-/** Mensagem de erro pro campo de telefone (vazio ou formato inválido), ou '' se estiver ok */
+/** Mensagem de erro pro campo de telefone — opcional nos 3 fulfilments; só valida o formato quando preenchido, ou '' se vazio/ok */
 function mensagemErroTelefone(telefone) {
-  if (!telefone) return 'Please enter a contact phone number.';
+  if (!telefone) return '';
   if (!validarFormatoTelefoneIrlandes(telefone)) return 'Please enter a valid Irish phone number.';
   return '';
 }
@@ -1816,7 +1834,7 @@ function ligarEventosPagamento() {
       botao.classList.add('selecionada');
       atualizarVisibilidadeSecaoTroco();
       atualizarVisibilidadeDadosTransferencia();
-      document.getElementById('botao-continuar-pagamento').disabled = !pagamentoEstaCompleto();
+      document.getElementById('botao-confirmar-pedido').disabled = !pagamentoEstaCompleto();
       salvarProgressoPedido();
     });
   });
@@ -1825,21 +1843,9 @@ function ligarEventosPagamento() {
 
   document.getElementById('botao-copiar-iban-inline').addEventListener('click', () => copiarIban('inline'));
 
-  document.getElementById('botao-continuar-pagamento').addEventListener('click', async () => {
-    if (estadoPedido.formaPagamento === 'dinheiro' && estadoPedido.dinheiro && estadoPedido.dinheiro.precisaTroco) {
-      recalcularTroco(); // o total pode ter mudado (ex.: cliente voltou pro carrinho) desde a última digitação
-    }
-    if (!pagamentoEstaCompleto()) {
-      const mensagem =
-        estadoPedido.dinheiro && estadoPedido.dinheiro.precisaTroco
-          ? 'The change amount must be equal to or greater than the order total.'
-          : 'Choose a payment method to continue.';
-      mostrarToast(mensagem, 'erro');
-      return;
-    }
-    await renderizarRevisao();
-    irParaEtapaPedido('revisao');
-  });
+  // O antigo botão "Continue" desta etapa virou o próprio "Place Order" (#botao-confirmar-pedido,
+  // ligado a confirmarPedido() em ligarEventosGerais()) — não precisa de handler próprio aqui:
+  // confirmarPedido() já revalida pagamentoEstaCompleto()/troco internamente antes de criar o pedido.
 }
 
 // ROTULOS_FORMA_PAGAMENTO (js/utils.js) é compartilhado com a área Pedidos do admin (em português) —
@@ -1918,22 +1924,40 @@ function ligarEventosTroco() {
       document.getElementById('erro-valor-pago').textContent = '';
       document.getElementById('troco-estimado').style.display = 'none';
 
-      document.getElementById('botao-continuar-pagamento').disabled = !pagamentoEstaCompleto();
+      document.getElementById('botao-confirmar-pedido').disabled = !pagamentoEstaCompleto();
       salvarProgressoPedido();
     });
   });
 
   document.getElementById('campo-valor-pago').addEventListener('input', () => {
     recalcularTroco();
-    document.getElementById('botao-continuar-pagamento').disabled = !pagamentoEstaCompleto();
+    document.getElementById('botao-confirmar-pedido').disabled = !pagamentoEstaCompleto();
     salvarProgressoPedido();
   });
 }
 
+/** true se o cupom aplicado agora é do tipo Free Delivery (zera só a taxa de entrega, nunca o subtotal/produto) */
+function cupomEhFreeDelivery() {
+  return !!(estadoPedido.cupom && estadoPedido.cupom.tipoDesconto === 'free_delivery');
+}
+
+/**
+ * Valor abatido da taxa de entrega por um cupom Free Delivery — só existe pra Delivery com uma
+ * cotação já calculada; Pick Up/Dine In nunca geram esse desconto (a taxa já é €0 pra eles, então
+ * "abater" não faz sentido — ver item 7 do pedido do usuário: sem crédito monetário nesses casos).
+ * Cálculo puramente visual (mesmo aviso de calcularTotaisPedidoAtual()) — quem decide de verdade é
+ * create_customer_order, nunca confiando no client.
+ */
+function descontoEntregaAtual() {
+  if (estadoPedido.fulfilment !== 'entrega' || !cupomEhFreeDelivery()) return 0;
+  return taxaEntregaAtual();
+}
+
 /**
  * Subtotal/desconto/taxa/total do pedido no ponto atual do fluxo — única fonte usada por Carrinho,
- * Pagamento (troco), Revisão e confirmarPedido(). O desconto nunca incide sobre a taxa de entrega
- * (item 7 do pedido do usuário: subtotal -> desconto -> +entrega -> total). É só cálculo visual — a
+ * Pagamento (troco), Revisão e confirmarPedido(). O desconto de produto nunca incide sobre a taxa de
+ * entrega (item 7 do pedido do usuário: subtotal -> desconto -> +entrega -> total); o desconto de
+ * entrega (Free Delivery) é um conceito separado, nunca somado a `desconto`. É só cálculo visual — a
  * fonte real de verdade continua sendo create_customer_order (item 8).
  */
 function calcularTotaisPedidoAtual() {
@@ -1942,8 +1966,9 @@ function calcularTotaisPedidoAtual() {
   const subtotal = calcularSubtotalCarrinho(carrinho);
   const desconto = valorDescontoCupomAplicado();
   const taxaEntrega = taxaEntregaAtual();
-  const total = Math.max(0, subtotal - desconto) + taxaEntrega;
-  return { subtotal, desconto, taxaEntrega, total, moeda: config.moeda };
+  const descontoEntrega = descontoEntregaAtual();
+  const total = Math.max(0, subtotal - desconto) + Math.max(0, taxaEntrega - descontoEntrega);
+  return { subtotal, desconto, taxaEntrega, descontoEntrega, total, moeda: config.moeda };
 }
 
 // ---------------------------------------------------------------------------
@@ -2025,16 +2050,40 @@ function atualizarUiCupom() {
   grupoInput.style.display = 'none';
   infoAplicado.style.display = '';
   const moeda = obterConfiguracoes().moeda;
-  const rotuloTipo = cupom.tipoDesconto === 'percentage' ? `${cupom.valorDesconto}% off` : `${formatarMoedaCliente(cupom.valorDesconto, moeda)} off`;
-  document.getElementById('texto-cupom-aplicado').textContent =
-    `${cupom.codigo} applied — ${rotuloTipo} (-${formatarMoedaCliente(cupom.valorDescontoCalculado, moeda)})`;
+  document.getElementById('texto-cupom-aplicado').textContent = textoCupomAplicado(cupom, moeda);
 }
 
-/** Linha "Cupom CODIGO (rótulo) -€X" do resumo de totais — '' quando não há desconto. `rotulo` opcional (ex.: "10%"), null pra omitir. */
+/**
+ * Texto do card "Cupom aplicado" — Free Delivery tem sua própria frase (nunca reaproveita o
+ * "X% off"/"€X off" de percentage/fixed, que não fazem sentido pra ele). Pra Pick Up/Dine In, avisa
+ * explicitamente que o benefício só vale pra Delivery em vez de aplicar silenciosamente sem efeito
+ * (item 7/17 do pedido do usuário — silêncio pareceria bug, não "cupom reconhecido mas sem efeito aqui").
+ */
+function textoCupomAplicado(cupom, moeda) {
+  if (cupom.tipoDesconto === 'free_delivery') {
+    if (estadoPedido.fulfilment !== 'entrega') {
+      return `${cupom.codigo} applied — Free Delivery (only applies to Delivery orders)`;
+    }
+    const descontoEntrega = descontoEntregaAtual();
+    return descontoEntrega > 0
+      ? `${cupom.codigo} applied — Free Delivery (-${formatarMoedaCliente(descontoEntrega, moeda)})`
+      : `${cupom.codigo} applied — Free Delivery (calculate delivery to see the discount)`;
+  }
+  const rotuloTipo = cupom.tipoDesconto === 'percentage' ? `${cupom.valorDesconto}% off` : `${formatarMoedaCliente(cupom.valorDesconto, moeda)} off`;
+  return `${cupom.codigo} applied — ${rotuloTipo} (-${formatarMoedaCliente(cupom.valorDescontoCalculado, moeda)})`;
+}
+
+/** Linha "Cupom CODIGO (rótulo) -€X" do resumo de totais — '' quando não há desconto. `rotulo` opcional (ex.: "10%"), null pra omitir. Só desconto de PRODUTO — nunca usada pra Free Delivery (ver linhaFreeDeliveryResumoHtml). */
 function linhaCupomResumoHtml(codigoCupom, valorDescontoCalculado, moeda, rotulo) {
   if (!codigoCupom || !valorDescontoCalculado) return '';
   const parteRotulo = rotulo ? ` (${escaparHtml(rotulo)})` : '';
   return `<div class="linha-resumo"><span>Coupon ${escaparHtml(codigoCupom)}${parteRotulo}</span><span>-${formatarMoedaCliente(valorDescontoCalculado, moeda)}</span></div>`;
+}
+
+/** Linha "Free Delivery (CODIGO) -€X" do resumo de totais — conceito separado do desconto de produto acima; '' quando não há benefício de frete grátis a mostrar (Pick Up/Dine In, ou Delivery sem cotação ainda). */
+function linhaFreeDeliveryResumoHtml(codigoCupom, valorDescontoEntrega, moeda) {
+  if (!codigoCupom || !valorDescontoEntrega) return '';
+  return `<div class="linha-resumo"><span>Free Delivery (${escaparHtml(codigoCupom)})</span><span>-${formatarMoedaCliente(valorDescontoEntrega, moeda)}</span></div>`;
 }
 
 async function aplicarCupomPedido() {
@@ -2063,7 +2112,11 @@ async function aplicarCupomPedido() {
     salvarProgressoPedido();
     atualizarUiCupom();
     await renderizarRevisao();
-    mostrarToast('Coupon applied.', 'sucesso');
+    if (resultado.tipoDesconto === 'free_delivery' && estadoPedido.fulfilment !== 'entrega') {
+      mostrarToast('Coupon applied — Free Delivery only applies to Delivery orders.', 'info');
+    } else {
+      mostrarToast('Coupon applied.', 'sucesso');
+    }
   } catch (erro) {
     if (meuToken !== tokenRevalidacaoCupom) return;
     erroEl.textContent = erro.message; // mensagem real da RPC (item 20): "Cupom não encontrado.", "Este cupom está inativo.", etc.
@@ -2152,27 +2205,14 @@ function pagamentoEstaCompleto() {
 // Etapa 6: Revisão do pedido
 // ---------------------------------------------------------------------------
 
-/** Bloco "Pagamento" da Revisão — mostra o troco quando a forma escolhida for Dinheiro */
-function blocoPagamentoRevisaoHtml(moeda) {
-  const rotulo = `<p>${escaparHtml(ROTULOS_FORMA_PAGAMENTO_CLIENTE[estadoPedido.formaPagamento] || '')}</p>`;
-  if (estadoPedido.formaPagamento !== 'dinheiro') return rotulo;
-
-  const d = estadoPedido.dinheiro;
-  if (d && d.precisaTroco) {
-    // Recalcula contra o total atual em vez de confiar no que já estava salvo — o carrinho pode ter mudado
-    // desde que o cliente informou o valor pago, e a Revisão nunca deve mostrar um troco obsoleto.
-    d.troco = calcularTroco(d.valorPago, calcularTotaisPedidoAtual().total);
-  }
-  const blocoTroco =
-    d && d.precisaTroco
-      ? `<p>Change for: ${formatarMoedaCliente(d.valorPago, moeda)}<br/>Change due: ${formatarMoedaCliente(d.troco, moeda)}</p>`
-      : '<p>No change needed</p>';
-  return rotulo + blocoTroco;
-}
-
 /**
  * Assíncrona porque, ao entrar na Revisão, pode precisar revalidar um cupom aplicado contra o
  * subtotal atual (item 6/18/19 — ver revalidarCupomSeNecessario()). Chamadores fazem `await`.
+ *
+ * Review agora vem ANTES de Payment (a forma de pagamento ainda não foi escolhida na primeira
+ * visita) — por isso nunca mostra método de pagamento/troco aqui; isso pertence só à Etapa Payment
+ * (ver blocoPagamentoRevisaoHtml removido — a informação de troco é recalculada lá e de novo,
+ * definitivamente, dentro de confirmarPedido()).
  */
 async function renderizarRevisao() {
   const subtotalParaValidacao = calcularSubtotalCarrinho(obterCarrinho());
@@ -2184,7 +2224,7 @@ async function renderizarRevisao() {
   }
 
   const carrinho = obterCarrinho();
-  const { subtotal, desconto, taxaEntrega, total, moeda } = calcularTotaisPedidoAtual();
+  const { subtotal, desconto, taxaEntrega, descontoEntrega, total, moeda } = calcularTotaisPedidoAtual();
 
   const linhasItens = carrinho
     .map((item) => {
@@ -2209,9 +2249,7 @@ async function renderizarRevisao() {
       ? `
       <div class="resumo-revisao-secao">
         <div class="resumo-revisao-titulo">Address</div>
-        <p>${escaparHtml(estadoPedido.endereco.eircode)}<br/>
-        ${escaparHtml(estadoPedido.endereco.linha1)}${estadoPedido.endereco.linha2 ? ', ' + escaparHtml(estadoPedido.endereco.linha2) : ''}<br/>
-        ${[estadoPedido.endereco.area, estadoPedido.endereco.distrito].filter(Boolean).map(escaparHtml).join(' — ')}</p>
+        <p>${[estadoPedido.endereco.eircode, estadoPedido.endereco.linha1].filter(Boolean).map(escaparHtml).join('<br/>')}</p>
         ${estadoPedido.endereco.instrucoes ? `<p><em>${escaparHtml(estadoPedido.endereco.instrucoes)}</em></p>` : ''}
       </div>`
       : `
@@ -2227,17 +2265,14 @@ async function renderizarRevisao() {
     </div>
     <div class="resumo-revisao-secao">
       <div class="resumo-revisao-titulo">${ROTULO_FULFILMENT_REVISAO[estadoPedido.fulfilment] || 'Pick Up'}</div>
-      <p>Customer: ${escaparHtml(estadoPedido.cliente.nome)} · ${escaparHtml(estadoPedido.cliente.telefone)}</p>
+      <p>Customer: ${[estadoPedido.cliente.nome, estadoPedido.cliente.telefone].filter(Boolean).map(escaparHtml).join(' · ')}</p>
     </div>
     ${blocoEntrega}
-    <div class="resumo-revisao-secao">
-      <div class="resumo-revisao-titulo">Payment</div>
-      ${blocoPagamentoRevisaoHtml(moeda)}
-    </div>
     <div class="card resumo-carrinho">
       <div class="linha-resumo"><span>Subtotal</span><span>${formatarMoedaCliente(subtotal, moeda)}</span></div>
       ${linhaCupomResumoHtml(estadoPedido.cupom ? estadoPedido.cupom.codigo : null, desconto, moeda, estadoPedido.cupom && estadoPedido.cupom.tipoDesconto === 'percentage' ? `${estadoPedido.cupom.valorDesconto}%` : null)}
       <div class="linha-resumo"><span>Delivery Fee</span><span>${formatarMoedaCliente(taxaEntrega, moeda)}</span></div>
+      ${linhaFreeDeliveryResumoHtml(estadoPedido.cupom ? estadoPedido.cupom.codigo : null, descontoEntrega, moeda)}
       <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoedaCliente(total, moeda)}</span></div>
     </div>
   `;
@@ -2661,7 +2696,7 @@ function reiniciarPedido() {
   categoriaSelecionadaPedido = 'Combos';
   localStorage.removeItem(CHAVE_PEDIDO_EM_ANDAMENTO);
 
-  ['retirada-nome', 'retirada-telefone', 'entrega-nome', 'entrega-telefone', 'entrega-eircode', 'entrega-linha1', 'entrega-linha2', 'entrega-area', 'entrega-distrito', 'entrega-instrucoes'].forEach(
+  ['retirada-nome', 'retirada-telefone', 'entrega-nome', 'entrega-telefone', 'entrega-eircode', 'entrega-linha1', 'entrega-instrucoes'].forEach(
     (id) => (document.getElementById(id).value = '')
   );
   document.getElementById('campo-horario-retirada').value = '';
@@ -2678,7 +2713,7 @@ function reiniciarPedido() {
   document.getElementById('grupo-cupom-input').style.display = '';
   document.getElementById('cupom-aplicado-info').style.display = 'none';
   document.getElementById('botao-continuar-recebimento').disabled = true;
-  document.getElementById('botao-continuar-pagamento').disabled = true;
+  document.getElementById('botao-confirmar-pedido').disabled = true;
   document.getElementById('botao-continuar-entrega').disabled = false;
   document.getElementById('resultado-calculo-entrega').style.display = 'none';
   document.getElementById('erro-calculo-entrega').textContent = '';

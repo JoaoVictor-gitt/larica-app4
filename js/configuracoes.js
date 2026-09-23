@@ -81,6 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (evento.target.id === 'modal-cupom-overlay') fecharModalCupom();
   });
   document.getElementById('form-cupom').addEventListener('submit', salvarCupom);
+  document.getElementById('campo-cupom-tipo').addEventListener('change', atualizarVisibilidadeCampoDescontoCupom);
 
   carregarConfiguracoesNegocio();
   carregarCupons(); // independente de carregarConfiguracoesNegocio() — uma falha aqui não pode derrubar o resto de Configurações
@@ -415,6 +416,7 @@ function formatarValidadeCupom(cupom) {
 
 function formatarDescontoCupom(cupom) {
   if (cupom.tipoDesconto === 'percentage') return `${cupom.valorDesconto}%`;
+  if (cupom.tipoDesconto === 'free_delivery') return 'Free Delivery';
   // Defensivo: um cupom 'fixed' criado fora da UI (banco direto) continua listado de forma coerente, sem quebrar.
   return formatarMoeda(cupom.valorDesconto);
 }
@@ -486,16 +488,31 @@ function fecharModalCupom() {
   document.getElementById('modal-cupom-overlay').classList.remove('modal-visivel');
 }
 
+/**
+ * Mostra/esconde o campo "Desconto (%)" conforme o Tipo de cupom escolhido — Free Delivery não
+ * usa desconto percentual/fixo nenhum (zera só a taxa de entrega, calculada no checkout), então o
+ * campo não faz sentido pra ele. `required` também é alternado, senão o form bloquearia o submit
+ * com um campo escondido e vazio.
+ */
+function atualizarVisibilidadeCampoDescontoCupom() {
+  const tipo = document.getElementById('campo-cupom-tipo').value;
+  const ehPercentual = tipo === 'percentage';
+  document.getElementById('grupo-cupom-desconto').style.display = ehPercentual ? '' : 'none';
+  document.getElementById('campo-cupom-desconto').required = ehPercentual;
+}
+
 function limparFormularioCupom() {
   document.getElementById('erro-modal-cupom').textContent = '';
   document.getElementById('campo-cupom-id').value = '';
   document.getElementById('campo-cupom-codigo').value = '';
   document.getElementById('campo-cupom-nome').value = '';
+  document.getElementById('campo-cupom-tipo').value = 'percentage';
   document.getElementById('campo-cupom-desconto').value = '';
   document.getElementById('campo-cupom-ativo').checked = true;
   document.getElementById('campo-cupom-inicio').value = '';
   document.getElementById('campo-cupom-fim').value = '';
   document.getElementById('campo-cupom-minimo').value = '';
+  atualizarVisibilidadeCampoDescontoCupom();
 }
 
 function abrirModalCriacaoCupom() {
@@ -505,15 +522,16 @@ function abrirModalCriacaoCupom() {
 }
 
 /**
- * V1 só sabe editar cupons percentuais — um cupom 'fixed' (só possível hoje via banco direto,
- * já que a UI nunca cria um) é visualizável na lista, mas a edição é bloqueada aqui com aviso,
- * em vez de abrir um formulário que assumiria incorretamente um desconto percentual.
+ * Edita cupons 'percentage' e 'free_delivery' — os 2 tipos que a UI sabe criar. Um cupom 'fixed'
+ * (só possível hoje via banco direto, já que a UI nunca cria um) continua visualizável na lista,
+ * mas a edição é bloqueada aqui com aviso, em vez de abrir um formulário que assumiria
+ * incorretamente um desconto percentual (nenhum suporte novo foi inventado pra 'fixed').
  */
 function abrirModalEdicaoCupom(id) {
   const cupom = cuponsCache.find((c) => c.id === id);
   if (!cupom) return;
 
-  if (cupom.tipoDesconto !== 'percentage') {
+  if (cupom.tipoDesconto !== 'percentage' && cupom.tipoDesconto !== 'free_delivery') {
     mostrarToast('Este tipo de cupom ainda não pode ser editado nesta versão.', 'info');
     return;
   }
@@ -523,22 +541,27 @@ function abrirModalEdicaoCupom(id) {
   document.getElementById('campo-cupom-id').value = cupom.id;
   document.getElementById('campo-cupom-codigo').value = cupom.codigo;
   document.getElementById('campo-cupom-nome').value = cupom.nome || '';
-  document.getElementById('campo-cupom-desconto').value = cupom.valorDesconto;
+  document.getElementById('campo-cupom-tipo').value = cupom.tipoDesconto;
+  document.getElementById('campo-cupom-desconto').value = cupom.tipoDesconto === 'percentage' ? cupom.valorDesconto : '';
   document.getElementById('campo-cupom-ativo').checked = cupom.ativo;
   document.getElementById('campo-cupom-inicio').value = timestamptzParaDatetimeLocal(cupom.inicioEm, 'Europe/Dublin');
   document.getElementById('campo-cupom-fim').value = timestamptzParaDatetimeLocal(cupom.fimEm, 'Europe/Dublin');
   document.getElementById('campo-cupom-minimo').value = cupom.valorMinimoPedido === null ? '' : cupom.valorMinimoPedido;
+  atualizarVisibilidadeCampoDescontoCupom();
   abrirModalCupom();
 }
 
 /** Lê o formulário e converte início/fim (datetime-local, Dublin) para UTC — pode lançar (horário inexistente/ambíguo, ver utils.js) */
 function cupomDoFormulario() {
   const minimoBruto = document.getElementById('campo-cupom-minimo').value;
+  const tipoDesconto = document.getElementById('campo-cupom-tipo').value;
   return {
     codigo: document.getElementById('campo-cupom-codigo').value.trim().toUpperCase(),
     nome: document.getElementById('campo-cupom-nome').value.trim() || null,
-    tipoDesconto: 'percentage',
-    valorDesconto: Number(document.getElementById('campo-cupom-desconto').value),
+    tipoDesconto,
+    // Free Delivery não usa valorDesconto pra nada (a RPC validate_coupon já zera o desconto de
+    // produto pra este tipo) — sempre 0, nunca o que sobrou no campo escondido.
+    valorDesconto: tipoDesconto === 'percentage' ? Number(document.getElementById('campo-cupom-desconto').value) : 0,
     ativo: document.getElementById('campo-cupom-ativo').checked,
     inicioEm: datetimeLocalParaUtcIso(document.getElementById('campo-cupom-inicio').value, 'Europe/Dublin'),
     fimEm: datetimeLocalParaUtcIso(document.getElementById('campo-cupom-fim').value, 'Europe/Dublin'),
@@ -549,7 +572,9 @@ function cupomDoFormulario() {
 /** Espelha no cliente as constraints do banco (item B da Etapa 1), só para feedback mais rápido — o banco continua a fonte real */
 function validarFormularioCupom(dados) {
   if (!dados.codigo) return 'Informe o código do cupom.';
-  if (!(dados.valorDesconto > 0) || dados.valorDesconto > 100) return 'O desconto deve ser maior que 0 e no máximo 100%.';
+  if (dados.tipoDesconto === 'percentage' && (!(dados.valorDesconto > 0) || dados.valorDesconto > 100)) {
+    return 'O desconto deve ser maior que 0 e no máximo 100%.';
+  }
   if (dados.valorMinimoPedido !== null && dados.valorMinimoPedido < 0) return 'O pedido mínimo não pode ser negativo.';
   if (dados.inicioEm && dados.fimEm && dados.fimEm <= dados.inicioEm) return 'O fim da validade deve ser depois do início.';
   return null;

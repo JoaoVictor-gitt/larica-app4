@@ -148,7 +148,7 @@
           <span class="campo-erro" id="erro-retirada-nome"></span>
         </div>
         <div class="form-grupo">
-          <label for="retirada-telefone">Phone Number</label>
+          <label for="retirada-telefone">Phone Number — optional</label>
           <input type="tel" class="input" id="retirada-telefone" placeholder="08X XXX XXXX" maxlength="17" />
           <span class="campo-erro" id="erro-retirada-telefone"></span>
         </div>
@@ -182,7 +182,7 @@
       </div>
       <div class="etapa-pedido-acoes">
         <button type="button" class="btn btn-secundario" data-acao="voltar">← Back</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-retirada">Continue to Payment →</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-retirada">Continue →</button>
       </div>
     </section>
 
@@ -200,7 +200,7 @@
           <span class="campo-erro" id="erro-entrega-nome"></span>
         </div>
         <div class="form-grupo">
-          <label for="entrega-telefone">Phone Number</label>
+          <label for="entrega-telefone">Phone Number — optional</label>
           <input type="tel" class="input" id="entrega-telefone" placeholder="08X XXX XXXX" maxlength="17" />
           <span class="campo-erro" id="erro-entrega-telefone"></span>
         </div>
@@ -215,21 +215,9 @@
           <span class="campo-erro" id="erro-entrega-eircode"></span>
         </div>
         <div class="form-grupo">
-          <label for="entrega-linha1">Address (Line 1)</label>
+          <label for="entrega-linha1">Address (Line 1) — optional</label>
           <input type="text" class="input" id="entrega-linha1" placeholder="Street, number" />
           <span class="campo-erro" id="erro-entrega-linha1"></span>
-        </div>
-        <div class="form-grupo">
-          <label for="entrega-linha2">Address (Line 2) — optional</label>
-          <input type="text" class="input" id="entrega-linha2" placeholder="Apartment, block, etc." />
-        </div>
-        <div class="form-grupo">
-          <label for="entrega-area">Area / Neighbourhood — optional</label>
-          <input type="text" class="input" id="entrega-area" placeholder="e.g. Rathmines" />
-        </div>
-        <div class="form-grupo">
-          <label for="entrega-distrito">Dublin Postal District — optional</label>
-          <input type="text" class="input" id="entrega-distrito" placeholder="e.g. Dublin 6" />
         </div>
         <div class="form-grupo">
           <label for="entrega-instrucoes">Additional Instructions — optional</label>
@@ -254,11 +242,41 @@
 
       <div class="etapa-pedido-acoes">
         <button type="button" class="btn btn-secundario" data-acao="voltar">← Back</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-entrega" disabled>Continue to Payment →</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-entrega" disabled>Continue →</button>
       </div>
     </section>
 
-    <!-- Etapa 5: Forma de pagamento -->
+    <!-- Etapa 5: Revisão do pedido -->
+    <section class="etapa-pedido" data-etapa="revisao">
+      <div class="cabecalho-etapa">
+        <p class="cabecalho-etapa-eyebrow">Check everything</p>
+        <h2 class="cabecalho-etapa-titulo">Review Order</h2>
+        <p class="cabecalho-etapa-subtitulo">Confirm the details before choosing how to pay.</p>
+      </div>
+
+      <div class="card cartao-cupom" id="cartao-cupom-pedido">
+        <h2 class="cartao-cupom-titulo">Discount Coupon</h2>
+        <div id="grupo-cupom-input">
+          <div class="cupom-input-linha">
+            <input type="text" class="input campo-cupom-codigo" id="campo-cupom-codigo-pedido" placeholder="Coupon code" maxlength="40" />
+            <button type="button" class="btn btn-secundario" id="botao-aplicar-cupom">Apply</button>
+          </div>
+          <span class="campo-erro" id="erro-cupom-pedido"></span>
+        </div>
+        <div id="cupom-aplicado-info" style="display:none;">
+          <p class="texto-cupom-aplicado" id="texto-cupom-aplicado"></p>
+          <button type="button" class="btn btn-secundario" id="botao-remover-cupom">Remove Coupon</button>
+        </div>
+      </div>
+
+      <div id="conteudo-revisao"></div>
+      <div class="etapa-pedido-acoes">
+        <button type="button" class="btn btn-secundario" data-acao="voltar">← Back</button>
+        <button type="button" class="btn btn-primario" id="botao-continuar-revisao">Continue to Payment →</button>
+      </div>
+    </section>
+
+    <!-- Etapa 6: Forma de pagamento -->
     <section class="etapa-pedido" data-etapa="pagamento">
       <div class="cabecalho-etapa">
         <p class="cabecalho-etapa-eyebrow">Payment</p>
@@ -308,37 +326,7 @@
       </div>
       <div class="etapa-pedido-acoes">
         <button type="button" class="btn btn-secundario" data-acao="voltar">← Back</button>
-        <button type="button" class="btn btn-primario" id="botao-continuar-pagamento" disabled>Continue →</button>
-      </div>
-    </section>
-
-    <!-- Etapa 6: Revisão do pedido -->
-    <section class="etapa-pedido" data-etapa="revisao">
-      <div class="cabecalho-etapa">
-        <p class="cabecalho-etapa-eyebrow">Check everything</p>
-        <h2 class="cabecalho-etapa-titulo">Review Order</h2>
-        <p class="cabecalho-etapa-subtitulo">Confirm the details before placing your order.</p>
-      </div>
-
-      <div class="card cartao-cupom" id="cartao-cupom-pedido">
-        <h2 class="cartao-cupom-titulo">Discount Coupon</h2>
-        <div id="grupo-cupom-input">
-          <div class="cupom-input-linha">
-            <input type="text" class="input campo-cupom-codigo" id="campo-cupom-codigo-pedido" placeholder="Coupon code" maxlength="40" />
-            <button type="button" class="btn btn-secundario" id="botao-aplicar-cupom">Apply</button>
-          </div>
-          <span class="campo-erro" id="erro-cupom-pedido"></span>
-        </div>
-        <div id="cupom-aplicado-info" style="display:none;">
-          <p class="texto-cupom-aplicado" id="texto-cupom-aplicado"></p>
-          <button type="button" class="btn btn-secundario" id="botao-remover-cupom">Remove Coupon</button>
-        </div>
-      </div>
-
-      <div id="conteudo-revisao"></div>
-      <div class="etapa-pedido-acoes">
-        <button type="button" class="btn btn-secundario" data-acao="voltar">← Back</button>
-        <button type="button" class="btn btn-primario" id="botao-confirmar-pedido">Place Order</button>
+        <button type="button" class="btn btn-primario" id="botao-confirmar-pedido" disabled>Place Order</button>
       </div>
     </section>
 
