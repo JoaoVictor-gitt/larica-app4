@@ -155,9 +155,10 @@ Deno.serve(async (req) => {
         : "";
 
     const normalizedAddressLine1 =
-      typeof address_line_1 === "string"
+      typeof address_line_1 === "string" &&
+      address_line_1.trim()
         ? address_line_1.trim()
-        : "";
+        : null;
 
     const normalizedAddressLine2 =
       typeof address_line_2 === "string" &&
@@ -189,10 +190,13 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (!normalizedAddressLine1 || normalizedAddressLine1.length > 200) {
+    // Address Line 1 agora é OPCIONAL para o cálculo de entrega — Eircode sozinho já é um
+    // identificador de localização preciso na Irlanda. Só valida o tamanho máximo quando
+    // preenchido, mesmo padrão já usado abaixo para address_line_2/area (que já eram opcionais).
+    if (normalizedAddressLine1 && normalizedAddressLine1.length > 200) {
       return new Response(
         JSON.stringify({
-          error: "Endereço é obrigatório.",
+          error: "Endereço inválido.",
         }),
         {
           status: 400,
@@ -475,10 +479,14 @@ Deno.serve(async (req) => {
 
     // Até minimumDistanceKm: taxa fixa minimumFee. Acima disso: pricePerKm sobre a
     // distância TOTAL (nunca minimumFee + excedente). Valores vêm de business_settings.
-    const deliveryFee =
+    // Distância NUNCA é arredondada — só a taxa monetária final. A taxa final é sempre
+    // arredondada para cima, no euro inteiro (ex.: 4.10 -> 5.00), igualmente nos dois
+    // ramos (mínimo e por km).
+    const deliveryFeeCalculada =
       distanceKm <= minimumDistanceKm
         ? Number(minimumFee.toFixed(2))
         : Number((distanceKm * pricePerKm).toFixed(2));
+    const deliveryFee = Math.ceil(deliveryFeeCalculada);
 
     // =========================================================
     // CRIA COTAÇÃO SEGURA NO SUPABASE
