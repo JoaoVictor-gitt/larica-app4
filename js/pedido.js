@@ -823,6 +823,18 @@ async function imprimirPedidoConfirmacaoNaEpson(botao) {
   _impressaoClientePedidoEmAndamento = false;
 }
 
+// Formatador de moeda exclusivo do checkout público — padrão inglês/Irlanda (ex.: "€4.00"),
+// nunca a formatação pt-PT de formatarMoeda (js/utils.js), que é compartilhada com o admin.
+function formatarMoedaCliente(valor, codigoMoeda) {
+  const codigo = codigoMoeda || 'EUR';
+  const numero = Number(valor) || 0;
+  try {
+    return new Intl.NumberFormat('en-IE', { style: 'currency', currency: codigo }).format(numero);
+  } catch (erro) {
+    return numero.toFixed(2) + ' ' + codigo;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Etapa 1: Cardápio
 // ---------------------------------------------------------------------------
@@ -934,7 +946,7 @@ function cardProdutoPedidoHtml(produto, moeda) {
         <div class="card-produto-nome">${escaparHtml(produto.nome)}</div>
         <div class="card-produto-descricao">${escaparHtml(produto.descricao || '')}</div>
         <div class="card-produto-rodape">
-          <span class="card-produto-preco">${formatarMoeda(produto.preco, moeda)}</span>
+          <span class="card-produto-preco">${formatarMoedaCliente(produto.preco, moeda)}</span>
           ${bloqueado ? `<span class="card-produto-estoque">${indisponivel ? 'Unavailable' : 'Out of Stock'}</span>` : ''}
         </div>
         <div class="card-produto-acao">
@@ -978,7 +990,7 @@ function cardComboPedidoHtml(combo, moeda) {
         <div class="card-produto-descricao">${escaparHtml(combo.descricao || '')}</div>
         ${avisoInclusos}
         <div class="card-produto-rodape">
-          <span class="card-produto-preco">From ${formatarMoeda(combo.preco, moeda)}</span>
+          <span class="card-produto-preco">From ${formatarMoedaCliente(combo.preco, moeda)}</span>
           ${indisponivel ? '<span class="card-produto-estoque">Unavailable</span>' : ''}
         </div>
         <div class="card-produto-acao">
@@ -1018,7 +1030,7 @@ function atualizarBarraCarrinhoFixa() {
   const config = obterConfiguracoes();
   const subtotal = calcularSubtotalCarrinho(carrinho);
   document.getElementById('botao-ver-carrinho').textContent =
-    `Ver carrinho • ${totalItens} ${totalItens === 1 ? 'item' : 'itens'} • ${formatarMoeda(subtotal, config.moeda)}`;
+    `View Cart • ${totalItens} ${totalItens === 1 ? 'item' : 'items'} • ${formatarMoedaCliente(subtotal, config.moeda)}`;
   barra.style.display = 'flex';
 }
 
@@ -1048,8 +1060,8 @@ function renderizarCarrinhoPedido() {
   }
 
   const subtotal = calcularSubtotalCarrinho(carrinho);
-  document.getElementById('pedido-valor-subtotal').textContent = formatarMoeda(subtotal, config.moeda);
-  document.getElementById('pedido-valor-total').textContent = formatarMoeda(subtotal, config.moeda);
+  document.getElementById('pedido-valor-subtotal').textContent = formatarMoedaCliente(subtotal, config.moeda);
+  document.getElementById('pedido-valor-total').textContent = formatarMoedaCliente(subtotal, config.moeda);
   document.getElementById('pedido-valor-taxa').textContent = 'To be confirmed in the next step';
 }
 
@@ -1070,7 +1082,7 @@ function linhaCarrinhoPedidoHtml(item, moeda) {
     <tr>
       <td>${foto}</td>
       <td>${escaparHtml(nome)}</td>
-      <td>${formatarMoeda(item.precoUnitario, moeda)}</td>
+      <td>${formatarMoedaCliente(item.precoUnitario, moeda)}</td>
       <td>
         <div class="stepper-combo">
           <button type="button" class="stepper-combo-botao" data-acao="diminuir-item-pedido" data-id="${item.produtoId}" ${item.quantidade <= 1 ? 'disabled' : ''}>−</button>
@@ -1078,7 +1090,7 @@ function linhaCarrinhoPedidoHtml(item, moeda) {
           <button type="button" class="stepper-combo-botao" data-acao="aumentar-item-pedido" data-id="${item.produtoId}" ${item.quantidade >= Math.max(1, estoqueMaximo) ? 'disabled' : ''}>+</button>
         </div>
       </td>
-      <td>${formatarMoeda(subtotalItem, moeda)}</td>
+      <td>${formatarMoedaCliente(subtotalItem, moeda)}</td>
       <td><button class="btn-icone" data-acao="remover-pedido" data-id="${item.produtoId}" title="Remove">${ICONE_LIXEIRA_SVG}</button></td>
     </tr>`;
 }
@@ -1089,7 +1101,7 @@ function linhaComboCarrinhoHtml(item, moeda) {
   const linhasEspetos = (c.espetos || [])
     .map(
       (e) =>
-        `<li>${e.quantidade}x ${escaparHtml(e.nome)}${e.acrescimoUnitario > 0 ? ` (+${formatarMoeda(e.acrescimoUnitario * e.quantidade, moeda)})` : ''}</li>`
+        `<li>${e.quantidade}x ${escaparHtml(e.nome)}${e.acrescimoUnitario > 0 ? ` (+${formatarMoedaCliente(e.acrescimoUnitario * e.quantidade, moeda)})` : ''}</li>`
     )
     .join('');
   const linhasAcompanhamentos = (c.acompanhamentos || [])
@@ -1103,14 +1115,14 @@ function linhaComboCarrinhoHtml(item, moeda) {
         <div class="resumo-combo-carrinho">
           <div class="resumo-combo-carrinho-cabecalho">
             <strong>${escaparHtml(c.nome)}</strong>
-            <span>${formatarMoeda(item.precoUnitario, moeda)}</span>
+            <span>${formatarMoedaCliente(item.precoUnitario, moeda)}</span>
           </div>
           ${linhasEspetos ? `<div class="resumo-combo-carrinho-grupo"><span class="resumo-combo-carrinho-rotulo">Skewers</span><ul>${linhasEspetos}</ul></div>` : ''}
           ${linhasAcompanhamentos ? `<div class="resumo-combo-carrinho-grupo"><span class="resumo-combo-carrinho-rotulo">Sides</span><ul>${linhasAcompanhamentos}</ul></div>` : ''}
           ${linhasInclusos ? `<div class="resumo-combo-carrinho-grupo"><span class="resumo-combo-carrinho-rotulo">Included</span><ul>${linhasInclusos}</ul></div>` : ''}
           <div class="resumo-combo-carrinho-precos">
-            <span>Base price: ${formatarMoeda(c.precoBase, moeda)}</span>
-            <span>Extras: ${formatarMoeda(c.extras, moeda)}</span>
+            <span>Base price: ${formatarMoedaCliente(c.precoBase, moeda)}</span>
+            <span>Extras: ${formatarMoedaCliente(c.extras, moeda)}</span>
           </div>
           <div class="resumo-combo-carrinho-acoes">
             <button type="button" class="btn btn-secundario" data-acao="editar-combo" data-item-id="${item.itemId}">Edit Choices</button>
@@ -1290,7 +1302,7 @@ function seletorComboItensHtml({ tipo, itens, limite, escolhidos, moeda }) {
           <button type="button" class="opcao-pagamento opcao-combo-item ${selecionado ? 'selecionada' : ''}"
             data-acao="selecionar-unico" data-tipo="${tipo}" data-id="${item.id}">
             <span>${escaparHtml(item.nome)}</span>
-            ${item.acrescimo > 0 ? `<span class="combo-item-acrescimo">+ ${formatarMoeda(item.acrescimo, moeda)}</span>` : ''}
+            ${item.acrescimo > 0 ? `<span class="combo-item-acrescimo">+ ${formatarMoedaCliente(item.acrescimo, moeda)}</span>` : ''}
           </button>`;
       })
       .join('');
@@ -1306,7 +1318,7 @@ function seletorComboItensHtml({ tipo, itens, limite, escolhidos, moeda }) {
         <div class="linha-escolha-combo">
           <div class="linha-escolha-combo-info">
             <span class="linha-escolha-combo-nome">${escaparHtml(item.nome)}</span>
-            ${item.acrescimo > 0 ? `<span class="linha-escolha-combo-acrescimo">+ ${formatarMoeda(item.acrescimo, moeda)} cada</span>` : ''}
+            ${item.acrescimo > 0 ? `<span class="linha-escolha-combo-acrescimo">+ ${formatarMoedaCliente(item.acrescimo, moeda)} cada</span>` : ''}
           </div>
           <div class="stepper-combo">
             <button type="button" class="stepper-combo-botao" data-acao="diminuir" data-tipo="${tipo}" data-id="${item.id}" ${quantidade <= 0 ? 'disabled' : ''}>−</button>
@@ -1425,17 +1437,17 @@ function atualizarTotalCombo() {
   const { total } = calcularTotalCombo(comboAtual.preco, comboEspetosEscolhidos);
 
   document.getElementById('combo-rotulo-base').textContent = comboAtual.nome;
-  document.getElementById('combo-valor-base').textContent = formatarMoeda(comboAtual.preco, moeda);
+  document.getElementById('combo-valor-base').textContent = formatarMoedaCliente(comboAtual.preco, moeda);
 
   document.getElementById('combo-linhas-extras').innerHTML = comboEspetosEscolhidos
     .filter((e) => e.acrescimoUnitario > 0)
     .map(
       (e) =>
-        `<div class="linha-resumo"><span>${e.quantidade}x ${escaparHtml(e.nome)}</span><span>+ ${formatarMoeda(e.acrescimoUnitario * e.quantidade, moeda)}</span></div>`
+        `<div class="linha-resumo"><span>${e.quantidade}x ${escaparHtml(e.nome)}</span><span>+ ${formatarMoedaCliente(e.acrescimoUnitario * e.quantidade, moeda)}</span></div>`
     )
     .join('');
 
-  document.getElementById('combo-valor-total').textContent = formatarMoeda(total, moeda);
+  document.getElementById('combo-valor-total').textContent = formatarMoedaCliente(total, moeda);
 
   const totalEspetos = comboEspetosEscolhidos.reduce((s, e) => s + e.quantidade, 0);
   const totalAcompanhamentos = comboAcompanhamentosEscolhidos.reduce((s, a) => s + a.quantidade, 0);
@@ -1654,8 +1666,8 @@ function exibirResultadoCalculoEntrega() {
   }
 
   const moeda = obterConfiguracoes().moeda;
-  document.getElementById('entrega-distancia-valor').textContent = `${Number(cotacao.distanciaKm).toFixed(2).replace('.', ',')} km`;
-  document.getElementById('entrega-taxa-valor').textContent = formatarMoeda(cotacao.taxa, moeda);
+  document.getElementById('entrega-distancia-valor').textContent = `${Number(cotacao.distanciaKm).toFixed(2)} km`;
+  document.getElementById('entrega-taxa-valor').textContent = formatarMoedaCliente(cotacao.taxa, moeda);
 
   const tempoEl = document.getElementById('entrega-tempo-estimado');
   const textoTempo = formatarDuracaoBicicleta(cotacao.duracaoTexto);
@@ -2013,16 +2025,16 @@ function atualizarUiCupom() {
   grupoInput.style.display = 'none';
   infoAplicado.style.display = '';
   const moeda = obterConfiguracoes().moeda;
-  const rotuloTipo = cupom.tipoDesconto === 'percentage' ? `${cupom.valorDesconto}% off` : `${formatarMoeda(cupom.valorDesconto, moeda)} off`;
+  const rotuloTipo = cupom.tipoDesconto === 'percentage' ? `${cupom.valorDesconto}% off` : `${formatarMoedaCliente(cupom.valorDesconto, moeda)} off`;
   document.getElementById('texto-cupom-aplicado').textContent =
-    `${cupom.codigo} applied — ${rotuloTipo} (-${formatarMoeda(cupom.valorDescontoCalculado, moeda)})`;
+    `${cupom.codigo} applied — ${rotuloTipo} (-${formatarMoedaCliente(cupom.valorDescontoCalculado, moeda)})`;
 }
 
 /** Linha "Cupom CODIGO (rótulo) -€X" do resumo de totais — '' quando não há desconto. `rotulo` opcional (ex.: "10%"), null pra omitir. */
 function linhaCupomResumoHtml(codigoCupom, valorDescontoCalculado, moeda, rotulo) {
   if (!codigoCupom || !valorDescontoCalculado) return '';
   const parteRotulo = rotulo ? ` (${escaparHtml(rotulo)})` : '';
-  return `<div class="linha-resumo"><span>Coupon ${escaparHtml(codigoCupom)}${parteRotulo}</span><span>-${formatarMoeda(valorDescontoCalculado, moeda)}</span></div>`;
+  return `<div class="linha-resumo"><span>Coupon ${escaparHtml(codigoCupom)}${parteRotulo}</span><span>-${formatarMoedaCliente(valorDescontoCalculado, moeda)}</span></div>`;
 }
 
 async function aplicarCupomPedido() {
@@ -2121,7 +2133,7 @@ function recalcularTroco() {
 
   erro.textContent = '';
   estadoPedido.dinheiro.troco = troco;
-  estimado.textContent = `Estimated change: ${formatarMoeda(troco, moeda)}`;
+  estimado.textContent = `Estimated change: ${formatarMoedaCliente(troco, moeda)}`;
   estimado.style.display = '';
 }
 
@@ -2153,7 +2165,7 @@ function blocoPagamentoRevisaoHtml(moeda) {
   }
   const blocoTroco =
     d && d.precisaTroco
-      ? `<p>Change for: ${formatarMoeda(d.valorPago, moeda)}<br/>Change due: ${formatarMoeda(d.troco, moeda)}</p>`
+      ? `<p>Change for: ${formatarMoedaCliente(d.valorPago, moeda)}<br/>Change due: ${formatarMoedaCliente(d.troco, moeda)}</p>`
       : '<p>No change needed</p>';
   return rotulo + blocoTroco;
 }
@@ -2177,11 +2189,11 @@ async function renderizarRevisao() {
   const linhasItens = carrinho
     .map((item) => {
       if (item.combo) {
-        return `<div class="linha-resumo"><span>${escaparHtml(item.combo.nome)}</span><span>${formatarMoeda(item.precoUnitario * item.quantidade, moeda)}</span></div>`;
+        return `<div class="linha-resumo"><span>${escaparHtml(item.combo.nome)}</span><span>${formatarMoedaCliente(item.precoUnitario * item.quantidade, moeda)}</span></div>`;
       }
       const produto = obterProdutoPorId(item.produtoId);
       const nome = produto ? produto.nome : '(product removed)';
-      return `<div class="linha-resumo"><span>${item.quantidade}x ${escaparHtml(nome)}</span><span>${formatarMoeda(item.precoUnitario * item.quantidade, moeda)}</span></div>`;
+      return `<div class="linha-resumo"><span>${item.quantidade}x ${escaparHtml(nome)}</span><span>${formatarMoedaCliente(item.precoUnitario * item.quantidade, moeda)}</span></div>`;
     })
     .join('');
 
@@ -2223,10 +2235,10 @@ async function renderizarRevisao() {
       ${blocoPagamentoRevisaoHtml(moeda)}
     </div>
     <div class="card resumo-carrinho">
-      <div class="linha-resumo"><span>Subtotal</span><span>${formatarMoeda(subtotal, moeda)}</span></div>
+      <div class="linha-resumo"><span>Subtotal</span><span>${formatarMoedaCliente(subtotal, moeda)}</span></div>
       ${linhaCupomResumoHtml(estadoPedido.cupom ? estadoPedido.cupom.codigo : null, desconto, moeda, estadoPedido.cupom && estadoPedido.cupom.tipoDesconto === 'percentage' ? `${estadoPedido.cupom.valorDesconto}%` : null)}
-      <div class="linha-resumo"><span>Delivery Fee</span><span>${formatarMoeda(taxaEntrega, moeda)}</span></div>
-      <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoeda(total, moeda)}</span></div>
+      <div class="linha-resumo"><span>Delivery Fee</span><span>${formatarMoedaCliente(taxaEntrega, moeda)}</span></div>
+      <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoedaCliente(total, moeda)}</span></div>
     </div>
   `;
 }
@@ -2397,7 +2409,7 @@ function renderizarConfirmacao(pedido, moeda) {
   document.getElementById('numero-pedido-confirmado').textContent = pedido.numero;
 
   const linhasItens = pedido.itens
-    .map((item) => `<div class="linha-resumo"><span>${item.quantidade}x ${escaparHtml(item.nome)}</span><span>${formatarMoeda(item.valorTotal, moeda)}</span></div>`)
+    .map((item) => `<div class="linha-resumo"><span>${item.quantidade}x ${escaparHtml(item.nome)}</span><span>${formatarMoedaCliente(item.valorTotal, moeda)}</span></div>`)
     .join('');
 
   // Cartão é sempre presencial (não há pagamento online nesta versão) — reforça isso na confirmação.
@@ -2412,7 +2424,7 @@ function renderizarConfirmacao(pedido, moeda) {
     <div class="linha-resumo"><span>${ROTULO_FULFILMENT_CONFIRMACAO[pedido.fulfilment] || 'Pick Up'}</span><span></span></div>
     <div class="linha-resumo"><span>Payment</span><span>${escaparHtml(ROTULOS_FORMA_PAGAMENTO_CLIENTE[pedido.formaPagamento] || '')}</span></div>
     ${linhaCupomResumoHtml(pedido.codigoCupom, pedido.valorDesconto, moeda, null)}
-    <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoeda(pedido.total, moeda)}</span></div>
+    <div class="linha-resumo linha-resumo-total"><span>Total</span><span>${formatarMoedaCliente(pedido.total, moeda)}</span></div>
     ${avisoCartao}
   `;
 }
@@ -2437,7 +2449,7 @@ function renderizarConfirmacaoRevolut(pedido, moeda) {
     "Once we receive your payment, we'll confirm your order and send it to the kitchen.";
 
   document.getElementById('numero-pedido-confirmado-revolut').textContent = pedido.numero;
-  document.getElementById('revolut-valor-total').textContent = formatarMoeda(pedido.total, moeda);
+  document.getElementById('revolut-valor-total').textContent = formatarMoedaCliente(pedido.total, moeda);
 
   renderizarQrRevolut();
   atualizarBotaoCopiarCodigoRevolut();
@@ -2473,7 +2485,7 @@ function renderizarConfirmacaoTransferencia(pedido, moeda) {
     "Once we receive your payment, we'll confirm your order and send it to the kitchen.";
 
   document.getElementById('numero-pedido-confirmado-transferencia').textContent = pedido.numero;
-  document.getElementById('transferencia-valor-total').textContent = formatarMoeda(pedido.total, moeda);
+  document.getElementById('transferencia-valor-total').textContent = formatarMoedaCliente(pedido.total, moeda);
 
   document.getElementById('transferencia-beneficiario-confirmacao').textContent = (configuracoesNegocio && configuracoesNegocio.transferenciaBeneficiario) || '—';
   document.getElementById('transferencia-iban-confirmacao').textContent = (configuracoesNegocio && configuracoesNegocio.transferenciaIban) || '—';

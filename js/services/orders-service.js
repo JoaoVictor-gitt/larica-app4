@@ -270,12 +270,12 @@ async function createOrder(pedido, itensPedido, turnstileToken) {
 
 /** Mapeia status HTTP de /api/order pra mensagem amigável — preserva mensagem de negócio do Supabase quando houver. */
 function _mensagemErroRotaApiOrder(status, corpo) {
-  if (status === 403) return 'Não foi possível validar a verificação de segurança. Tente novamente.';
-  if (status === 429) return 'Muitas tentativas. Aguarde alguns instantes e tente novamente.';
-  if (status === 502 || status === 503) return 'Serviço temporariamente indisponível. Tente novamente.';
+  if (status === 403) return 'We could not verify the security check. Please try again.';
+  if (status === 429) return 'Too many attempts. Please wait a moment and try again.';
+  if (status === 502 || status === 503) return 'Service temporarily unavailable. Please try again.';
   if (corpo && typeof corpo.message === 'string') return corpo.message;
   if (corpo && typeof corpo.error === 'string') return corpo.error;
-  return 'Não foi possível completar a operação. Tente novamente.';
+  return 'We could not complete the operation. Please try again.';
 }
 
 /** Transição de status via RPC (valida no banco, além do que já é validado no cliente) */

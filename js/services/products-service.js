@@ -58,6 +58,83 @@ function _produtoParaLinhaSupabase(produto) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Foto de produto (Supabase Storage) — reaproveita o bucket site-media
+// (migration 20260920140000), pasta products/images/, mesmo padrão de
+// uploadMidiaSite()/excluirMidiaSite() (settings-service.js), mas isolado
+// aqui porque produtos.html não carrega settings-service.js. Nunca
+// sobrescreve (upsert:false) — cada upload recebe um nome novo via gerarId(),
+// nunca o id do produto, justamente pra permitir a ordem seguro de troca:
+// upload da nova -> salvar produto -> só depois excluir a antiga.
+// ---------------------------------------------------------------------------
+
+const PRODUCT_PHOTO_BUCKET = 'site-media';
+const PRODUCT_PHOTO_FOLDER = 'products/images';
+const PRODUCT_PHOTO_MIME_PARA_EXTENSAO = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+const PRODUCT_PHOTO_TAMANHO_MAXIMO_BYTES = 5 * 1024 * 1024; // 5 MB
+// Prefixo exato de uma foto de produto nossa — usado por excluirFotoProdutoSeForStorage()
+// pra nunca excluir base64, URL externa, nem outro arquivo de site-media (ex.: hero/*).
+const PRODUCT_PHOTO_URL_PREFIXO = `${SUPABASE_URL}/storage/v1/object/public/${PRODUCT_PHOTO_BUCKET}/${PRODUCT_PHOTO_FOLDER}/`;
+
+/**
+ * Envia a foto de um produto pro bucket site-media, pasta products/images/. Só aceita
+ * JPG/PNG/WEBP até 5 MB. Retorna {url, path} — quem chama decide quando gravar a url em
+ * products.image_url (nunca gravado automaticamente aqui).
+ */
+async function uploadFotoProduto(file) {
+  if (!file) throw new Error('Selecione uma foto.');
+
+  const extensao = PRODUCT_PHOTO_MIME_PARA_EXTENSAO[file.type];
+  if (!extensao) throw new Error('Formato inválido. Envie JPG, PNG ou WEBP.');
+
+  if (file.size > PRODUCT_PHOTO_TAMANHO_MAXIMO_BYTES) {
+    throw new Error('A imagem precisa ter no máximo 5 MB.');
+  }
+
+  const path = `${PRODUCT_PHOTO_FOLDER}/${gerarId()}.${extensao}`;
+
+  const { error } = await supabaseClient.storage
+    .from(PRODUCT_PHOTO_BUCKET)
+    .upload(path, file, { upsert: false, contentType: file.type });
+  if (error) throw new Error(error.message);
+
+  const { data } = supabaseClient.storage.from(PRODUCT_PHOTO_BUCKET).getPublicUrl(path);
+  const url = (data && data.publicUrl) || null;
+  if (!url) throw new Error('Não foi possível obter a URL da foto enviada.');
+
+  return { url, path };
+}
+
+/**
+ * Exclui do Storage uma foto de produto, mas SOMENTE se `url` comprovadamente começar
+ * com o prefixo exato de products/images/ deste bucket. Nunca tenta excluir base64
+ * (data:...), URL externa, nem qualquer outra mídia de site-media (ex.: hero/images,
+ * hero/videos) — se não bater com o prefixo, não faz nada (retorna sem erro nem exceção).
+ */
+async function excluirFotoProdutoSeForStorage(url) {
+  if (!url || typeof url !== 'string' || !url.startsWith(PRODUCT_PHOTO_URL_PREFIXO)) return;
+
+  const path = `${PRODUCT_PHOTO_FOLDER}/${url.slice(PRODUCT_PHOTO_URL_PREFIXO.length)}`;
+  const { error } = await supabaseClient.storage.from(PRODUCT_PHOTO_BUCKET).remove([path]);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Exclui do Storage uma foto de produto pelo path exato retornado por uploadFotoProduto()
+ * — usada só pra rollback (o upload funcionou, mas salvar o produto falhou depois). Nunca
+ * precisa validar prefixo aqui: o path já veio de um upload que este mesmo módulo acabou
+ * de fazer, nunca de uma string arbitrária vinda de fora.
+ */
+async function excluirFotoProdutoPorPath(path) {
+  if (!path) return;
+  const { error } = await supabaseClient.storage.from(PRODUCT_PHOTO_BUCKET).remove([path]);
+  if (error) throw new Error(error.message);
+}
+
 /** Busca todos os espetos ativos direto no Supabase (fonte da verdade pra saber quem pode ter acréscimo num combo) */
 async function _buscarEspetosAtivosNoSupabase() {
   const { data, error } = await supabaseClient.from('products').select('id,name').eq('category', 'skewers').eq('active', true);

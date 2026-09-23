@@ -8,11 +8,6 @@
  * utils.js, storage.js e app.js (carregados antes deste).
  */
 
-// --- [AUTO-PRINT DEBUG] instrumentação temporária — remover depois do diagnóstico ---
-const AUTO_PRINT_DEBUG_VERSION = 'auto-print-debug-1';
-console.log('[AUTO-PRINT DEBUG] VERSION =', AUTO_PRINT_DEBUG_VERSION);
-// --- fim do bloco de versão ---
-
 let filtroTipoPedidos = ''; // '' | 'entrega' | 'comer_no_local' | 'retirada'
 let termoBuscaPedidos = '';
 let canalPedidosRealtime = null;
@@ -112,38 +107,20 @@ function iniciarRealtimePedidos() {
     },
     (status) => {
       // Só logging — o SDK do Supabase já gerencia reconexão sozinho, nenhuma reconexão manual aqui.
-      console.log('[AUTO-PRINT DEBUG] Realtime status:', status);
+      console.log('[AUTO-PRINT] Realtime status:', status);
     }
   );
 }
 
 /** origem: 'realtime' | 'polling' | 'visibilitychange' | 'desconhecida' — só pro log de diagnóstico, não afeta comportamento. */
 async function reloadOrders(origem = 'desconhecida') {
-  console.log('[AUTO-PRINT DEBUG] reload solicitado, origem =', origem, ', lock atual =', _reloadOrdersEmAndamento);
   if (_reloadOrdersEmAndamento) return;
   _reloadOrdersEmAndamento = true;
   try {
     await carregarPedidosClientesCache();
-    const pedidosCarregados = obterPedidosClientes();
-    console.log(
-      '[AUTO-PRINT DEBUG] pedidos carregados, quantidade =',
-      pedidosCarregados.length,
-      ', 5 mais recentes =',
-      pedidosCarregados
-        .slice()
-        .sort((a, b) => new Date(b.criadoEm) - new Date(a.criadoEm))
-        .slice(0, 5)
-        .map((p) => p.id)
-    );
     // Reconsulta o toggle a cada reload — uma aba de /pedidos já aberta antes de alguém ligar/
     // desligar em Configurações (em outra aba/dispositivo) precisa enxergar a mudança sem refresh.
     await atualizarConfiguracaoImpressaoAutomatica();
-    console.log(
-      '[AUTO-PRINT DEBUG] configuração atualizada, autoPrintAtiva =',
-      _impressaoAutomaticaAtiva,
-      ', autoPrintAtivadaEm =',
-      _impressaoAutomaticaAtivadaEm
-    );
     detectarPedidosNovos();
     renderizarQuadroPedidos();
     escanearCandidatosImpressaoAutomatica();
@@ -163,9 +140,8 @@ async function reloadOrders(origem = 'desconhecida') {
  */
 function iniciarPollingPedidos() {
   if (_intervaloPollingPedidos) return;
-  console.log('[AUTO-PRINT DEBUG] polling iniciado, intervalo =', INTERVALO_POLLING_PEDIDOS_MS);
+  console.log('[AUTO-PRINT] Polling iniciado, intervalo =', INTERVALO_POLLING_PEDIDOS_MS);
   _intervaloPollingPedidos = setInterval(() => {
-    console.log('[AUTO-PRINT DEBUG] polling tick, visibilityState =', document.visibilityState);
     if (document.visibilityState !== 'visible') return;
     reloadOrders('polling');
   }, INTERVALO_POLLING_PEDIDOS_MS);
@@ -696,12 +672,27 @@ function obterDeviceIdImpressora() {
 let _filaImpressaoAutomatica = []; // ids aguardando tentativa, nesta aba
 const _idsImpressaoAutomaticaEmFilaOuTentados = new Set(); // evita enfileirar o mesmo id 2x enquanto não resolvido
 
+// Mesmo valor usado no WHERE de claim_order_auto_print (SQL, migration
+// 20260923090000_allow_reclaim_abandoned_auto_print.sql) — mantenha os dois em sincronia.
+// Só um 'claimed' pode "expirar"; succeeded/failed/ambiguous nunca voltam a ser candidatos.
+const MINUTOS_CLAIM_IMPRESSAO_AUTOMATICA_ABANDONADO = 2;
+
+function claimImpressaoAutomaticaAbandonado(pedido) {
+  if (pedido.autoPrintStatus !== 'claimed' || !pedido.autoPrintClaimedAt) return false;
+  const minutosDesdeClaim = (Date.now() - new Date(pedido.autoPrintClaimedAt).getTime()) / 60000;
+  return minutosDesdeClaim >= MINUTOS_CLAIM_IMPRESSAO_AUTOMATICA_ABANDONADO;
+}
+
 /** Único ponto que decide se um pedido pode ser candidato — mesma regra tanto ao escanear quanto ao revalidar na hora de tentar. */
 function pedidoEhCandidatoImpressaoAutomatica(pedido) {
   if (!_impressaoAutomaticaAtiva || !_impressaoAutomaticaAtivadaEm) return false;
   if (!IMPRESSAO_EPSON_DIRETA_ATIVA) return false; // impressão automática só existe pelo caminho Epson direto
   if (pedido.impressoEm) return false;
-  if (pedido.autoPrintStatus) return false; // claimed/succeeded/failed/ambiguous — nunca reconsiderado aqui
+  // succeeded/failed/ambiguous nunca são reconsiderados; um 'claimed' só volta a ser candidato
+  // depois de MINUTOS_CLAIM_IMPRESSAO_AUTOMATICA_ABANDONADO (claim_order_auto_print reavalia
+  // isso de novo, atomicamente, no banco — este pré-filtro só evita uma tentativa óbvia que o
+  // banco recusaria de qualquer jeito).
+  if (pedido.autoPrintStatus && !claimImpressaoAutomaticaAbandonado(pedido)) return false;
   if (pedido.status === STATUS_PEDIDO.CANCELADO) return false;
   return new Date(pedido.criadoEm).getTime() >= new Date(_impressaoAutomaticaAtivadaEm).getTime();
 }
@@ -711,35 +702,14 @@ function escanearCandidatosImpressaoAutomatica() {
   if (!_impressaoAutomaticaAtiva) return;
   const pedidos = obterPedidosClientes();
 
-  // [AUTO-PRINT DEBUG] só loga os 5 mais recentes, pra não poluir o console.
-  const idsParaLogar = new Set(
-    pedidos
-      .slice()
-      .sort((a, b) => new Date(b.criadoEm) - new Date(a.criadoEm))
-      .slice(0, 5)
-      .map((p) => p.id)
-  );
-
   pedidos.forEach((pedido) => {
     const jaTentado = _idsImpressaoAutomaticaEmFilaOuTentados.has(pedido.id);
     const ehCandidato = !jaTentado && pedidoEhCandidatoImpressaoAutomatica(pedido);
-
-    if (idsParaLogar.has(pedido.id)) {
-      console.log('[AUTO-PRINT DEBUG] candidato?', {
-        id: pedido.id,
-        criadoEm: pedido.criadoEm,
-        status: pedido.status,
-        impressoEm: pedido.impressoEm,
-        autoPrintStatus: pedido.autoPrintStatus,
-        jaTentadoNestaAba: jaTentado,
-        candidato: ehCandidato,
-      });
-    }
-
     if (jaTentado || !ehCandidato) return;
+
     _idsImpressaoAutomaticaEmFilaOuTentados.add(pedido.id);
     _filaImpressaoAutomatica.push(pedido.id);
-    console.log('[AUTO-PRINT DEBUG] ENFILEIRADO', pedido.id);
+    console.log('[AUTO-PRINT] Pedido detectado', { id: pedido.id, numero: pedido.numero });
   });
   processarFilaImpressaoAutomatica();
 }
@@ -759,26 +729,24 @@ function processarFilaImpressaoAutomatica() {
  * caminho paralelo, não uma variação deles.
  */
 async function iniciarImpressaoAutomaticaPedido(id) {
-  console.log('[AUTO-PRINT DEBUG] PROCESSANDO', id);
   const pedido = obterPedidoClientePorId(id);
   if (!pedido || !pedidoEhCandidatoImpressaoAutomatica(pedido)) {
-    // Já não é mais candidato (impresso/cancelado/claim resolvido nesse meio-tempo) — não é erro.
-    console.log('[AUTO-PRINT DEBUG] PROCESSANDO', id, '- não é mais candidato, abortando antes do claim');
+    // Já não é mais candidato (impresso/cancelado/claim resolvido ou ainda não abandonado
+    // nesse meio-tempo) — não é erro.
     processarFilaImpressaoAutomatica();
     return;
   }
+  const numero = pedido.numero;
 
   const snapshot = JSON.parse(JSON.stringify(pedido));
   _impressaoEmAndamento = true;
   aplicarBloqueioBotoesImpressao();
 
-  console.log('[AUTO-PRINT DEBUG] CLAIM INICIADO', id);
   let resultadoClaim;
   try {
     resultadoClaim = await claimOrderAutoPrintNoSupabase(id, _deviceIdImpressora);
-    console.log('[AUTO-PRINT DEBUG] CLAIM RESULTADO', id, resultadoClaim);
   } catch (erroClaim) {
-    console.error('[AUTO-PRINT DEBUG] CLAIM ERRO', id, erroClaim);
+    console.error('[AUTO-PRINT] Claim falhou', { id, numero }, erroClaim);
     finalizarImpressaoPedido();
     return;
   }
@@ -789,21 +757,32 @@ async function iniciarImpressaoAutomaticaPedido(id) {
     finalizarImpressaoPedido();
     return;
   }
+  console.log('[AUTO-PRINT] Claim adquirido', { id, numero });
 
   let xml;
   try {
     xml = gerarComandaEposPrintXml(snapshot);
   } catch (erroBuilder) {
-    console.error('Não foi possível montar a comanda para impressão automática:', erroBuilder);
+    console.error('[AUTO-PRINT] Não foi possível montar a comanda:', erroBuilder);
     await _resolverImpressaoAutomaticaSemLancar(id, 'failed');
+    console.log('[AUTO-PRINT] Resolve failed', { id, numero });
     finalizarImpressaoPedido();
     return;
   }
 
+  console.log('[AUTO-PRINT] Enviando para Epson', { id, numero });
   const resultado = await EpsonPrinterService.imprimir(xml);
+  console.log('[AUTO-PRINT] Epson result', {
+    id,
+    numero,
+    codigo: resultado.codigo,
+    mensagem: resultado.mensagem,
+    sucesso: resultado.sucesso,
+  });
 
   if (resultado.codigo === 'SUCESSO') {
     await _resolverImpressaoAutomaticaSemLancar(id, 'succeeded');
+    console.log('[AUTO-PRINT] Resolve success', { id, numero });
     // Mesmo helper do caminho manual — RPC register_order_print, toast e finalizarImpressaoPedido()
     // (que já avança a fila) rodam exatamente como numa impressão manual bem-sucedida.
     _registrarImpressaoEFinalizar(
@@ -817,6 +796,7 @@ async function iniciarImpressaoAutomaticaPedido(id) {
   // definitiva. Nos dois casos: nunca chama register_order_print, nunca reenvia sozinho.
   const statusResolucao = resultado.codigo === 'TIMEOUT' || resultado.codigo === 'ERRO_REDE' ? 'ambiguous' : 'failed';
   await _resolverImpressaoAutomaticaSemLancar(id, statusResolucao);
+  console.log(statusResolucao === 'ambiguous' ? '[AUTO-PRINT] Resolve ambiguous' : '[AUTO-PRINT] Resolve failed', { id, numero });
   finalizarImpressaoPedido();
 }
 

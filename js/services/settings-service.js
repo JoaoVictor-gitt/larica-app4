@@ -176,14 +176,23 @@ async function buscarImpressaoAutomaticaDoSupabase() {
 /**
  * Liga/desliga a impressão automática. Cada chamada representa uma ação explícita do
  * usuário no toggle (nunca um resave em lote de outro formulário — este campo não faz
- * parte de atualizarConfiguracoesNegocioNoSupabase) — por isso, sempre que `ativa` for
- * true, carimba auto_print_enabled_at = now(), mesmo que já estivesse ligada antes; ao
- * desligar, NUNCA mexe em auto_print_enabled_at (fica sem efeito enquanto desligada, já
- * que claim_order_auto_print exige auto_print_enabled=true antes de olhar a data).
+ * parte de atualizarConfiguracoesNegocioNoSupabase). auto_print_enabled_at só é
+ * carimbado numa transição real false/null -> true — nunca ao repetir true -> true
+ * (evita que um resave/reclique acidental empurre a data pra frente e exclua pedidos
+ * já aguardando impressão). Ao desligar, NUNCA mexe em auto_print_enabled_at (fica sem
+ * efeito enquanto desligada, já que claim_order_auto_print exige auto_print_enabled=true
+ * antes de olhar a data) — religar depois carimba de novo, criando uma nova janela.
  */
 async function atualizarImpressaoAutomaticaNoSupabase(ativa) {
   const linha = { auto_print_enabled: !!ativa };
-  if (ativa) linha.auto_print_enabled_at = new Date().toISOString();
+
+  if (ativa) {
+    const atual = await buscarImpressaoAutomaticaDoSupabase();
+    if (!atual.ativa) {
+      linha.auto_print_enabled_at = new Date().toISOString();
+    }
+  }
+
   const { data, error } = await supabaseClient
     .from('business_settings')
     .update(linha)

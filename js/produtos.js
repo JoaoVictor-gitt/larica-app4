@@ -11,7 +11,13 @@
  * porque js/pedido.js busca produtos ativos dessa categoria.
  */
 
-let fotoSelecionadaBase64 = ''; // foto atualmente escolhida no formulário (base64) ou '' se nenhuma
+// Foto do produto (Supabase Storage, bucket site-media/products/images/) — o upload só
+// acontece ao Salvar, nunca ao selecionar o arquivo, pra nunca deixar um arquivo órfão
+// se o admin cancelar o formulário (ver salvarFormularioProduto()).
+let fotoAtualUrl = ''; // valor já salvo no produto (base64, URL externa ou Storage) — mostrado ao abrir o modal
+let fotoNovoArquivo = null; // File escolhido agora, ainda não enviado ao Storage
+let fotoRemovida = false; // true = admin clicou "Remover foto"; só efetivado no Save
+let fotoPreviewObjectUrl = null; // Object URL do preview do novo arquivo, revogado assim que deixa de ser necessário
 
 // Custos/Margem (Etapa 2) ----------------------------------------------------
 // souAdmin decide só a edição do campo de custo no modal (visualização já é
@@ -149,7 +155,7 @@ function celulaMargemHtml(produto) {
 
 function linhaProdutoHtml(produto) {
   const foto = produto.foto
-    ? `<img class="miniatura-produto" src="${produto.foto}" alt="${escaparHtml(produto.nome)}" />`
+    ? `<img class="miniatura-produto" src="${produto.foto}" alt="${escaparHtml(produto.nome)}" loading="lazy" />`
     : `<div class="miniatura-produto-vazia">🍢</div>`;
 
   const status = calcularStatusEstoque(produto.quantidadeEstoque);
@@ -281,7 +287,7 @@ function abrirModalCriacao() {
   document.getElementById('campo-ordem').value = 0;
   document.getElementById('campo-qtd-espetos').value = 1;
   document.getElementById('campo-qtd-acompanhamentos').value = 1;
-  definirFotoPreview('');
+  resetarEstadoFoto('');
   atualizarVisibilidadeCamposPorCategoria();
   atualizarDicaOrigemEstoque();
   abrirModal();
@@ -305,7 +311,7 @@ function abrirModalEdicao(id) {
   // desabilitar/limpar o campo pra combo e pra quem não é admin.
   const custoAtual = custoUnitarioDoProduto(produto);
   document.getElementById('campo-custo').value = custoAtual === null ? '' : custoAtual;
-  definirFotoPreview(produto.foto || '');
+  resetarEstadoFoto(produto.foto || '');
 
   const combo = produto.comboConfig;
   document.getElementById('campo-ordem').value = combo ? combo.ordem || 0 : 0;
@@ -509,34 +515,80 @@ function abrirModal() {
 
 function fecharModal() {
   document.getElementById('modal-overlay').classList.remove('modal-visivel');
+  // Cancelar o modal (X, "Cancelar" ou clique no overlay) nunca deve deixar upload
+  // pendente nem intenção de remoção presa — nenhum arquivo foi enviado até aqui
+  // (o upload só acontece dentro de salvarFormularioProduto, ao Salvar).
+  revogarPreviewObjectUrl();
+  fotoNovoArquivo = null;
+  fotoRemovida = false;
 }
+
+const FOTO_PRODUTO_MIMES_ACEITOS = ['image/jpeg', 'image/png', 'image/webp'];
+const FOTO_PRODUTO_TAMANHO_MAXIMO_BYTES = 5 * 1024 * 1024; // 5 MB — mesmo limite validado de novo em uploadFotoProduto()
 
 function tratarSelecaoFoto(evento) {
   const arquivo = evento.target.files[0];
   if (!arquivo) return;
 
-  const leitor = new FileReader();
-  leitor.onload = () => definirFotoPreview(leitor.result);
-  leitor.readAsDataURL(arquivo);
+  if (!FOTO_PRODUTO_MIMES_ACEITOS.includes(arquivo.type)) {
+    mostrarToast('Formato inválido. Envie JPG, PNG ou WEBP.', 'erro');
+    evento.target.value = '';
+    return;
+  }
+  if (arquivo.size > FOTO_PRODUTO_TAMANHO_MAXIMO_BYTES) {
+    mostrarToast('A imagem precisa ter no máximo 5 MB.', 'erro');
+    evento.target.value = '';
+    return;
+  }
+
+  // Só guarda o arquivo em memória + preview local — nenhum upload acontece aqui.
+  revogarPreviewObjectUrl();
+  fotoNovoArquivo = arquivo;
+  fotoRemovida = false; // uma nova seleção cancela uma remoção pendente
+  fotoPreviewObjectUrl = URL.createObjectURL(arquivo);
+  atualizarPreviewFoto();
 }
 
 function removerFotoSelecionada() {
-  definirFotoPreview('');
+  revogarPreviewObjectUrl();
+  fotoNovoArquivo = null;
+  fotoRemovida = true; // só efetivado (image_url='' + exclusão da antiga) ao Salvar
   document.getElementById('campo-foto').value = '';
+  atualizarPreviewFoto();
 }
 
-function definirFotoPreview(base64) {
-  fotoSelecionadaBase64 = base64 || '';
+function revogarPreviewObjectUrl() {
+  if (fotoPreviewObjectUrl) {
+    URL.revokeObjectURL(fotoPreviewObjectUrl);
+    fotoPreviewObjectUrl = null;
+  }
+}
+
+/** Reseta todo o estado de foto do formulário — chamado ao abrir criação/edição. */
+function resetarEstadoFoto(urlAtual) {
+  revogarPreviewObjectUrl();
+  fotoAtualUrl = urlAtual || '';
+  fotoNovoArquivo = null;
+  fotoRemovida = false;
+  document.getElementById('campo-foto').value = '';
+  atualizarPreviewFoto();
+}
+
+/** Redesenha o preview a partir do estado atual — novo arquivo > removida > foto salva > vazio. */
+function atualizarPreviewFoto() {
   const texto = document.getElementById('preview-foto-texto');
   const img = document.getElementById('preview-foto-img');
   const botaoRemover = document.getElementById('botao-remover-foto');
 
-  if (fotoSelecionadaBase64) {
-    img.src = fotoSelecionadaBase64;
+  const urlExibida = fotoNovoArquivo ? fotoPreviewObjectUrl : fotoRemovida ? '' : fotoAtualUrl;
+
+  if (urlExibida) {
+    img.src = urlExibida;
     img.style.display = 'block';
     texto.style.display = 'none';
     botaoRemover.style.display = 'inline-flex';
   } else {
+    img.src = '';
     img.style.display = 'none';
     texto.style.display = 'block';
     botaoRemover.style.display = 'none';
@@ -551,13 +603,38 @@ async function salvarFormularioProduto(evento) {
   const ehCombo = categoria === 'Combos';
   const ehEspetinho = categoria === 'Espetinhos';
 
+  const nome = document.getElementById('campo-nome').value.trim();
+  if (!nome || !categoria) {
+    mostrarToast('Preencha nome e categoria.', 'erro');
+    return;
+  }
+
+  // Foto: decide o valor final de image_url ANTES de tocar no produto. Se houver arquivo
+  // novo, faz o upload primeiro (produto/foto antiga continuam intactos se isso falhar);
+  // só avança pro salvarProduto() depois do upload confirmado.
+  let fotoParaSalvar = fotoAtualUrl;
+  let novoUploadPath = null; // preenchido só se um upload novo rodar aqui — usado pro rollback se o save falhar
+
+  if (fotoNovoArquivo) {
+    try {
+      const resultado = await uploadFotoProduto(fotoNovoArquivo);
+      fotoParaSalvar = resultado.url;
+      novoUploadPath = resultado.path;
+    } catch (erroUpload) {
+      mostrarToast('Não foi possível enviar a foto. ' + erroUpload.message, 'erro');
+      return; // produto e foto antiga permanecem intocados
+    }
+  } else if (fotoRemovida) {
+    fotoParaSalvar = '';
+  }
+
   const produto = {
-    nome: document.getElementById('campo-nome').value.trim(),
+    nome,
     categoria,
     preco: Number(document.getElementById('campo-preco').value) || 0,
     quantidadeEstoque: ehCombo ? 0 : Math.max(0, Number(document.getElementById('campo-estoque').value) || 0),
     descricao: document.getElementById('campo-descricao').value.trim(),
-    foto: fotoSelecionadaBase64,
+    foto: fotoParaSalvar,
     status: document.getElementById('campo-status').value,
     stockMode: document.getElementById('campo-origem-estoque').value,
     comboConfig: ehCombo
@@ -571,19 +648,35 @@ async function salvarFormularioProduto(evento) {
       : null,
   };
 
-  if (!produto.nome || !produto.categoria) {
-    mostrarToast('Preencha nome e categoria.', 'erro');
-    return;
-  }
-
   if (id) produto.id = id;
 
   let salvo;
   try {
     salvo = await salvarProduto(produto);
   } catch (erro) {
+    // Produto NÃO foi salvo. Se um upload novo rodou acima, ele ficou órfão — remove só
+    // ele (pelo path exato que o upload retornou, nunca por adivinhação) e nunca mexe na
+    // foto antiga, que continua sendo a verdade no banco.
+    if (novoUploadPath) {
+      try {
+        await excluirFotoProdutoPorPath(novoUploadPath);
+      } catch (erroLimpeza) {
+        console.warn('Falha ao limpar foto órfã após erro ao salvar produto:', erroLimpeza);
+      }
+    }
     mostrarToast('Não foi possível salvar o produto. ' + erro.message, 'erro');
     return;
+  }
+
+  // Produto salvo com sucesso — só agora é seguro excluir a foto antiga (se ela existia e
+  // foi de fato trocada/removida agora). Falha aqui NUNCA desfaz o produto nem apaga a
+  // foto nova: o produto já está correto, o único risco é um arquivo antigo órfão.
+  if ((novoUploadPath || fotoRemovida) && fotoAtualUrl && fotoAtualUrl !== fotoParaSalvar) {
+    try {
+      await excluirFotoProdutoSeForStorage(fotoAtualUrl);
+    } catch (erroLimpezaAntiga) {
+      console.warn('Produto salvo, mas não foi possível excluir a foto antiga (pode ter ficado órfã):', erroLimpezaAntiga);
+    }
   }
 
   // Custo: gravado à parte em product_costs, nunca dentro do payload de products (ver

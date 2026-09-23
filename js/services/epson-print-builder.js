@@ -178,6 +178,18 @@ function gerarComandaEposPrintXml(pedido) {
   const rotuloPagamento = ROTULOS_FORMA_PAGAMENTO_COMANDA[pedido.formaPagamento] || String(pedido.formaPagamento || '').toUpperCase();
   builder.addText('Pagamento: ' + rotuloPagamento + '\n');
 
+  // Pagamento pendente de confirmação manual (Revolut/Transferência) — só informação
+  // impressa pra cozinha/equipe; NUNCA participa da elegibilidade do auto-print (isso é
+  // decidido só por auto_print_*/created_at, ver claim_order_auto_print). Cash/Card e
+  // pagamentos já confirmados (statusPagamento 'pago') nunca mostram isto.
+  if ((pedido.formaPagamento === 'revolut' || pedido.formaPagamento === 'transferencia') && pedido.statusPagamento === 'pendente') {
+    builder.addTextStyle(undefined, undefined, true);
+    builder.addTextSize(2, 1);
+    builder.addText('*** PAGAMENTO PENDENTE ***\n');
+    builder.addTextSize(1, 1);
+    builder.addTextStyle(undefined, undefined, false);
+  }
+
   // "Precisa cobrar no momento" = statusPagamento 'pagar_na_entrega' (campo real, não inventado).
   if (pedido.statusPagamento === 'pagar_na_entrega') {
     builder.addTextStyle(undefined, undefined, true);
