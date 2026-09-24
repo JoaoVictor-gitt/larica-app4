@@ -393,8 +393,46 @@
   flex: 1;
 }
 
-.texto-cupom-aplicado {
-  margin: 0 0 var(--espaco-sm);
+.lista-cupons-aplicados {
+  list-style: none;
+  margin: var(--espaco-sm) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--espaco-xs);
+}
+
+.linha-cupom-aplicado {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  padding: var(--espaco-xs) var(--espaco-sm);
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-sm);
+}
+
+.linha-cupom-aplicado-codigo {
+  font-weight: 600;
+  flex: 1;
+}
+
+.linha-cupom-aplicado-beneficio {
+  color: var(--cor-texto-secundario);
+  font-size: 0.9rem;
+}
+
+.botao-remover-cupom-aplicado {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--cor-texto-secundario);
+  padding: 0 var(--espaco-xs);
+}
+
+.botao-remover-cupom-aplicado:hover {
+  color: var(--cor-terracota);
 }
 
 .resumo-revisao-titulo {
@@ -929,8 +967,16 @@
 .etapa-pedido .pergunta-troco { color: var(--cor-sobre-acento); }
 
 /* Transferência / Revolut (Pagamento e Confirmação) */
-.etapa-pedido .dados-transferencia-titulo,
-.etapa-pedido .texto-cupom-aplicado { color: var(--cor-sobre-acento); }
+.etapa-pedido .dados-transferencia-titulo { color: var(--cor-sobre-acento); }
+
+/* Cupons aplicados (chips removíveis) — mesmo tratamento de cor que .texto-cupom-aplicado tinha */
+.etapa-pedido .linha-cupom-aplicado {
+  background: rgba(255, 255, 255, 0.08);
+}
+.etapa-pedido .linha-cupom-aplicado-codigo,
+.etapa-pedido .linha-cupom-aplicado-beneficio { color: var(--cor-sobre-acento); }
+.etapa-pedido .botao-remover-cupom-aplicado { color: rgba(255, 255, 255, 0.55); }
+.etapa-pedido .botao-remover-cupom-aplicado:hover { color: var(--cor-sobre-acento); }
 
 .etapa-pedido .texto-auxiliar-copiar-revolut,
 .etapa-pedido .qr-revolut-referencia { color: rgba(255, 255, 255, 0.55); }

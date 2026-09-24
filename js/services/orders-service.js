@@ -217,10 +217,11 @@ async function createOrder(pedido, itensPedido, turnstileToken) {
     }),
   };
 
-  // Cupom (Fase 10B/Etapa 4) — só entra no payload quando há um código aplicado; omitido por completo
-  // quando não há (nunca envia coupon_code:null). create_customer_order revalida tudo server-side; o
-  // frontend nunca envia discount_type/discount_value/discount_amount, só o código em texto puro.
-  if (pedido.cupomCodigo) payload.coupon_code = pedido.cupomCodigo;
+  // Cupons (múltiplos, Fase 10B/Etapa 4+) — só entra no payload quando há ao menos 1 código
+  // aplicado; omitido por completo quando não há (nunca envia coupon_codes:[]). create_customer_order
+  // revalida cada código e decide o cap "1 monetário + 1 free_delivery" server-side; o frontend nunca
+  // envia discount_type/discount_value/discount_amount, só os códigos em texto puro (array).
+  if (pedido.cupomCodigos && pedido.cupomCodigos.length > 0) payload.coupon_codes = pedido.cupomCodigos;
 
   // L2.3H: rota /api/order do Worker (proxy pra RPC create_customer_order, com rate limiting +
   // Turnstile). O Worker já embrulha o corpo recebido em {payload: ...} antes de repassar ao
@@ -252,8 +253,20 @@ async function createOrder(pedido, itensPedido, turnstileToken) {
     taxaEntrega: Number(data.delivery_fee) || 0,
     total: Number(data.total) || 0,
     // Fonte oficial do desconto realmente aplicado (server-side) — nunca o valor estimado localmente.
+    // codigoCupom/valorDesconto: colunas legadas de orders — só representam 1 cupom (o monetário, se
+    // houver; senão o free_delivery). cuponsAplicados é a fonte completa (1 entrada por cupom
+    // realmente aplicado, vem de order_coupons via o novo campo applied_coupons da RPC).
     codigoCupom: data.coupon_code || null,
     valorDesconto: Number(data.discount_amount) || 0,
+    cuponsAplicados: Array.isArray(data.applied_coupons)
+      ? data.applied_coupons.map((c) => ({
+          codigo: c.coupon_code,
+          tipoDesconto: c.discount_type,
+          valorDesconto: Number(c.discount_value),
+          valorDescontoCalculado: Number(c.discount_amount),
+        }))
+      : [],
+    taxaEntregaOriginal: data.original_delivery_fee != null ? Number(data.original_delivery_fee) : null,
     cliente: pedido.cliente,
     fulfilment: pedido.fulfilment,
     retirada: pedido.retirada,
