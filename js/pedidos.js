@@ -35,8 +35,19 @@ let _impressaoAutomaticaAtivadaEm = null; // ISO string — pedidos criados ante
 // Fallback do Realtime — recuperação caso o canal pare/seja suspenso (ex.: aba em segundo plano
 // no iPad/Safari) ou perca um evento. Ver iniciarPollingPedidos()/reloadOrders() mais abaixo.
 let _reloadOrdersEmAndamento = false; // lock separado de _impressaoEmAndamento — nunca 2 reloadOrders() em voo ao mesmo tempo
+let _reloadPendente = false; // evento/tick que chegou durante um reload em voo — reexecuta 1x ao terminar, nunca é descartado
+let _pedidosInicializado = false; // true só depois de init() concluir com sucesso (pageshow/visibilitychange só religam recursos depois disso)
 let _intervaloPollingPedidos = null;
 const INTERVALO_POLLING_PEDIDOS_MS = 5000;
+
+/** Promise.race com timeout — não cancela a requisição, só impede que uma chamada pendurada segure um lock para sempre. */
+function _comTimeout(promessa, ms, rotulo) {
+  let timer;
+  const limite = new Promise((_, rejeitar) => {
+    timer = setTimeout(() => rejeitar(new Error('Timeout (' + ms + ' ms): ' + rotulo)), ms);
+  });
+  return Promise.race([promessa, limite]).finally(() => clearTimeout(timer));
+}
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -87,6 +98,7 @@ async function init() {
 
   iniciarRealtimePedidos();
   iniciarPollingPedidos();
+  _pedidosInicializado = true;
   // 1ª varredura logo após a carga inicial — pega tanto pedidos represados (impressora ficou
   // desligada, feature acabou de ser ligada) quanto o caso comum de nada pendente.
   escanearCandidatosImpressaoAutomatica();
@@ -101,7 +113,16 @@ async function init() {
 function iniciarRealtimePedidos() {
   if (canalPedidosRealtime) return;
   canalPedidosRealtime = subscribeToOrders(
-    () => {
+    (payload) => {
+      // Caminho rápido: pedido novo vai direto pra fila de auto-print, sem esperar o reload
+      // (a UI é atualizada separadamente, abaixo). O claim no banco continua sendo o portão.
+      if (payload && payload.eventType === 'INSERT' && payload.new) {
+        try {
+          processarInsertRealtimeAutoPrint(payload.new);
+        } catch (erroInsert) {
+          console.error('[AUTO-PRINT] Falha ao processar INSERT do Realtime:', erroInsert);
+        }
+      }
       clearTimeout(timeoutRecarregarPedidosRealtime);
       timeoutRecarregarPedidosRealtime = setTimeout(() => reloadOrders('realtime'), 400);
     },
@@ -114,10 +135,13 @@ function iniciarRealtimePedidos() {
 
 /** origem: 'realtime' | 'polling' | 'visibilitychange' | 'desconhecida' — só pro log de diagnóstico, não afeta comportamento. */
 async function reloadOrders(origem = 'desconhecida') {
-  if (_reloadOrdersEmAndamento) return;
+  if (_reloadOrdersEmAndamento) {
+    _reloadPendente = true; // nunca descarta: reexecuta assim que o reload atual terminar
+    return;
+  }
   _reloadOrdersEmAndamento = true;
   try {
-    await carregarPedidosClientesCache();
+    await _comTimeout(carregarPedidosClientesCache(), 20000, 'carregar pedidos');
     // Reconsulta o toggle a cada reload — uma aba de /pedidos já aberta antes de alguém ligar/
     // desligar em Configurações (em outra aba/dispositivo) precisa enxergar a mudança sem refresh.
     await atualizarConfiguracaoImpressaoAutomatica();
@@ -128,6 +152,10 @@ async function reloadOrders(origem = 'desconhecida') {
     console.error('Erro ao recarregar pedidos (realtime/polling):', erro);
   } finally {
     _reloadOrdersEmAndamento = false;
+    if (_reloadPendente) {
+      _reloadPendente = false;
+      reloadOrders('pendente');
+    }
   }
 }
 
@@ -249,9 +277,23 @@ function detectarPedidosNovos() {
 // tela), o canal pode ter sido suspenso/perdido eventos — força uma recarga imediata.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
-    reloadOrders('visibilitychange');
+    garantirRecursosPedidos('visibilitychange');
   }
 });
+
+/**
+ * Garante Realtime + polling ativos (ambos idempotentes — nunca duplicam canal/intervalo) e faz
+ * uma varredura de recuperação. pagehide destrói os dois; sem isto, uma página restaurada do
+ * bfcache (iPad/Safari) ficaria sem detecção. Só age depois de init() ter concluído.
+ */
+function garantirRecursosPedidos(origem) {
+  if (!_pedidosInicializado) return;
+  iniciarRealtimePedidos();
+  iniciarPollingPedidos();
+  reloadOrders(origem);
+}
+
+window.addEventListener('pageshow', () => garantirRecursosPedidos('pageshow'));
 
 /**
  * Limpa timers/subscription do painel — chamada em beforeunload e pagehide (iPad/Safari nem
@@ -697,19 +739,43 @@ function pedidoEhCandidatoImpressaoAutomatica(pedido) {
   return new Date(pedido.criadoEm).getTime() >= new Date(_impressaoAutomaticaAtivadaEm).getTime();
 }
 
+// Metadados por id (só pra logs de latência e pra checar elegibilidade de um pedido que veio só
+// do Realtime e ainda não está no cache): { detectadoEm (ms), origem, criadoEm, leve }.
+const _metaImpressaoAutomatica = new Map();
+
+/** Único ponto que entra na fila — deduplica por order.id (Set) e loga detecção/fila. Retorna true se enfileirou. */
+function enfileirarImpressaoAutomatica(pedido, origem) {
+  if (_idsImpressaoAutomaticaEmFilaOuTentados.has(pedido.id)) return false;
+  _idsImpressaoAutomaticaEmFilaOuTentados.add(pedido.id);
+  _filaImpressaoAutomatica.push(pedido.id);
+  _metaImpressaoAutomatica.set(pedido.id, { detectadoEm: Date.now(), origem, criadoEm: pedido.criadoEm, leve: pedido });
+  const msDesdeCriacao = pedido.criadoEm ? Date.now() - new Date(pedido.criadoEm).getTime() : null;
+  console.log('[AUTO-PRINT] Pedido detectado', { id: pedido.id, numero: pedido.numero, origem, msDesdeCriacao });
+  console.log('[AUTO-PRINT] Entrou na fila', { id: pedido.id, numero: pedido.numero, posicao: _filaImpressaoAutomatica.length, impressaoEmAndamento: _impressaoEmAndamento });
+  return true;
+}
+
+/**
+ * Caminho rápido do Realtime: linha crua de INSERT (sem itens) → mesma regra única de elegibilidade
+ * → fila → processamento imediato. Itens completos só são buscados depois do claim.
+ */
+function processarInsertRealtimeAutoPrint(linha) {
+  console.log('[AUTO-PRINT] Realtime INSERT recebido', { id: linha.id, numero: linha.order_number });
+  if (!_impressaoAutomaticaAtiva) return;
+  const leve = _linhaSupabaseParaPedido({ ...linha, order_items: [] });
+  if (!pedidoEhCandidatoImpressaoAutomatica(leve)) return;
+  if (enfileirarImpressaoAutomatica(leve, 'realtime')) processarFilaImpressaoAutomatica();
+}
+
 /** Chamado após init() e após todo reloadOrders() (nunca dentro de renderizarQuadroPedidos(), que só redesenha o cache atual). */
 function escanearCandidatosImpressaoAutomatica() {
   if (!_impressaoAutomaticaAtiva) return;
   const pedidos = obterPedidosClientes();
 
   pedidos.forEach((pedido) => {
-    const jaTentado = _idsImpressaoAutomaticaEmFilaOuTentados.has(pedido.id);
-    const ehCandidato = !jaTentado && pedidoEhCandidatoImpressaoAutomatica(pedido);
-    if (jaTentado || !ehCandidato) return;
-
-    _idsImpressaoAutomaticaEmFilaOuTentados.add(pedido.id);
-    _filaImpressaoAutomatica.push(pedido.id);
-    console.log('[AUTO-PRINT] Pedido detectado', { id: pedido.id, numero: pedido.numero });
+    if (_idsImpressaoAutomaticaEmFilaOuTentados.has(pedido.id)) return;
+    if (!pedidoEhCandidatoImpressaoAutomatica(pedido)) return;
+    enfileirarImpressaoAutomatica(pedido, 'scan');
   });
   processarFilaImpressaoAutomatica();
 }
@@ -729,35 +795,81 @@ function processarFilaImpressaoAutomatica() {
  * caminho paralelo, não uma variação deles.
  */
 async function iniciarImpressaoAutomaticaPedido(id) {
-  const pedido = obterPedidoClientePorId(id);
-  if (!pedido || !pedidoEhCandidatoImpressaoAutomatica(pedido)) {
+  const meta = _metaImpressaoAutomatica.get(id) || { detectadoEm: Date.now(), origem: 'desconhecida', leve: null };
+  const pedidoParaChecar = obterPedidoClientePorId(id) || meta.leve;
+  if (!pedidoParaChecar || !pedidoEhCandidatoImpressaoAutomatica(pedidoParaChecar)) {
     // Já não é mais candidato (impresso/cancelado/claim resolvido ou ainda não abandonado
     // nesse meio-tempo) — não é erro.
+    console.log('[AUTO-PRINT] Descartado antes do claim (não é mais candidato)', { id });
+    _metaImpressaoAutomatica.delete(id);
     processarFilaImpressaoAutomatica();
     return;
   }
-  const numero = pedido.numero;
+  const numero = pedidoParaChecar.numero;
 
-  const snapshot = JSON.parse(JSON.stringify(pedido));
   _impressaoEmAndamento = true;
   aplicarBloqueioBotoesImpressao();
+  console.log('[AUTO-PRINT] Iniciando processamento', {
+    id,
+    numero,
+    origem: meta.origem,
+    esperouNaFilaMs: Date.now() - meta.detectadoEm,
+    restantesNaFila: _filaImpressaoAutomatica.length,
+  });
 
+  try {
+    await _executarImpressaoAutomaticaClaimed(id, numero, meta);
+  } catch (erroInesperado) {
+    // Rede de segurança: qualquer exceção não prevista nunca pode deixar o lock preso nem a fila parada.
+    console.error('[AUTO-PRINT] Erro inesperado no processamento', { id, numero }, erroInesperado);
+    finalizarImpressaoPedido();
+  } finally {
+    _metaImpressaoAutomatica.delete(id);
+  }
+}
+
+/** Corpo da tentativa (claim → dados completos → XML → Epson → resolve). Toda saída termina em finalizarImpressaoPedido(), direta ou via _registrarImpressaoEFinalizar. */
+async function _executarImpressaoAutomaticaClaimed(id, numero, meta) {
+  const tClaim = Date.now();
   let resultadoClaim;
   try {
-    resultadoClaim = await claimOrderAutoPrintNoSupabase(id, _deviceIdImpressora);
+    resultadoClaim = await _comTimeout(claimOrderAutoPrintNoSupabase(id, _deviceIdImpressora), 10000, 'claim_order_auto_print');
   } catch (erroClaim) {
     console.error('[AUTO-PRINT] Claim falhou', { id, numero }, erroClaim);
     finalizarImpressaoPedido();
     return;
   }
 
-  if (!resultadoClaim.claimed) {
+  if (!resultadoClaim || !resultadoClaim.claimed) {
     // Outro dispositivo já reivindicou, ou um humano já imprimiu manualmente, ou a impressão
     // automática foi desativada entre o escaneamento e agora — resultado esperado, não é erro.
+    console.log('[AUTO-PRINT] Claim recusado (claimed:false) — outro dispositivo/aba, já impresso, desativado ou fora da regra do banco', {
+      id,
+      numero,
+      claimMs: Date.now() - tClaim,
+    });
     finalizarImpressaoPedido();
     return;
   }
-  console.log('[AUTO-PRINT] Claim adquirido', { id, numero });
+  console.log('[AUTO-PRINT] Claim adquirido', { id, numero, claimMs: Date.now() - tClaim, desdeDeteccaoMs: Date.now() - meta.detectadoEm });
+
+  // Dados completos: do cache se já estiver lá; senão (veio só do Realtime) busca só este pedido.
+  let pedidoCompleto = obterPedidoClientePorId(id);
+  if (!pedidoCompleto) {
+    try {
+      const lista = await _comTimeout(getOrdersWithDetails({ orderIds: [id] }), 15000, 'buscar pedido completo');
+      pedidoCompleto = lista && lista[0];
+    } catch (erroBusca) {
+      console.error('[AUTO-PRINT] Não foi possível carregar o pedido completo:', { id, numero }, erroBusca);
+    }
+    if (!pedidoCompleto) {
+      await _resolverImpressaoAutomaticaSemLancar(id, 'failed');
+      console.log('[AUTO-PRINT] Resolve failed', { id, numero });
+      finalizarImpressaoPedido();
+      return;
+    }
+  }
+  const snapshot = JSON.parse(JSON.stringify(pedidoCompleto));
 
   let xml;
   try {
@@ -770,7 +882,8 @@ async function iniciarImpressaoAutomaticaPedido(id) {
     return;
   }
 
-  console.log('[AUTO-PRINT] Enviando para Epson', { id, numero });
+  console.log('[AUTO-PRINT] Enviando para Epson', { id, numero, desdeDeteccaoMs: Date.now() - meta.detectadoEm });
+  const tEpson = Date.now();
   const resultado = await EpsonPrinterService.imprimir(xml);
   console.log('[AUTO-PRINT] Epson result', {
     id,
@@ -778,11 +891,12 @@ async function iniciarImpressaoAutomaticaPedido(id) {
     codigo: resultado.codigo,
     mensagem: resultado.mensagem,
     sucesso: resultado.sucesso,
+    epsonMs: Date.now() - tEpson,
   });
 
   if (resultado.codigo === 'SUCESSO') {
     await _resolverImpressaoAutomaticaSemLancar(id, 'succeeded');
-    console.log('[AUTO-PRINT] Resolve success', { id, numero });
+    console.log('[AUTO-PRINT] Resolve success', { id, numero, totalDesdeDeteccaoMs: Date.now() - meta.detectadoEm });
     // Mesmo helper do caminho manual — RPC register_order_print, toast e finalizarImpressaoPedido()
     // (que já avança a fila) rodam exatamente como numa impressão manual bem-sucedida.
     _registrarImpressaoEFinalizar(
@@ -803,17 +917,19 @@ async function iniciarImpressaoAutomaticaPedido(id) {
 /** Grava o resultado terminal do claim; nunca lança — uma falha ao gravar não pode travar o lock nem a fila. */
 async function _resolverImpressaoAutomaticaSemLancar(id, status) {
   try {
-    await resolveOrderAutoPrintNoSupabase(id, _deviceIdImpressora, status);
+    await _comTimeout(resolveOrderAutoPrintNoSupabase(id, _deviceIdImpressora, status), 10000, 'resolve_order_auto_print');
   } catch (erroResolver) {
     console.error('Não foi possível registrar o resultado (' + status + ') da impressão automática do pedido ' + id + ':', erroResolver);
     // Segue mesmo assim — o pedido fica "claimed" sem resolução, tratado como ambíguo na UI (ver
     // alertaImpressaoAutomaticaHtml) e nunca reconsiderado automaticamente por nenhum dispositivo.
   }
-  try {
-    await carregarPedidosClientesCache(); // traz o autoPrintStatus novo antes do próximo render
-  } catch (erroRecarregar) {
-    console.error('Não foi possível recarregar pedidos após resolver impressão automática:', erroRecarregar);
-  }
+  // Recarga completa do cache em segundo plano — NÃO bloqueia o lock/fila (com histórico grande
+  // isso atrasava o próximo pedido). Traz o autoPrintStatus novo e redesenha quando terminar.
+  _comTimeout(carregarPedidosClientesCache(), 20000, 'recarregar pedidos após resolve')
+    .then(() => renderizarQuadroPedidos())
+    .catch((erroRecarregar) => {
+      console.error('Não foi possível recarregar pedidos após resolver impressão automática:', erroRecarregar);
+    });
 }
 
 // Um claim 'claimed' sem resolução por tempo demais (aba fechou/recarregou entre o claim e o
