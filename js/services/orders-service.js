@@ -69,6 +69,15 @@ function _linhaSupabaseParaPedido(o) {
     subtotal: Number(o.subtotal) || 0,
     taxaEntrega: Number(o.delivery_fee) || 0,
     total: Number(o.total) || 0,
+    // Cupom/desconto/frete grátis — colunas reais de orders gravadas por create_customer_order (só
+    // leitura, usadas pela comanda impressa). Mesmos nomes do retorno de createOrder (mais abaixo).
+    // codigoCupom/tipoDesconto/valorDescontoCupom representam 1 cupom só (o monetário, se houver;
+    // senão o free_delivery). valorDesconto = discount_amount (o que realmente saiu do subtotal).
+    codigoCupom: o.coupon_code || null,
+    tipoDesconto: o.discount_type || null,
+    valorDescontoCupom: o.discount_value != null ? Number(o.discount_value) : null,
+    valorDesconto: Number(o.discount_amount) || 0,
+    taxaEntregaOriginal: o.original_delivery_fee != null ? Number(o.original_delivery_fee) : null,
     itens: (o.order_items || []).map(_itemSupabaseParaItemPedido),
   };
 }

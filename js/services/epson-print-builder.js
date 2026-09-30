@@ -24,6 +24,8 @@
  */
 
 const EPSON_PRINT_LARGURA_DOTS = 576; // 80mm de papel, ~72mm de área imprimível (8 dots/mm)
+// Colunas de texto em Font A (12 dots/caractere) com addTextSize(1, 1) — 576 / 12. Com largura 2x, metade.
+const EPSON_PRINT_COLUNAS = 48;
 
 const ROTULOS_FORMA_PAGAMENTO_COMANDA = {
   cartao: 'CARTÃO',
@@ -37,6 +39,23 @@ const ROTULOS_FORMA_PAGAMENTO_COMANDA = {
 // já usado para RETIRADA/ENTREGA, só o texto muda.
 const ROTULO_TIPO_COMANDA_EPSON = { entrega: 'ENTREGA', comer_no_local: 'COMER NO LOCAL', retirada: 'RETIRADA' };
 const ROTULO_COBRAR_COMANDA_EPSON = { entrega: 'COBRAR NA ENTREGA', comer_no_local: 'COBRAR NO LOCAL', retirada: 'COBRAR NA RETIRADA' };
+
+/**
+ * Linha "rótulo ........ valor" com o valor alinhado à direita em `colunas` caracteres
+ * (fonte monoespaçada). Se não couber numa linha, o rótulo fica sozinho e o valor desce
+ * pra linha seguinte, ainda alinhado à direita — nunca corta nada.
+ */
+function _linhaDuasColunasComanda(esquerda, direita, colunas) {
+  const largura = colunas || EPSON_PRINT_COLUNAS;
+  const espacos = largura - esquerda.length - direita.length;
+  if (espacos >= 1) return esquerda + ' '.repeat(espacos) + direita + '\n';
+  return esquerda + '\n' + ' '.repeat(Math.max(0, largura - direita.length)) + direita + '\n';
+}
+
+/** 5 -> "5%", 7.5 -> "7,5%" — só formatação do valor já gravado em orders.discount_value. */
+function _percentualComanda(valor) {
+  return String(valor).replace('.', ',') + '%';
+}
 
 /**
  * Gera o XML <epos-print> completo de uma comanda de cozinha.
@@ -116,8 +135,10 @@ function gerarComandaEposPrintXml(pedido) {
   // --- Itens ---
   builder.addTextAlign(builder.ALIGN_LEFT);
   itens.forEach(function (item, indice) {
+    // Largura 1x/altura 2x: mesma altura de antes (leitura na cozinha), metade da largura —
+    // cabe o dobro de caracteres por linha; nomes longos quebram sozinhos na impressora.
     builder.addTextStyle(undefined, undefined, true);
-    builder.addTextSize(2, 2);
+    builder.addTextSize(1, 2);
     builder.addText(item.quantidade + 'x ' + item.nome + '\n');
     builder.addTextSize(1, 1);
     builder.addTextStyle(undefined, undefined, false);
@@ -136,10 +157,60 @@ function gerarComandaEposPrintXml(pedido) {
       });
     }
 
+    // Preço — valores gravados em order_items (unit_price/extras_total/total_price), nunca
+    // recalculados: o total da linha é sempre item.valorTotal, exatamente o que entrou no subtotal.
+    const extrasItem = item.combo ? Number(item.combo.extras) || 0 : 0;
+    if (extrasItem > 0) {
+      builder.addText('   ' + item.quantidade + ' x ' + formatarMoeda(item.valorUnitario) + '\n');
+      builder.addText(_linhaDuasColunasComanda('   Extras', '+' + formatarMoeda(extrasItem)));
+      builder.addText(_linhaDuasColunasComanda('', formatarMoeda(item.valorTotal)));
+    } else {
+      builder.addText(_linhaDuasColunasComanda('   ' + item.quantidade + ' x ' + formatarMoeda(item.valorUnitario), formatarMoeda(item.valorTotal)));
+    }
+
     if (indice < itens.length - 1) {
       builder.addFeedLine(1);
     }
   });
+
+  builder.addFeedLine(1);
+
+  // --- Resumo financeiro ---
+  // Só valores já gravados em orders (subtotal/delivery_fee/original_delivery_fee/coupon_code/
+  // discount_*/total) — nada recalculado, então a comanda sempre bate com o valor cobrado.
+  builder.addHLine(0, EPSON_PRINT_LARGURA_DOTS - 1, builder.LINE_THIN);
+  builder.addFeedLine(1);
+
+  builder.addText(_linhaDuasColunasComanda('SUBTOTAL:', formatarMoeda(pedido.subtotal)));
+
+  // Taxa só existe em entrega — retirada/comer no local não imprimem linha de entrega.
+  if (ehEntrega) {
+    const rotuloEntrega = pedido.taxaEntregaOriginal != null
+      ? 'ENTREGA GRÁTIS (era ' + formatarMoeda(pedido.taxaEntregaOriginal) + '):'
+      : 'ENTREGA:';
+    builder.addText(_linhaDuasColunasComanda(rotuloEntrega, formatarMoeda(pedido.taxaEntrega)));
+  }
+
+  if (pedido.codigoCupom) {
+    builder.addFeedLine(1);
+    builder.addText('CUPOM: ' + pedido.codigoCupom + '\n');
+  }
+  if (pedido.valorDesconto > 0) {
+    const rotuloDesconto = pedido.tipoDesconto === 'percentage' && pedido.valorDescontoCupom != null
+      ? 'DESCONTO (' + _percentualComanda(pedido.valorDescontoCupom) + '):'
+      : 'DESCONTO:';
+    builder.addText(_linhaDuasColunasComanda(rotuloDesconto, '-' + formatarMoeda(pedido.valorDesconto)));
+  }
+
+  builder.addHLine(0, EPSON_PRINT_LARGURA_DOTS - 1, builder.LINE_THIN);
+  builder.addFeedLine(1);
+
+  // TOTAL continua em destaque (2x2 = 24 colunas por linha).
+  builder.addTextStyle(undefined, undefined, true);
+  builder.addTextSize(2, 2);
+  builder.addText(_linhaDuasColunasComanda('TOTAL:', formatarMoeda(pedido.total), EPSON_PRINT_COLUNAS / 2));
+  builder.addTextSize(1, 1);
+  builder.addTextStyle(undefined, undefined, false);
 
   builder.addFeedLine(1);
 
@@ -203,15 +274,7 @@ function gerarComandaEposPrintXml(pedido) {
   builder.addHLine(0, EPSON_PRINT_LARGURA_DOTS - 1, builder.LINE_THICK);
   builder.addFeedLine(1);
 
-  // --- Total + rodapé ---
-  builder.addTextStyle(undefined, undefined, true);
-  builder.addTextSize(2, 2);
-  builder.addText('TOTAL: ' + formatarMoeda(pedido.total) + '\n');
-  builder.addTextSize(1, 1);
-  builder.addTextStyle(undefined, undefined, false);
-
-  builder.addFeedLine(1);
-
+  // --- Rodapé (TOTAL agora fica no resumo financeiro, logo após os itens) ---
   builder.addTextStyle(undefined, undefined, true);
   builder.addText((pedido.numero || '') + '\n');
   builder.addTextStyle(undefined, undefined, false);

@@ -974,7 +974,9 @@ function renderizarComandaParaImpressao(pedido) {
     <div class="comanda-linha-info">${formatarData(pedido.criadoEm)} - ${formatarHora(pedido.criadoEm)}</div>
     <div class="comanda-tipo">${ROTULO_TIPO_COMANDA[pedido.fulfilment] || 'RETIRADA'}</div>
     <hr/>
-    <div class="comanda-itens">${linhasItensPedidoHtml(pedido)}</div>
+    <div class="comanda-itens">${linhasItensComandaHtml(pedido, moeda)}</div>
+    <hr/>
+    ${resumoFinanceiroComandaHtml(pedido, moeda)}
     ${
       ehEntrega && endereco.instrucoes
         ? `<hr/><div class="comanda-observacoes">
@@ -995,7 +997,6 @@ function renderizarComandaParaImpressao(pedido) {
         : `<div class="comanda-cliente">${escaparHtml(cliente.nome || '')} · ${escaparHtml(cliente.telefone || '')}</div>`
     }
     <hr/>
-    <div class="comanda-total">TOTAL: ${formatarMoeda(pedido.total, moeda)}</div>
     <div class="comanda-pagamento">Pagamento: ${escaparHtml((ROTULOS_FORMA_PAGAMENTO[pedido.formaPagamento] || '').toUpperCase())}</div>
     ${
       horarioSolicitado
@@ -1006,6 +1007,60 @@ function renderizarComandaParaImpressao(pedido) {
         : ''
     }
   `;
+}
+
+/**
+ * Itens da comanda impressa (AirPrint) — exclusivo da comanda; o modal "Ver pedido" continua
+ * usando linhasItensPedidoHtml(). Mesmo layout do builder Epson: nome, complementos do combo e
+ * "qtd x unitário ... total da linha", sempre com os valores gravados em order_items.
+ */
+function linhasItensComandaHtml(pedido, moeda) {
+  return (pedido.itens || [])
+    .map((item) => {
+      const complementos = item.combo
+        ? [
+            ...(item.combo.espetos || []).map((e) => `${e.quantidade}x ${escaparHtml(e.nome)}`),
+            ...(item.combo.acompanhamentos || []).map((a) => `${a.quantidade}x ${escaparHtml(a.nome)}`),
+            ...(item.combo.incluidos || []).map((i) => escaparHtml(i)),
+          ]
+            .map((texto) => `<div class="comanda-item-complemento">${texto}</div>`)
+            .join('')
+        : '';
+      const extras = item.combo ? Number(item.combo.extras) || 0 : 0;
+      const linhaExtras = extras > 0
+        ? `<div class="comanda-linha-valor"><span>Extras</span><span>+${formatarMoeda(extras, moeda)}</span></div>`
+        : '';
+      return `
+        <div class="comanda-item">
+          <div class="comanda-item-nome">${item.quantidade}x ${escaparHtml(item.nome)}</div>
+          ${complementos}
+          <div class="comanda-item-preco">
+            ${linhaExtras}
+            <div class="comanda-linha-valor"><span>${item.quantidade} x ${formatarMoeda(item.valorUnitario, moeda)}</span><span>${formatarMoeda(item.valorTotal, moeda)}</span></div>
+          </div>
+        </div>`;
+    })
+    .join('');
+}
+
+/** Subtotal/entrega/cupom/desconto/TOTAL da comanda — só valores gravados em orders, nada recalculado. */
+function resumoFinanceiroComandaHtml(pedido, moeda) {
+  const linha = (rotulo, valor) => `<div class="comanda-linha-valor"><span>${rotulo}</span><span>${valor}</span></div>`;
+  const rotuloEntrega = pedido.taxaEntregaOriginal != null
+    ? `ENTREGA GRÁTIS (era ${formatarMoeda(pedido.taxaEntregaOriginal, moeda)}):`
+    : 'ENTREGA:';
+  const rotuloDesconto = pedido.tipoDesconto === 'percentage' && pedido.valorDescontoCupom != null
+    ? `DESCONTO (${String(pedido.valorDescontoCupom).replace('.', ',')}%):`
+    : 'DESCONTO:';
+  return `
+    <div class="comanda-resumo">
+      ${linha('SUBTOTAL:', formatarMoeda(pedido.subtotal, moeda))}
+      ${pedido.fulfilment === 'entrega' ? linha(rotuloEntrega, formatarMoeda(pedido.taxaEntrega, moeda)) : ''}
+      ${pedido.codigoCupom ? `<div class="comanda-cupom">CUPOM: ${escaparHtml(pedido.codigoCupom)}</div>` : ''}
+      ${pedido.valorDesconto > 0 ? linha(rotuloDesconto, '-' + formatarMoeda(pedido.valorDesconto, moeda)) : ''}
+    </div>
+    <hr/>
+    <div class="comanda-total comanda-linha-valor"><span>TOTAL:</span><span>${formatarMoeda(pedido.total, moeda)}</span></div>`;
 }
 
 // ---------------------------------------------------------------------------
