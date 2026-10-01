@@ -52,6 +52,75 @@ function _linhaDuasColunasComanda(esquerda, direita, colunas) {
   return esquerda + '\n' + ' '.repeat(Math.max(0, largura - direita.length)) + direita + '\n';
 }
 
+/**
+ * "2x Nome do produto ........ 14,00 €" — valor na 1ª linha, alinhado à direita. Se o texto não
+ * couber ao lado do valor, quebra por palavras (palavra maior que a linha é partida, nunca
+ * cortada) e as linhas seguintes ficam recuadas 3 espaços, sem ocupar a coluna do valor.
+ * `recuo` (opcional) desloca o bloco inteiro — usado nos componentes do combo.
+ */
+function _linhasItemComanda(texto, valor, recuo) {
+  const recuoInicial = recuo || '';
+  const recuoContinuacao = recuoInicial + '   ';
+  const larguraTexto = EPSON_PRINT_COLUNAS - valor.length - 1;
+  const linhas = [];
+  let atual = '';
+  String(texto).split(/\s+/).filter(Boolean).forEach(function (palavra) {
+    if (!atual) {
+      atual = recuoInicial + palavra;
+    } else if ((atual + ' ' + palavra).length <= larguraTexto) {
+      atual += ' ' + palavra;
+    } else {
+      linhas.push(atual);
+      atual = recuoContinuacao + palavra;
+    }
+    while (atual.length > larguraTexto) {
+      linhas.push(atual.slice(0, larguraTexto));
+      atual = recuoContinuacao + atual.slice(larguraTexto);
+    }
+  });
+  if (atual) linhas.push(atual);
+  return _linhaDuasColunasComanda(linhas[0] || '', valor) + linhas.slice(1).map(function (l) { return l + '\n'; }).join('');
+}
+
+// --- Logo do topo da comanda ---
+// logo-comanda.png: versão preto-e-branco (1 bit, fundo branco, 384px = 48mm) derivada de logo.png
+// pra impressora térmica. Carregada UMA vez, localmente, num canvas — gerarComandaEposPrintXml é
+// síncrona, então só usa o logo se ele já estiver pronto; senão (ou se algo falhar) imprime o texto
+// "LARICA" de sempre. Só a tela de Pedidos chama prepararLogoComanda() (pedido.html não baixa nada).
+let _logoComanda = null;
+
+function prepararLogoComanda(url) {
+  if (_logoComanda || typeof document === 'undefined') return;
+  try {
+    const imagem = new Image();
+    imagem.onload = function () {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = imagem.naturalWidth;
+        canvas.height = imagem.naturalHeight;
+        const contexto = canvas.getContext('2d');
+        contexto.fillStyle = '#fff';
+        contexto.fillRect(0, 0, canvas.width, canvas.height);
+        contexto.drawImage(imagem, 0, 0);
+        contexto.getImageData(0, 0, 1, 1); // canvas "contaminado" (ex.: file://) lança aqui -> fallback texto
+        _logoComanda = { contexto: contexto, largura: canvas.width, altura: canvas.height };
+      } catch (erro) {
+        console.warn('[COMANDA] Logo indisponível, usando texto LARICA:', erro);
+      }
+    };
+    imagem.onerror = function () {
+      console.warn('[COMANDA] Não foi possível carregar o logo, usando texto LARICA.');
+    };
+    imagem.src = url || 'logo-comanda.png';
+  } catch (erro) {
+    console.warn('[COMANDA] Logo indisponível, usando texto LARICA:', erro);
+  }
+}
+
+function logoComandaDisponivel() {
+  return !!_logoComanda;
+}
+
 /** 5 -> "5%", 7.5 -> "7,5%" — só formatação do valor já gravado em orders.discount_value. */
 function _percentualComanda(valor) {
   return String(valor).replace('.', ',') + '%';
@@ -79,11 +148,26 @@ function gerarComandaEposPrintXml(pedido) {
   // --- Cabeçalho ---
   builder.addTextAlign(builder.ALIGN_CENTER);
 
-  builder.addTextStyle(undefined, undefined, true);
-  builder.addTextSize(2, 2);
-  builder.addText('LARICA\n');
-  builder.addTextSize(1, 1);
-  builder.addTextStyle(undefined, undefined, false);
+  // Logo (centralizado pelo ALIGN_CENTER acima). addImage só grava no XML depois de converter a
+  // imagem inteira, então se lançar nada fica pela metade e o texto "LARICA" entra no lugar.
+  let logoImpresso = false;
+  if (_logoComanda) {
+    try {
+      builder.halftone = builder.HALFTONE_THRESHOLD;
+      builder.brightness = 1.0;
+      builder.addImage(_logoComanda.contexto, 0, 0, _logoComanda.largura, _logoComanda.altura, builder.COLOR_1, builder.MODE_MONO);
+      logoImpresso = true;
+    } catch (erroLogo) {
+      console.warn('[COMANDA] Falha ao adicionar o logo, usando texto LARICA:', erroLogo);
+    }
+  }
+  if (!logoImpresso) {
+    builder.addTextStyle(undefined, undefined, true);
+    builder.addTextSize(2, 2);
+    builder.addText('LARICA\n');
+    builder.addTextSize(1, 1);
+    builder.addTextStyle(undefined, undefined, false);
+  }
 
   builder.addFeedLine(1);
 
@@ -135,37 +219,35 @@ function gerarComandaEposPrintXml(pedido) {
   // --- Itens ---
   builder.addTextAlign(builder.ALIGN_LEFT);
   itens.forEach(function (item, indice) {
-    // Largura 1x/altura 2x: mesma altura de antes (leitura na cozinha), metade da largura —
-    // cabe o dobro de caracteres por linha; nomes longos quebram sozinhos na impressora.
+    // Largura 1x/altura 2x: mesma altura de antes (leitura na cozinha), metade da largura — as
+    // 48 colunas continuam valendo. Preço = item.valorTotal (order_items.total_price, já com
+    // extras), nunca recalculado, alinhado à direita na mesma linha do nome.
     builder.addTextStyle(undefined, undefined, true);
     builder.addTextSize(1, 2);
-    builder.addText(item.quantidade + 'x ' + item.nome + '\n');
+    builder.addText(_linhasItemComanda(item.quantidade + 'x ' + item.nome, formatarMoeda(item.valorTotal)));
     builder.addTextSize(1, 1);
     builder.addTextStyle(undefined, undefined, false);
 
     // Complementos — só existem quando o item é um combo (espetos/acompanhamentos/incluidos
-    // são as únicas estruturas de "complemento" que existem no modelo real hoje).
+    // são as únicas estruturas de "complemento" que existem no modelo real hoje). Sem preço:
+    // já estão no total do combo. Espeto com acréscimo pago mostra o acréscimo (só informativo,
+    // já incluso em item.valorTotal) a partir de acrescimoUnitario = order_item_selections.extra_price
+    // gravado no pedido — mesma conta do banco: extra × qtd da seleção × qtd do combo.
     if (item.combo) {
       (item.combo.espetos || []).forEach(function (espeto) {
-        builder.addText('  ' + espeto.quantidade + 'x ' + espeto.nome + '\n');
+        if (espeto.acrescimoUnitario > 0) {
+          const acrescimo = espeto.acrescimoUnitario * espeto.quantidade * item.quantidade;
+          builder.addText(_linhasItemComanda(espeto.quantidade + 'x ' + espeto.nome + ' (extra)', '+' + formatarMoeda(acrescimo), '   '));
+        } else {
+          builder.addText('   ' + espeto.quantidade + 'x ' + espeto.nome + '\n');
+        }
       });
       (item.combo.acompanhamentos || []).forEach(function (acompanhamento) {
-        builder.addText('  ' + acompanhamento.quantidade + 'x ' + acompanhamento.nome + '\n');
+        builder.addText('   ' + acompanhamento.quantidade + 'x ' + acompanhamento.nome + '\n');
       });
       (item.combo.incluidos || []).forEach(function (nomeIncluido) {
-        builder.addText('  ' + nomeIncluido + '\n');
+        builder.addText('   ' + nomeIncluido + '\n');
       });
-    }
-
-    // Preço — valores gravados em order_items (unit_price/extras_total/total_price), nunca
-    // recalculados: o total da linha é sempre item.valorTotal, exatamente o que entrou no subtotal.
-    const extrasItem = item.combo ? Number(item.combo.extras) || 0 : 0;
-    if (extrasItem > 0) {
-      builder.addText('   ' + item.quantidade + ' x ' + formatarMoeda(item.valorUnitario) + '\n');
-      builder.addText(_linhaDuasColunasComanda('   Extras', '+' + formatarMoeda(extrasItem)));
-      builder.addText(_linhaDuasColunasComanda('', formatarMoeda(item.valorTotal)));
-    } else {
-      builder.addText(_linhaDuasColunasComanda('   ' + item.quantidade + ' x ' + formatarMoeda(item.valorUnitario), formatarMoeda(item.valorTotal)));
     }
 
     if (indice < itens.length - 1) {

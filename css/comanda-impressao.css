@@ -63,6 +63,8 @@
   }
 
   .comanda-marca { font-size: 16pt; font-weight: 700; text-align: center; }
+  /* logo-comanda.png (preto e branco, 384px) — mesmos 48mm de largura da versão Epson */
+  .comanda-logo { display: block; width: 48mm; height: auto; margin: 0 auto 2mm; }
   .comanda-subtitulo { font-size: 10pt; text-align: center; margin-bottom: 2mm; }
 
   /* Prioridade visual pedida: número do pedido MUITO grande */
@@ -73,12 +75,10 @@
   .comanda-tipo { font-weight: 700; letter-spacing: 0.05em; }
 
   /* Itens (linhasItensComandaHtml): nome ~15% menor que antes (13pt -> 11pt), ainda em negrito
-     pra leitura na cozinha; preços logo abaixo, em peso normal. */
+     pra leitura na cozinha; total do item à direita na mesma linha; complementos do combo abaixo. */
   .comanda-itens { font-size: 11pt; font-weight: 700; }
   .comanda-item + .comanda-item { margin-top: 1.5mm; }
-  .comanda-item-nome { overflow-wrap: anywhere; }
-  .comanda-item-complemento { font-size: 10pt; padding-left: 3mm; overflow-wrap: anywhere; }
-  .comanda-item-preco { font-size: 10pt; font-weight: 400; padding-left: 3mm; }
+  .comanda-item-complemento { font-size: 10pt; font-weight: 400; padding-left: 4mm; overflow-wrap: anywhere; }
 
   /* Linha "rótulo ........ valor" — valor sempre à direita, nunca quebra no meio */
   .comanda-linha-valor { display: flex; justify-content: space-between; gap: 2mm; }

@@ -53,6 +53,8 @@ document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
   _deviceIdImpressora = obterDeviceIdImpressora();
+  // Pré-carrega o logo da comanda (local); se falhar, a comanda sai com o texto "LARICA".
+  if (typeof prepararLogoComanda === 'function') prepararLogoComanda();
 
   const carregando = document.getElementById('estado-carregando-pedidos');
   const erro = document.getElementById('estado-erro-pedidos');
@@ -967,7 +969,11 @@ function renderizarComandaParaImpressao(pedido) {
 
   document.getElementById('comanda-impressao').innerHTML = `
     <div class="comanda-cabecalho">
-      <div class="comanda-marca">LARICA</div>
+      ${
+        typeof logoComandaDisponivel === 'function' && logoComandaDisponivel()
+          ? '<img class="comanda-logo" src="logo-comanda.png" alt="LARICA" />'
+          : '<div class="comanda-marca">LARICA</div>'
+      }
       <div class="comanda-subtitulo">ORDEM DE PEDIDO</div>
     </div>
     <div class="comanda-numero">${escaparHtml(pedido.numero)}</div>
@@ -1011,33 +1017,29 @@ function renderizarComandaParaImpressao(pedido) {
 
 /**
  * Itens da comanda impressa (AirPrint) — exclusivo da comanda; o modal "Ver pedido" continua
- * usando linhasItensPedidoHtml(). Mesmo layout do builder Epson: nome, complementos do combo e
- * "qtd x unitário ... total da linha", sempre com os valores gravados em order_items.
+ * usando linhasItensPedidoHtml(). Mesmo layout do builder Epson: "qtd x nome ...... total da linha"
+ * (order_items.total_price, já com extras) e, abaixo, os complementos do combo sem preço.
  */
 function linhasItensComandaHtml(pedido, moeda) {
   return (pedido.itens || [])
     .map((item) => {
+      // Espeto com acréscimo: valor informativo (já incluso no total do combo), de extra_price
+      // gravado no pedido — extra × qtd da seleção × qtd do combo, a mesma conta do banco.
       const complementos = item.combo
         ? [
-            ...(item.combo.espetos || []).map((e) => `${e.quantidade}x ${escaparHtml(e.nome)}`),
-            ...(item.combo.acompanhamentos || []).map((a) => `${a.quantidade}x ${escaparHtml(a.nome)}`),
-            ...(item.combo.incluidos || []).map((i) => escaparHtml(i)),
-          ]
-            .map((texto) => `<div class="comanda-item-complemento">${texto}</div>`)
-            .join('')
-        : '';
-      const extras = item.combo ? Number(item.combo.extras) || 0 : 0;
-      const linhaExtras = extras > 0
-        ? `<div class="comanda-linha-valor"><span>Extras</span><span>+${formatarMoeda(extras, moeda)}</span></div>`
+            ...(item.combo.espetos || []).map((e) =>
+              e.acrescimoUnitario > 0
+                ? `<div class="comanda-item-complemento comanda-linha-valor"><span>${e.quantidade}x ${escaparHtml(e.nome)} (extra)</span><span>+${formatarMoeda(e.acrescimoUnitario * e.quantidade * item.quantidade, moeda)}</span></div>`
+                : `<div class="comanda-item-complemento">${e.quantidade}x ${escaparHtml(e.nome)}</div>`
+            ),
+            ...(item.combo.acompanhamentos || []).map((a) => `<div class="comanda-item-complemento">${a.quantidade}x ${escaparHtml(a.nome)}</div>`),
+            ...(item.combo.incluidos || []).map((i) => `<div class="comanda-item-complemento">${escaparHtml(i)}</div>`),
+          ].join('')
         : '';
       return `
         <div class="comanda-item">
-          <div class="comanda-item-nome">${item.quantidade}x ${escaparHtml(item.nome)}</div>
+          <div class="comanda-item-nome comanda-linha-valor"><span>${item.quantidade}x ${escaparHtml(item.nome)}</span><span>${formatarMoeda(item.valorTotal, moeda)}</span></div>
           ${complementos}
-          <div class="comanda-item-preco">
-            ${linhaExtras}
-            <div class="comanda-linha-valor"><span>${item.quantidade} x ${formatarMoeda(item.valorUnitario, moeda)}</span><span>${formatarMoeda(item.valorTotal, moeda)}</span></div>
-          </div>
         </div>`;
     })
     .join('');
