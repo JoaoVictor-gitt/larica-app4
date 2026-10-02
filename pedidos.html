@@ -22,6 +22,11 @@
   <main class="conteudo-pagina">
     <div class="pagina-titulo">
       <h1>Pedidos</h1>
+      <div class="indicador-conexao-pedidos" id="indicador-conexao-pedidos" data-estado="amarelo" role="status" aria-live="polite">
+        <span class="indicador-conexao-ponto" aria-hidden="true"></span>
+        <span id="indicador-conexao-texto">Conectando...</span>
+        <span class="indicador-conexao-hora" id="indicador-conexao-hora"></span>
+      </div>
     </div>
 
     <div class="card filtros-pedidos">

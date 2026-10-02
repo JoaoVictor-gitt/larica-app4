@@ -40,6 +40,25 @@ let _pedidosInicializado = false; // true só depois de init() concluir com suce
 let _intervaloPollingPedidos = null;
 const INTERVALO_POLLING_PEDIDOS_MS = 5000;
 
+// Blindagem do recebimento (Etapa 1). Toda chamada de rede de reloadOrders() tem timeout; se mesmo
+// assim um reload passar de RELOAD_PEDIDOS_WATCHDOG_MS, ele é considerado abandonado: o lock é
+// liberado e o resultado dele, se chegar depois, é ignorado (_geracaoReloadPedidos).
+const RELOAD_PEDIDOS_WATCHDOG_MS = 45000;
+let _reloadPedidosIniciadoEm = 0;
+let _geracaoReloadPedidos = 0;
+
+// Estado real da conexão — alimenta o indicador 🟢/🟡/🔴 (nunca só navigator.onLine).
+let _statusRealtimePedidos = null; // último status do canal: 'SUBSCRIBED' | 'CHANNEL_ERROR' | 'TIMED_OUT' | 'CLOSED' | null
+let _realtimePedidosJaConectou = false; // distingue a 1ª conexão de uma reconexão (que pede resync)
+let _ultimaSincronizacaoPedidosOk = null; // Date da última carga de pedidos bem-sucedida
+let _falhasSeguidasSincronizacaoPedidos = 0;
+const SINCRONIZACAO_VERDE_MAX_MS = 45000;
+const SINCRONIZACAO_VERMELHO_APOS_MS = 60000;
+const FALHAS_SEGUIDAS_VERMELHO = 3;
+
+// Carga inicial com nova tentativa automática (nunca deixa a página morta esperando um F5).
+const ESPERAS_RETRY_CARGA_INICIAL_MS = [2000, 5000, 10000, 30000];
+
 /** Promise.race com timeout — não cancela a requisição, só impede que uma chamada pendurada segure um lock para sempre. */
 function _comTimeout(promessa, ms, rotulo) {
   let timer;
@@ -56,31 +75,22 @@ async function init() {
   // Pré-carrega o logo da comanda (local); se falhar, a comanda sai com o texto "LARICA".
   if (typeof prepararLogoComanda === 'function') prepararLogoComanda();
 
-  const carregando = document.getElementById('estado-carregando-pedidos');
-  const erro = document.getElementById('estado-erro-pedidos');
   const kanban = document.getElementById('kanban-pedidos');
-  let sucesso = false;
 
-  try {
-    await carregarPedidosClientesCache();
-    // Marca tudo que já existe na primeira carga como "visto" — nunca toca som pros pedidos que já estavam lá ao abrir a página.
-    idsPedidosVistos = new Set(obterPedidosClientes().map((p) => p.id));
-    sucesso = true;
-  } catch (erroCarregamento) {
-    console.error('Erro ao carregar pedidos:', erroCarregamento);
-    erro.textContent = 'Não foi possível carregar os pedidos. ' + erroCarregamento.message;
-    erro.style.display = 'block';
-  } finally {
-    // Sempre sai do "Carregando...", dê certo ou não — nunca fica preso aqui.
-    carregando.style.display = 'none';
-  }
+  // Indicador e online/offline já desde o início — durante a carga inicial (e suas novas
+  // tentativas) a equipe vê o estado real em vez de uma tela parada.
+  ligarIndicadorConexaoPedidos();
 
-  if (!sucesso) return;
+  // Só retorna depois de carregar com sucesso — tenta de novo sozinho, nunca exige F5.
+  await carregarPedidosIniciaisComRetry();
+  // Marca tudo que já existe na primeira carga como "visto" — nunca toca som pros pedidos que já estavam lá ao abrir a página.
+  idsPedidosVistos = new Set(obterPedidosClientes().map((p) => p.id));
 
   // Meta de preparo — carregamento independente do resto (uma falha aqui não pode derrubar o
   // Kanban); coluna própria fora da lista pública de business_settings (ver settings-service.js).
   try {
-    metaPreparoMinutos = await buscarMetaPreparoDoSupabase();
+    // Com timeout: se esta leitura pendurasse, init() nunca chegaria a ligar Realtime/polling.
+    metaPreparoMinutos = await _comTimeout(buscarMetaPreparoDoSupabase(), 10000, 'meta de preparo');
   } catch (erroMeta) {
     console.error('Não foi possível carregar a meta de preparo:', erroMeta);
   }
@@ -129,36 +139,142 @@ function iniciarRealtimePedidos() {
       timeoutRecarregarPedidosRealtime = setTimeout(() => reloadOrders('realtime'), 400);
     },
     (status) => {
-      // Só logging — o SDK do Supabase já gerencia reconexão sozinho, nenhuma reconexão manual aqui.
+      // O SDK do Supabase já gerencia a reconexão sozinho. Aqui só: (1) alimenta o indicador e
+      // (2) ao VOLTAR pra SUBSCRIBED depois de uma queda, ressincroniza — pedidos criados durante
+      // a queda não geram evento nenhum, só aparecem se buscarmos.
       console.log('[AUTO-PRINT] Realtime status:', status);
+      const reconectou = status === 'SUBSCRIBED' && _realtimePedidosJaConectou && _statusRealtimePedidos !== 'SUBSCRIBED';
+      _statusRealtimePedidos = status;
+      if (status === 'SUBSCRIBED') _realtimePedidosJaConectou = true;
+      atualizarIndicadorConexaoPedidos();
+      if (reconectou) reloadOrders('realtime-reconectado');
     }
   );
 }
 
-/** origem: 'realtime' | 'polling' | 'visibilitychange' | 'desconhecida' — só pro log de diagnóstico, não afeta comportamento. */
+/** Carga inicial: tenta até conseguir (2 s, 5 s, 10 s, depois a cada 30 s), mostrando o erro e a próxima tentativa. */
+async function carregarPedidosIniciaisComRetry() {
+  const carregando = document.getElementById('estado-carregando-pedidos');
+  const erro = document.getElementById('estado-erro-pedidos');
+  for (let tentativa = 0; ; tentativa++) {
+    try {
+      await _comTimeout(carregarPedidosClientesCache(), 20000, 'carga inicial de pedidos');
+      registrarSincronizacaoPedidos(true);
+      erro.style.display = 'none';
+      carregando.style.display = 'none';
+      return;
+    } catch (erroCarregamento) {
+      registrarSincronizacaoPedidos(false);
+      console.error('Erro ao carregar pedidos (tentativa ' + (tentativa + 1) + '):', erroCarregamento);
+      const esperaMs = ESPERAS_RETRY_CARGA_INICIAL_MS[Math.min(tentativa, ESPERAS_RETRY_CARGA_INICIAL_MS.length - 1)];
+      carregando.style.display = 'none';
+      erro.textContent =
+        'Não foi possível carregar os pedidos (' + erroCarregamento.message + '). Tentando novamente em ' + Math.round(esperaMs / 1000) + ' s...';
+      erro.style.display = 'block';
+      await new Promise((resolver) => setTimeout(resolver, esperaMs));
+    }
+  }
+}
+
+/** origem: 'realtime' | 'polling' | 'visibilitychange' | 'online' | ... — só pro log de diagnóstico, não afeta comportamento. */
 async function reloadOrders(origem = 'desconhecida') {
   if (_reloadOrdersEmAndamento) {
-    _reloadPendente = true; // nunca descarta: reexecuta assim que o reload atual terminar
-    return;
+    if (Date.now() - _reloadPedidosIniciadoEm < RELOAD_PEDIDOS_WATCHDOG_MS) {
+      _reloadPendente = true; // nunca descarta: reexecuta assim que o reload atual terminar
+      return;
+    }
+    // Watchdog: o reload em voo está pendurado há tempo demais — abandona ele (o resultado, se
+    // chegar, é ignorado pela geração) e segue com este. Nunca mais um painel congelado até o F5.
+    console.warn('[PEDIDOS] Reload anterior travado há mais de ' + RELOAD_PEDIDOS_WATCHDOG_MS / 1000 + ' s — liberando o lock.');
   }
+  const geracao = ++_geracaoReloadPedidos;
   _reloadOrdersEmAndamento = true;
+  _reloadPedidosIniciadoEm = Date.now();
   try {
     await _comTimeout(carregarPedidosClientesCache(), 20000, 'carregar pedidos');
+    if (geracao !== _geracaoReloadPedidos) return; // abandonado pelo watchdog — um reload mais novo assumiu
+    registrarSincronizacaoPedidos(true);
     // Reconsulta o toggle a cada reload — uma aba de /pedidos já aberta antes de alguém ligar/
     // desligar em Configurações (em outra aba/dispositivo) precisa enxergar a mudança sem refresh.
     await atualizarConfiguracaoImpressaoAutomatica();
+    if (geracao !== _geracaoReloadPedidos) return;
     detectarPedidosNovos();
     renderizarQuadroPedidos();
     escanearCandidatosImpressaoAutomatica();
   } catch (erro) {
-    console.error('Erro ao recarregar pedidos (realtime/polling):', erro);
+    if (geracao === _geracaoReloadPedidos) registrarSincronizacaoPedidos(false);
+    console.error('Erro ao recarregar pedidos (' + origem + '):', erro);
   } finally {
-    _reloadOrdersEmAndamento = false;
-    if (_reloadPendente) {
-      _reloadPendente = false;
-      reloadOrders('pendente');
+    // Só o reload "dono" da geração atual mexe no lock — um abandonado nunca solta o lock do novo.
+    if (geracao === _geracaoReloadPedidos) {
+      _reloadOrdersEmAndamento = false;
+      if (_reloadPendente) {
+        _reloadPendente = false;
+        reloadOrders('pendente');
+      }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Indicador de conexão (🟢 online / 🟡 reconectando / 🔴 sem conexão)
+// ---------------------------------------------------------------------------
+
+/** Chamado a cada carga de pedidos (inicial ou reload) — base do indicador. */
+function registrarSincronizacaoPedidos(sucesso) {
+  if (sucesso) {
+    _ultimaSincronizacaoPedidosOk = new Date();
+    _falhasSeguidasSincronizacaoPedidos = 0;
+  } else {
+    _falhasSeguidasSincronizacaoPedidos++;
+  }
+  atualizarIndicadorConexaoPedidos();
+}
+
+/**
+ * 🟢 canal Realtime SUBSCRIBED e última carga ok há < 45 s.
+ * 🔴 navegador offline, 3+ falhas seguidas, ou nenhuma carga ok há > 60 s.
+ * 🟡 qualquer outro caso (canal caído/reconectando com a carga ainda ok, ou conectando).
+ * Só exibe — nunca decide nada de pedidos/impressão.
+ */
+function atualizarIndicadorConexaoPedidos() {
+  const indicador = document.getElementById('indicador-conexao-pedidos');
+  if (!indicador) return;
+  const msDesdeSincronizacao = _ultimaSincronizacaoPedidosOk ? Date.now() - _ultimaSincronizacaoPedidosOk.getTime() : Infinity;
+
+  let estado;
+  let texto;
+  if (navigator.onLine === false) {
+    estado = 'vermelho';
+    texto = 'Sem conexão (internet)';
+  } else if (_falhasSeguidasSincronizacaoPedidos >= FALHAS_SEGUIDAS_VERMELHO || msDesdeSincronizacao > SINCRONIZACAO_VERMELHO_APOS_MS) {
+    estado = 'vermelho';
+    texto = _ultimaSincronizacaoPedidosOk ? 'Sem conexão — pedidos podem estar desatualizados' : 'Sem conexão — tentando carregar...';
+  } else if (_statusRealtimePedidos === 'SUBSCRIBED' && msDesdeSincronizacao <= SINCRONIZACAO_VERDE_MAX_MS) {
+    estado = 'verde';
+    texto = 'Pedidos online';
+  } else {
+    estado = 'amarelo';
+    texto = _realtimePedidosJaConectou ? 'Reconectando...' : 'Conectando...';
+  }
+
+  indicador.dataset.estado = estado;
+  document.getElementById('indicador-conexao-texto').textContent = texto;
+  document.getElementById('indicador-conexao-hora').textContent = _ultimaSincronizacaoPedidosOk
+    ? '· atualizado ' + _ultimaSincronizacaoPedidosOk.toLocaleTimeString('pt-PT')
+    : '';
+}
+
+/** Liga uma vez: online/offline + reavaliação periódica do indicador (só leitura local, sem rede). */
+function ligarIndicadorConexaoPedidos() {
+  atualizarIndicadorConexaoPedidos();
+  setInterval(atualizarIndicadorConexaoPedidos, 5000);
+  window.addEventListener('offline', atualizarIndicadorConexaoPedidos);
+  window.addEventListener('online', () => {
+    atualizarIndicadorConexaoPedidos();
+    // Internet voltou: garante canal + polling e já busca o que chegou durante a queda.
+    garantirRecursosPedidos('online');
+  });
 }
 
 /**
@@ -189,7 +305,9 @@ function iniciarPollingPedidos() {
  */
 async function atualizarConfiguracaoImpressaoAutomatica() {
   try {
-    const config = await buscarImpressaoAutomaticaDoSupabase();
+    // Timeout obrigatório: sem ele, um fetch pendurado (rede "meio morta" no iPad) segurava o lock
+    // de reloadOrders() pra sempre e o painel parava de mostrar pedidos novos até um F5.
+    const config = await _comTimeout(buscarImpressaoAutomaticaDoSupabase(), 10000, 'configuração de impressão automática');
     _impressaoAutomaticaAtiva = config.ativa;
     _impressaoAutomaticaAtivadaEm = config.ativadaEm;
   } catch (erro) {

@@ -26,6 +26,27 @@
   white-space: nowrap;
 }
 
+/* Indicador de conexão do recebimento de pedidos (verde/amarelo/vermelho) */
+.indicador-conexao-pedidos {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  font-size: 0.85rem;
+  color: var(--cor-texto-secundario);
+}
+
+.indicador-conexao-ponto {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--cor-status-amarelo);
+}
+
+.indicador-conexao-pedidos[data-estado="verde"] .indicador-conexao-ponto { background: var(--cor-status-verde); }
+.indicador-conexao-pedidos[data-estado="vermelho"] .indicador-conexao-ponto { background: var(--cor-status-vermelho); }
+.indicador-conexao-pedidos[data-estado="vermelho"] { color: var(--cor-status-vermelho); font-weight: 600; }
+
 /* ---------------------------------------------------------------------- */
 /* Quadro Kanban                                                          */
 /* ---------------------------------------------------------------------- */

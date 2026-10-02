@@ -535,10 +535,20 @@ function salvarConfiguracoes(config) {
 // ---------------------------------------------------------------------------
 
 let _cachePedidosClientes = null;
+// Ordem das cargas: várias telas/ações recarregam o cache em paralelo (Realtime, polling, transições,
+// impressão automática). Uma carga iniciada ANTES de outra que já foi aplicada nunca sobrescreve o
+// cache — senão uma resposta lenta/antiga apagaria um pedido novo que já estava na tela.
+let _seqCargaPedidos = 0;
+let _seqCargaPedidosAplicada = 0;
 
 /** Busca os pedidos no Supabase e guarda no cache em memória. Sem fallback silencioso — erro sobe pra quem chamou. */
 async function carregarPedidosClientesCache() {
-  _cachePedidosClientes = await getOrders();
+  const seq = ++_seqCargaPedidos;
+  const pedidos = await getOrders();
+  if (seq > _seqCargaPedidosAplicada) {
+    _cachePedidosClientes = pedidos;
+    _seqCargaPedidosAplicada = seq;
+  }
   return _cachePedidosClientes;
 }
 
