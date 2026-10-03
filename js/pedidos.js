@@ -15,8 +15,11 @@ let timeoutRecarregarPedidosRealtime = null;
 
 // Som de pedido novo (Fase 6) — preferência local do dispositivo, nunca vai pra business_settings.
 const CHAVE_SOM_PEDIDOS_ATIVO = 'caju_som_pedidos_ativo';
-let idsPedidosVistos = null; // Set — populado no 1º carregamento bem-sucedido, sem tocar som nesse load
-let audioContextPedidos = null;
+// Set de deduplicação de ALERTA (som/destaque/título) por order.id — populado no 1º carregamento
+// bem-sucedido sem tocar nada. Um id entra aqui uma única vez, seja pelo Realtime, polling,
+// reconexão ou volta da aba — então o mesmo pedido nunca alerta duas vezes. Não tem relação com a
+// fila de impressão automática (que tem dedupe e claim próprios).
+let idsPedidosVistos = null;
 
 // Cancelamento de pedido (Fase 7) — id do pedido atualmente aberto no modal de cancelamento
 let pedidoCancelamentoId = null;
@@ -134,6 +137,13 @@ function iniciarRealtimePedidos() {
         } catch (erroInsert) {
           console.error('[AUTO-PRINT] Falha ao processar INSERT do Realtime:', erroInsert);
         }
+        // Alerta (som/destaque/título) na hora, independente da impressão acima e da recarga abaixo.
+        try {
+          const pedidoNovo = _linhaSupabaseParaPedido({ ...payload.new, order_items: [] });
+          if (receberPedidoNovo(pedidoNovo, 'realtime')) registrarAlertaPedidoNovo(1, 'realtime');
+        } catch (erroAlerta) {
+          console.error('[PEDIDO NOVO] Falha ao alertar INSERT do Realtime:', erroAlerta);
+        }
       }
       clearTimeout(timeoutRecarregarPedidosRealtime);
       timeoutRecarregarPedidosRealtime = setTimeout(() => reloadOrders('realtime'), 400);
@@ -198,7 +208,7 @@ async function reloadOrders(origem = 'desconhecida') {
     // desligar em Configurações (em outra aba/dispositivo) precisa enxergar a mudança sem refresh.
     await atualizarConfiguracaoImpressaoAutomatica();
     if (geracao !== _geracaoReloadPedidos) return;
-    detectarPedidosNovos();
+    detectarPedidosNovos(origem); // nunca lança — alerta só ids nunca vistos (dedupe por order.id)
     renderizarQuadroPedidos();
     escanearCandidatosImpressaoAutomatica();
   } catch (erro) {
@@ -318,79 +328,312 @@ async function atualizarConfiguracaoImpressaoAutomatica() {
 }
 
 // ---------------------------------------------------------------------------
-// Som de pedido novo
+// Pedido novo: alerta sonoro + destaque do card + título da aba
 // ---------------------------------------------------------------------------
+//
+// Ponto único: receberPedidoNovo(pedido, origem), chamado pelo INSERT do Realtime (na hora) e por
+// detectarPedidosNovos() em cada recarga (pedido que o Realtime perdeu: polling, reconexão, volta
+// da aba). Só cuida de ALERTA — a interface vem da recarga de sempre e a impressão automática segue
+// pelo caminho próprio dela (processarInsertRealtimeAutoPrint/escanear…), intocado. Cada parte tem
+// try/catch próprio: falha no som nunca impede o pedido de aparecer/imprimir, e vice-versa.
+//
+// Som: sons/novo-pedido.wav (local, ~2,8 s) num único HTMLAudioElement reutilizado. Navegadores
+// (principalmente Safari/iPad) só deixam tocar depois de um toque do usuário — por isso o estado
+// mostrado é sempre o REAL (nunca "ativo" sem um play() ter dado certo).
+
+const ARQUIVO_SOM_NOVO_PEDIDO = 'sons/novo-pedido.wav';
+const DURACAO_DESTAQUE_PEDIDO_NOVO_MS = 8000;
+const PAUSA_ENTRE_ALERTAS_MS = 2000; // pedidos que chegam enquanto o alerta toca (ou logo depois) não tocam de novo
+const FOLGA_PEDIDO_ANTIGO_MS = 5 * 60000; // pedido criado antes da abertura da página (− folga de relógio) nunca alerta
+// Recargas que "recuperam" o que chegou com o painel fora (aba oculta, internet/Realtime caídos):
+// o lote inteiro vira UM alerta, com aviso de que chegaram enquanto o painel estava fora.
+const ORIGENS_RETORNO_PAINEL = new Set(['visibilitychange', 'pageshow', 'online', 'realtime-reconectado']);
+
+const _paginaPedidosAbertaEm = Date.now();
+const _tituloOriginalPedidos = document.title;
+const _destaquePedidoNovoAte = new Map(); // id -> timestamp até quando o card fica destacado
+let _audioAlertaPedido = null;
+let _estadoSomPedidos = 'desativado'; // 'desativado' | 'aguardando_toque' | 'ativo' | 'bloqueado' | 'erro'
+let _somPedidosOcupadoAte = 0; // até quando um novo alerta é absorvido (som tocando + pausa)
+let _tokenReproducaoSom = 0; // invalida um desbloqueio silencioso se um alerta real começou no meio
+let _timerMensagemSom = null;
+let _qtdPedidosNovosNaoVistos = 0;
+let _pedidosChegaramComPainelFora = false;
+let _timerLimparContadorNovos = null;
 
 function somPedidosAtivo() {
-  return localStorage.getItem(CHAVE_SOM_PEDIDOS_ATIVO) !== 'nao'; // ligado por padrão
+  try {
+    return localStorage.getItem(CHAVE_SOM_PEDIDOS_ATIVO) !== 'nao'; // ligado por padrão
+  } catch (erro) {
+    return true;
+  }
 }
 
 function definirSomPedidosAtivo(ativo) {
-  localStorage.setItem(CHAVE_SOM_PEDIDOS_ATIVO, ativo ? 'sim' : 'nao');
+  try {
+    localStorage.setItem(CHAVE_SOM_PEDIDOS_ATIVO, ativo ? 'sim' : 'nao');
+  } catch (erro) {
+    // localStorage indisponível — vale só nesta sessão
+  }
+}
+
+/** Elemento de áudio único (criado 1x, reaproveitado). null se o navegador não suportar. */
+function obterAudioAlertaPedido() {
+  if (_audioAlertaPedido) return _audioAlertaPedido;
+  try {
+    const audio = new Audio(ARQUIVO_SOM_NOVO_PEDIDO);
+    audio.preload = 'auto';
+    audio.volume = 1; // máximo do elemento — o volume final continua sendo o do aparelho
+    audio.addEventListener('ended', () => {
+      _somPedidosOcupadoAte = Date.now() + PAUSA_ENTRE_ALERTAS_MS;
+    });
+    audio.addEventListener('error', () => {
+      console.error('[SOM] Não foi possível carregar ' + ARQUIVO_SOM_NOVO_PEDIDO);
+      _audioAlertaPedido = null; // próxima tentativa recria (ex.: arquivo voltou)
+      if (somPedidosAtivo()) definirEstadoSomPedidos('erro');
+    });
+    _audioAlertaPedido = audio;
+    return audio;
+  } catch (erro) {
+    console.error('[SOM] Áudio indisponível neste navegador:', erro);
+    return null;
+  }
+}
+
+/**
+ * Toca o alerta completo. play() é chamado de forma SÍNCRONA (sem await antes), então quando
+ * chamado dentro de um toque conta como gesto do usuário (exigência do Safari). Nunca lança —
+ * retorna 'ok' | 'bloqueado' (navegador exige toque) | 'erro' (arquivo/áudio indisponível).
+ */
+async function tocarAlertaPedido() {
+  const audio = obterAudioAlertaPedido();
+  if (!audio) return 'erro';
+  _tokenReproducaoSom++;
+  try {
+    audio.muted = false;
+    audio.currentTime = 0;
+    const duracaoMs = Number.isFinite(audio.duration) ? audio.duration * 1000 : 3000;
+    _somPedidosOcupadoAte = Date.now() + duracaoMs + PAUSA_ENTRE_ALERTAS_MS;
+    await audio.play();
+    return 'ok';
+  } catch (erro) {
+    _somPedidosOcupadoAte = 0;
+    console.warn('[SOM] Reprodução recusada:', erro && erro.name);
+    return erro && erro.name === 'NotAllowedError' ? 'bloqueado' : 'erro';
+  }
+}
+
+/**
+ * Libera o áudio sem barulho (play mudo + pause) — usado no 1º toque na tela quando a preferência
+ * já estava ligada ao abrir a página, e pra rearmar depois de um bloqueio. Só marca "ativo" se o
+ * navegador realmente aceitou o play().
+ */
+async function desbloquearAudioSilencioso() {
+  const audio = obterAudioAlertaPedido();
+  if (!audio) return;
+  const token = ++_tokenReproducaoSom;
+  try {
+    audio.muted = true;
+    await audio.play();
+    if (token === _tokenReproducaoSom) {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.muted = false;
+    }
+    if (somPedidosAtivo()) definirEstadoSomPedidos('ativo');
+  } catch (erro) {
+    if (token === _tokenReproducaoSom) audio.muted = false;
+  }
+}
+
+/** Atualiza o rótulo ao lado do toggle. `mensagem` (opcional) substitui o texto padrão por alguns segundos. */
+function definirEstadoSomPedidos(estado, mensagem) {
+  _estadoSomPedidos = estado;
+  const rotulo = document.getElementById('estado-som-pedidos');
+  if (!rotulo) return;
+  const textos = {
+    ativo: '[ATIVO]',
+    desativado: '🔕 Som desativado',
+    aguardando_toque: '⚠ Toque na tela para liberar o som',
+    bloqueado: '⚠ Som bloqueado pelo navegador — toque aqui para reativar',
+    erro: '⚠ Não foi possível ativar o som — toque aqui para tentar de novo',
+  };
+  rotulo.dataset.estado = estado;
+  rotulo.textContent = mensagem || textos[estado] || '';
+  clearTimeout(_timerMensagemSom);
+  if (mensagem) {
+    _timerMensagemSom = setTimeout(() => definirEstadoSomPedidos(_estadoSomPedidos), 4000);
+  }
 }
 
 function ligarEventosSomPedidos() {
   const campo = document.getElementById('campo-som-pedidos');
   campo.checked = somPedidosAtivo();
-  campo.addEventListener('change', () => {
-    definirSomPedidosAtivo(campo.checked);
-    obterAudioContextPedidos(); // já é uma interação do usuário — aproveita pra desbloquear o autoplay
+  // Preferência ligada de uma abertura anterior: o navegador ainda precisa de um toque NESTA abertura.
+  definirEstadoSomPedidos(somPedidosAtivo() ? 'aguardando_toque' : 'desativado');
+  obterAudioAlertaPedido(); // já começa a baixar o arquivo (local)
+
+  campo.addEventListener('change', async () => {
+    if (!campo.checked) {
+      definirSomPedidosAtivo(false);
+      if (_audioAlertaPedido) _audioAlertaPedido.pause();
+      definirEstadoSomPedidos('desativado');
+      return;
+    }
+    // Ligar = autorização explícita: toca o alerta real como teste e só então marca como ativo.
+    campo.disabled = true;
+    const resultado = await tocarAlertaPedido(); // play() sai síncrono, ainda dentro do toque
+    campo.disabled = false;
+    if (resultado === 'ok') {
+      definirSomPedidosAtivo(true);
+      definirEstadoSomPedidos('ativo', '✓ Som ativado — teste reproduzido');
+    } else {
+      campo.checked = false; // nunca finge que está ativo
+      definirEstadoSomPedidos(
+        'erro',
+        '⚠ Não foi possível ativar o som — toque no botão novamente e verifique se o navegador permite áudio'
+      );
+    }
   });
 
-  // Qualquer clique na página conta como interação do usuário pro autoplay — desbloqueia
-  // o AudioContext o quanto antes, sem esperar o primeiro pedido novo realmente chegar.
-  document.addEventListener('click', obterAudioContextPedidos, { once: true });
+  // Qualquer toque/tecla na página (sempre, não só o 1º) libera/rearma o áudio quando a preferência
+  // está ligada mas o navegador ainda não deixou tocar — ex.: ao abrir a página, ou depois que o
+  // iPad voltou do bloqueio de tela. Toques no próprio toggle são tratados pelo 'change' acima.
+  const rearmar = (evento) => {
+    if (!somPedidosAtivo() || _estadoSomPedidos === 'ativo') return;
+    if (evento.target && evento.target.closest && evento.target.closest('.linha-toggle-som label')) return;
+    if (Date.now() < _somPedidosOcupadoAte) return;
+    desbloquearAudioSilencioso();
+  };
+  document.addEventListener('pointerdown', rearmar, true);
+  document.addEventListener('keydown', rearmar, true);
 }
 
-/** Cria/retoma o AudioContext. Só funciona de verdade após alguma interação do usuário na página (regra do navegador) — silencioso se falhar/indisponível. */
-function obterAudioContextPedidos() {
+/** Card destacado por ~8 s — consultado por cardPedidoHtml(). */
+function pedidoEmDestaqueNovo(id) {
+  const ate = _destaquePedidoNovoAte.get(id);
+  return !!ate && ate > Date.now();
+}
+
+/**
+ * Decide se este pedido gera alerta. Deduplicação por order.id (idsPedidosVistos): o 1º caminho que
+ * enxergar o id (Realtime, polling, reconexão, volta da aba) é o único — os seguintes retornam
+ * false. Marca o destaque do card. Retorna true se é um pedido novo que deve alertar.
+ */
+function receberPedidoNovo(pedido, origem) {
+  if (!idsPedidosVistos || !pedido || !pedido.id) return false; // antes da carga inicial: a carga marca tudo como visto
+  if (idsPedidosVistos.has(pedido.id)) return false;
+  idsPedidosVistos.add(pedido.id);
+
+  // Pedido criado antes de a página abrir (− folga de relógio) não é "novo" — nunca alerta.
+  const criadoEmMs = new Date(pedido.criadoEm).getTime();
+  if (!(criadoEmMs >= _paginaPedidosAbertaEm - FOLGA_PEDIDO_ANTIGO_MS)) return false;
+
   try {
-    if (!audioContextPedidos) {
-      const AudioContextClasse = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextClasse) return null;
-      audioContextPedidos = new AudioContextClasse();
-    }
-    if (audioContextPedidos.state === 'suspended') audioContextPedidos.resume().catch(() => {});
-    return audioContextPedidos;
-  } catch (erro) {
-    return null;
+    _destaquePedidoNovoAte.set(pedido.id, Date.now() + DURACAO_DESTAQUE_PEDIDO_NOVO_MS);
+    setTimeout(() => {
+      _destaquePedidoNovoAte.delete(pedido.id);
+      renderizarQuadroPedidos();
+    }, DURACAO_DESTAQUE_PEDIDO_NOVO_MS + 100);
+  } catch (erroDestaque) {
+    console.error('[PEDIDO NOVO] Falha no destaque:', erroDestaque);
   }
+  console.log('[PEDIDO NOVO] Recebido', { id: pedido.id, numero: pedido.numero, origem });
+  return true;
 }
 
-/** Beep curto via Web Audio API (sem arquivo/biblioteca externa). Nunca lança — autoplay bloqueado é ignorado silenciosamente. */
-function tocarSomNovoPedido() {
+/**
+ * Um alerta para `quantidade` pedidos novos (1 do Realtime, ou um lote achado numa recarga).
+ * Coalescência: se um alerta está tocando (ou acabou há < 2 s), este não toca de novo — só soma
+ * no contador/título. Nunca há dois sons sobrepostos, nem uma rajada de sons ao voltar pra aba.
+ */
+function registrarAlertaPedidoNovo(quantidade, origem) {
+  try {
+    const semFoco = document.hidden || !document.hasFocus();
+    const retornoPainel = ORIGENS_RETORNO_PAINEL.has(origem);
+    if (semFoco || retornoPainel) {
+      _qtdPedidosNovosNaoVistos += quantidade;
+      if (retornoPainel) _pedidosChegaramComPainelFora = true;
+      atualizarContadorPedidosNovosNaoVistos();
+      if (semFoco) document.title = tituloAlertaPedidosNovos();
+      else agendarLimpezaContadorPedidosNovos();
+    }
+  } catch (erroVisual) {
+    console.error('[PEDIDO NOVO] Falha no título/contador:', erroVisual);
+  }
+
   if (!somPedidosAtivo()) return;
-  try {
-    const ctx = obterAudioContextPedidos();
-    if (!ctx) return;
-
-    const osc = ctx.createOscillator();
-    const ganho = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.value = 880;
-    ganho.gain.setValueAtTime(0.0001, ctx.currentTime);
-    ganho.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
-    ganho.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
-    osc.connect(ganho);
-    ganho.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.4);
-  } catch (erro) {
-    // Som é só um extra — autoplay bloqueado ou API indisponível nunca deve quebrar a tela.
-  }
-}
-
-/** Compara os pedidos atuais com idsPedidosVistos — qualquer id que apareceu de novo toca o som e entra no set. */
-function detectarPedidosNovos() {
-  if (!idsPedidosVistos) return;
-  let temPedidoNovo = false;
-  obterPedidosClientes().forEach((p) => {
-    if (!idsPedidosVistos.has(p.id)) {
-      idsPedidosVistos.add(p.id);
-      temPedidoNovo = true;
+  if (Date.now() < _somPedidosOcupadoAte) return; // absorvido pelo alerta que já está tocando
+  tocarAlertaPedido().then((resultado) => {
+    if (resultado === 'ok') {
+      if (_estadoSomPedidos !== 'ativo') definirEstadoSomPedidos('ativo');
+    } else if (somPedidosAtivo()) {
+      definirEstadoSomPedidos(resultado); // 'bloqueado' ou 'erro' — nunca continua mostrando "ativo"
     }
   });
-  if (temPedidoNovo) tocarSomNovoPedido();
+}
+
+function tituloAlertaPedidosNovos() {
+  return _qtdPedidosNovosNaoVistos > 1
+    ? '🔴 (' + _qtdPedidosNovosNaoVistos + ') NOVOS PEDIDOS — LARICA'
+    : '🔴 NOVO PEDIDO — LARICA';
+}
+
+function atualizarContadorPedidosNovosNaoVistos() {
+  const contador = document.getElementById('contador-novos-pedidos');
+  if (!contador) return;
+  const qtd = _qtdPedidosNovosNaoVistos;
+  if (qtd <= 0) {
+    contador.style.display = 'none';
+    contador.textContent = '';
+    return;
+  }
+  contador.textContent =
+    '· 🔔 ' + qtd + (qtd === 1 ? ' novo pedido' : ' novos pedidos') +
+    (_pedidosChegaramComPainelFora ? (qtd === 1 ? ' chegou' : ' chegaram') + ' enquanto o painel estava fora' : '');
+  contador.style.display = '';
+}
+
+/** Painel visível e com foco: contador fica 10 s pra ser visto e depois some. */
+function agendarLimpezaContadorPedidosNovos() {
+  clearTimeout(_timerLimparContadorNovos);
+  _timerLimparContadorNovos = setTimeout(() => {
+    _qtdPedidosNovosNaoVistos = 0;
+    _pedidosChegaramComPainelFora = false;
+    atualizarContadorPedidosNovosNaoVistos();
+  }, 10000);
+}
+
+/** Usuário voltou pro painel: título normal na hora; contador some depois de 10 s. */
+function aoVoltarParaPainelPedidos() {
+  if (document.hidden || !document.hasFocus()) return;
+  document.title = _tituloOriginalPedidos;
+  if (_qtdPedidosNovosNaoVistos > 0) agendarLimpezaContadorPedidosNovos();
+}
+document.addEventListener('visibilitychange', aoVoltarParaPainelPedidos);
+window.addEventListener('focus', aoVoltarParaPainelPedidos);
+
+/**
+ * Chamado em cada recarga: ids que ainda não foram vistos (o Realtime perdeu) passam por
+ * receberPedidoNovo(). O lote inteiro gera no máximo UM alerta. Nunca lança.
+ */
+function detectarPedidosNovos(origem) {
+  if (!idsPedidosVistos) return;
+  let quantidade = 0;
+  obterPedidosClientes().forEach((p) => {
+    try {
+      if (receberPedidoNovo(p, origem)) quantidade++;
+    } catch (erro) {
+      console.error('[PEDIDO NOVO] Falha ao processar pedido:', erro);
+    }
+  });
+  if (quantidade > 0) {
+    try {
+      registrarAlertaPedidoNovo(quantidade, origem);
+    } catch (erro) {
+      console.error('[PEDIDO NOVO] Falha no alerta:', erro);
+    }
+  }
 }
 
 // Fallback do Realtime pra iPad/Safari: ao voltar de segundo plano (troca de app, bloqueio de
@@ -1202,7 +1445,7 @@ function cardPedidoHtml(pedido) {
   const moeda = obterConfiguracoes().moeda;
 
   return `
-    <div class="card card-pedido ${novo ? 'card-pedido-novo' : ''} demora-${nivelDemora}" data-id="${pedido.id}">
+    <div class="card card-pedido ${novo ? 'card-pedido-novo' : ''} ${pedidoEmDestaqueNovo(pedido.id) ? 'pedido-novo-alerta' : ''} demora-${nivelDemora}" data-id="${pedido.id}">
       <div class="card-pedido-cabecalho">
         <strong>${escaparHtml(pedido.numero)}</strong>
         ${novo ? '<span class="badge-novo">Novo</span>' : ''}

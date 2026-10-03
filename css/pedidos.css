@@ -47,6 +47,23 @@
 .indicador-conexao-pedidos[data-estado="vermelho"] .indicador-conexao-ponto { background: var(--cor-status-vermelho); }
 .indicador-conexao-pedidos[data-estado="vermelho"] { color: var(--cor-status-vermelho); font-weight: 600; }
 
+/* Contador discreto "🔔 3 novos pedidos" (pedidos que chegaram com a aba sem foco) */
+.contador-novos-pedidos {
+  color: var(--cor-terracota);
+  font-weight: 600;
+}
+
+/* Estado real do som ao lado do toggle — nunca "ativo" sem o navegador ter deixado tocar */
+.estado-som-pedidos {
+  font-weight: 600;
+  white-space: normal;
+}
+.estado-som-pedidos[data-estado="ativo"] { color: var(--cor-status-verde); }
+.estado-som-pedidos[data-estado="desativado"] { color: var(--cor-texto-secundario); font-weight: 400; }
+.estado-som-pedidos[data-estado="aguardando_toque"],
+.estado-som-pedidos[data-estado="bloqueado"],
+.estado-som-pedidos[data-estado="erro"] { color: var(--cor-status-amarelo); cursor: pointer; }
+
 /* ---------------------------------------------------------------------- */
 /* Quadro Kanban                                                          */
 /* ---------------------------------------------------------------------- */
@@ -135,6 +152,14 @@
 
 .card-pedido-novo {
   border: 2px solid var(--cor-terracota);
+}
+
+/* Pedido que ACABOU de chegar (~8 s) — destaque estático (o card é redesenhado a cada recarga,
+   então uma animação recomeçaria sem parar). Diferente de .card-pedido-novo (status Solicitado). */
+.card-pedido.pedido-novo-alerta {
+  border: 2px solid var(--cor-terracota);
+  background: var(--cor-acento-sutil);
+  box-shadow: 0 0 0 3px var(--cor-acento-sutil), 0 0 18px rgba(255, 77, 0, 0.35);
 }
 
 /*
