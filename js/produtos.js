@@ -321,7 +321,7 @@ function abrirModalEdicao(id) {
   atualizarVisibilidadeCamposPorCategoria();
   atualizarDicaOrigemEstoque();
   renderizarListaItensInclusos(combo ? combo.includedItems : []);
-  renderizarListaAcrescimosEspetos(combo ? combo.skewerExtraPrices : {});
+  renderizarListasAcrescimosCombo(combo);
 
   abrirModal();
 }
@@ -349,7 +349,7 @@ function ligarEventoCategoria() {
     // marcações já feitas se o admin continuar digitando/corrigindo a categoria.
     if (agoraVisivel && !estavaVisivel) {
       renderizarListaItensInclusos([]);
-      renderizarListaAcrescimosEspetos({});
+      renderizarListasAcrescimosCombo(null);
     }
   });
 }
@@ -456,41 +456,62 @@ function lerItensInclusosMarcados() {
   return Array.from(document.querySelectorAll('.campo-item-incluso:checked')).map((c) => c.value);
 }
 
-/** Checklist dos espetos ativos com um campo de acréscimo (€) cada, pré-preenchido se vier de um combo existente */
-function renderizarListaAcrescimosEspetos(acrescimosExistentes) {
-  const espetos = pesquisarProdutos({ categoria: 'Espetinhos', status: 'ativo' });
-  const container = document.getElementById('lista-acrescimos-espetos');
+// Grupos de opção de combo com acréscimo por opção — mesma tela/leitura pra todos. A lista de
+// opções vem sempre dos produtos ATIVOS cadastrados na categoria do grupo (nunca nomes fixos).
+const GRUPOS_ACRESCIMO_COMBO = {
+  espetos: {
+    categoria: 'Espetinhos',
+    containerId: 'lista-acrescimos-espetos',
+    textoVazio: 'Nenhum espeto ativo cadastrado (categoria Espetinhos) ainda.',
+  },
+  acompanhamentos: {
+    categoria: 'Acompanhamentos',
+    containerId: 'lista-acrescimos-acompanhamentos',
+    textoVazio: 'Nenhum acompanhamento ativo cadastrado (categoria Acompanhamentos) ainda.',
+  },
+};
 
-  if (espetos.length === 0) {
-    container.innerHTML = '<p class="dica-campo">Nenhum espeto ativo cadastrado (categoria Espetinhos) ainda.</p>';
+/** Lista das opções ativas de um grupo com um campo de acréscimo (€) cada, pré-preenchido se vier de um combo existente */
+function renderizarListaAcrescimosOpcoes(grupo, acrescimosExistentes) {
+  const config = GRUPOS_ACRESCIMO_COMBO[grupo];
+  const opcoes = pesquisarProdutos({ categoria: config.categoria, status: 'ativo' });
+  const container = document.getElementById(config.containerId);
+
+  if (opcoes.length === 0) {
+    container.innerHTML = `<p class="dica-campo">${escaparHtml(config.textoVazio)}</p>`;
     return;
   }
 
-  container.innerHTML = espetos
-    .map((espeto) => {
-      const valorAtual = (acrescimosExistentes && acrescimosExistentes[espeto.id]) || 0;
+  container.innerHTML = opcoes
+    .map((opcao) => {
+      const valorAtual = (acrescimosExistentes && acrescimosExistentes[opcao.id]) || 0;
       return `
         <div class="linha-acrescimo-espeto">
-          <span>${escaparHtml(espeto.nome)}</span>
+          <span>${escaparHtml(opcao.nome)}</span>
           <div class="campo-acrescimo">
             <span>+ €</span>
-            <input type="number" class="input campo-acrescimo-espeto" data-produto-id="${espeto.id}" min="0" step="0.5" value="${valorAtual}" />
+            <input type="number" class="input campo-acrescimo-espeto" data-grupo="${grupo}" data-produto-id="${opcao.id}" min="0" step="0.5" value="${valorAtual}" />
           </div>
         </div>`;
     })
     .join('');
 }
 
+/** Renderiza os dois grupos (espetos e acompanhamentos) a partir do comboConfig (ou vazios num combo novo). */
+function renderizarListasAcrescimosCombo(combo) {
+  renderizarListaAcrescimosOpcoes('espetos', combo ? combo.skewerExtraPrices : {});
+  renderizarListaAcrescimosOpcoes('acompanhamentos', combo ? combo.sideExtraPrices : {});
+}
+
 /**
- * Lê todos os campos de acréscimo renderizados (um por espeto ativo) e monta
- * { produtoId: valor } — inclui os que ficaram em 0, já que no Supabase essa
- * lista também define quais espetos são selecionáveis nesse combo (ver
- * products-service.js).
+ * Lê todos os campos de acréscimo renderizados de um grupo (um por opção ativa) e monta
+ * { produtoId: valor } — inclui os que ficaram em 0. Pra espetos essa lista também define
+ * quais são selecionáveis nesse combo (ver products-service.js); pra acompanhamentos, só o valor.
  */
-function lerAcrescimosEspetosPreenchidos() {
+function lerAcrescimosOpcoesPreenchidos(grupo) {
   const resultado = {};
-  document.querySelectorAll('.campo-acrescimo-espeto').forEach((campo) => {
-    resultado[campo.dataset.produtoId] = Number(campo.value) || 0;
+  document.querySelectorAll(`.campo-acrescimo-espeto[data-grupo="${grupo}"]`).forEach((campo) => {
+    resultado[campo.dataset.produtoId] = Math.max(0, Number(campo.value) || 0);
   });
   return resultado;
 }
@@ -643,7 +664,8 @@ async function salvarFormularioProduto(evento) {
           allowedSkewers: Math.max(1, Number(document.getElementById('campo-qtd-espetos').value) || 1),
           allowedSides: Math.max(0, Number(document.getElementById('campo-qtd-acompanhamentos').value) || 0),
           includedItems: lerItensInclusosMarcados(),
-          skewerExtraPrices: lerAcrescimosEspetosPreenchidos(),
+          skewerExtraPrices: lerAcrescimosOpcoesPreenchidos('espetos'),
+          sideExtraPrices: lerAcrescimosOpcoesPreenchidos('acompanhamentos'),
         }
       : null,
   };

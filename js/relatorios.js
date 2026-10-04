@@ -468,14 +468,18 @@ function calcularConsumoCombos(itens, selecoes) {
   return { skewer: paraLista(grupos.skewer), side: paraLista(grupos.side), included: paraLista(grupos.included) };
 }
 
-/** Acréscimos com receita real (só selection_type='skewer' com extra_price > 0) — mesma fórmula de consumo, multiplicada pelo acréscimo unitário */
+/**
+ * Acréscimos com receita real (selection_type 'skewer' ou 'side' com extra_price > 0) — mesma fórmula
+ * de consumo, multiplicada pelo acréscimo unitário. Inclui acompanhamentos pra continuar batendo com
+ * order_items.extras_total (que já soma os dois tipos).
+ */
 function calcularAcrescimosCombos(itens, selecoes) {
   const quantidadePorItemCombo = new Map(itens.filter((i) => i.tipoItem === 'combo').map((i) => [i.id, i.quantidade]));
 
   const porProduto = new Map();
 
   selecoes
-    .filter((s) => s.tipoSelecao === 'skewer' && s.acrescimoUnitario > 0)
+    .filter((s) => (s.tipoSelecao === 'skewer' || s.tipoSelecao === 'side') && s.acrescimoUnitario > 0)
     .forEach((s) => {
       const quantidadePai = quantidadePorItemCombo.get(s.orderItemId);
       if (quantidadePai === undefined) return;

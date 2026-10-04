@@ -1125,7 +1125,10 @@ function linhaComboCarrinhoHtml(item, moeda) {
     )
     .join('');
   const linhasAcompanhamentos = (c.acompanhamentos || [])
-    .map((a) => `<li>${a.quantidade > 1 ? a.quantidade + 'x ' : ''}${escaparHtml(a.nome)}</li>`)
+    .map(
+      (a) =>
+        `<li>${a.quantidade > 1 ? a.quantidade + 'x ' : ''}${escaparHtml(a.nome)}${a.acrescimoUnitario > 0 ? ` (+${formatarMoedaCliente(a.acrescimoUnitario * a.quantidade, moeda)})` : ''}</li>`
+    )
     .join('');
   const linhasInclusos = (c.incluidos || []).map((i) => `<li>${escaparHtml(i)}</li>`).join('');
 
@@ -1229,7 +1232,9 @@ function listaAcompanhamentosParaCombo(combo) {
     .filter((p) => !idsInclusos.has(p.id))
     .slice()
     .sort((a, b) => a.nome.localeCompare(b.nome))
-    .map((p) => ({ id: p.id, nome: p.nome, acrescimo: 0 }));
+    // Acréscimo por combo (combo_option_extras, option_type 'side') — mesma ideia do espeto;
+    // só exibição/prévia: quem cobra de verdade é create_customer_order, lendo o mesmo valor.
+    .map((p) => ({ id: p.id, nome: p.nome, acrescimo: (combo && combo.sideExtraPrices && combo.sideExtraPrices[p.id]) || 0 }));
 }
 
 /**
@@ -1257,7 +1262,9 @@ function abrirModalCombo(produtoId, itemIdParaEditar) {
     const item = obterCarrinho().find((i) => i.itemId === itemIdParaEditar);
     comboEspetosEscolhidos = item && item.combo ? item.combo.espetos.map((e) => ({ id: e.produtoId, nome: e.nome, quantidade: e.quantidade, acrescimoUnitario: e.acrescimoUnitario })) : [];
     comboAcompanhamentosEscolhidos =
-      item && item.combo ? item.combo.acompanhamentos.map((a) => ({ id: a.id, nome: a.nome, quantidade: a.quantidade, acrescimoUnitario: 0 })) : [];
+      item && item.combo
+        ? item.combo.acompanhamentos.map((a) => ({ id: a.id, nome: a.nome, quantidade: a.quantidade, acrescimoUnitario: Number(a.acrescimoUnitario) || 0 }))
+        : [];
   } else {
     comboEspetosEscolhidos = [];
     comboAcompanhamentosEscolhidos = [];
@@ -1454,12 +1461,12 @@ function atualizarModalComboAposEscolha() {
 
 function atualizarTotalCombo() {
   const moeda = obterConfiguracoes().moeda;
-  const { total } = calcularTotalCombo(comboAtual.preco, comboEspetosEscolhidos);
+  const { total } = calcularTotalCombo(comboAtual.preco, comboEspetosEscolhidos, comboAcompanhamentosEscolhidos);
 
   document.getElementById('combo-rotulo-base').textContent = comboAtual.nome;
   document.getElementById('combo-valor-base').textContent = formatarMoedaCliente(comboAtual.preco, moeda);
 
-  document.getElementById('combo-linhas-extras').innerHTML = comboEspetosEscolhidos
+  document.getElementById('combo-linhas-extras').innerHTML = [...comboEspetosEscolhidos, ...comboAcompanhamentosEscolhidos]
     .filter((e) => e.acrescimoUnitario > 0)
     .map(
       (e) =>
@@ -1478,13 +1485,13 @@ function atualizarTotalCombo() {
 
 /** Monta o objeto de composição gravado no item de carrinho (ver adicionarComboAoCarrinho em storage.js) */
 function montarComposicaoCombo() {
-  const { extras, total } = calcularTotalCombo(comboAtual.preco, comboEspetosEscolhidos);
+  const { extras, total } = calcularTotalCombo(comboAtual.preco, comboEspetosEscolhidos, comboAcompanhamentosEscolhidos);
   return {
     comboId: comboAtual.id,
     nome: comboAtual.nome,
     precoBase: comboAtual.preco,
     espetos: comboEspetosEscolhidos.map((e) => ({ produtoId: e.id, nome: e.nome, quantidade: e.quantidade, acrescimoUnitario: e.acrescimoUnitario })),
-    acompanhamentos: comboAcompanhamentosEscolhidos.map((a) => ({ id: a.id, nome: a.nome, quantidade: a.quantidade })),
+    acompanhamentos: comboAcompanhamentosEscolhidos.map((a) => ({ id: a.id, nome: a.nome, quantidade: a.quantidade, acrescimoUnitario: a.acrescimoUnitario || 0 })),
     incluidos: itensInclusosDisponiveisCombo(comboAtual.includedItems).nomes,
     extras,
     total,

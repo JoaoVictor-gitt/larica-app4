@@ -96,8 +96,9 @@
               <span id="preview-foto-texto">Clique para adicionar uma foto</span>
               <img id="preview-foto-img" style="display:none;" alt="Prévia do produto" />
             </label>
-            <input type="file" id="campo-foto" accept="image/*" style="display:none;" />
+            <input type="file" id="campo-foto" accept="image/jpeg,image/png,image/webp" style="display:none;" />
             <button type="button" class="btn btn-secundario" id="botao-remover-foto" style="display:none;">Remover foto</button>
+            <p class="dica-campo">JPG, PNG ou WEBP • Máx. 5 MB</p>
           </div>
 
           <div class="coluna-campos">
@@ -190,6 +191,12 @@
                 <label>Acréscimo por espeto (€)</label>
                 <p class="dica-campo">Deixe em 0 os espetos sem acréscimo. Só aparecem aqui os espetos ativos (categoria Espetinhos).</p>
                 <div id="lista-acrescimos-espetos" class="lista-checklist-combo"></div>
+              </div>
+
+              <div class="form-grupo">
+                <label>Acréscimo por acompanhamento (€)</label>
+                <p class="dica-campo">Deixe em 0 os acompanhamentos sem acréscimo. Só aparecem aqui os acompanhamentos ativos.</p>
+                <div id="lista-acrescimos-acompanhamentos" class="lista-checklist-combo"></div>
               </div>
             </div>
           </div>

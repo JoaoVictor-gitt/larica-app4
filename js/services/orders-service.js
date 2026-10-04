@@ -109,7 +109,9 @@ function _itemSupabaseParaItemPedido(item) {
         })),
       acompanhamentos: selecoes
         .filter((s) => s.selection_type === 'side')
-        .map((s) => ({ id: s.selected_product_id, nome: s.selected_product_name, quantidade: s.quantity })),
+        // acrescimoUnitario = extra_price gravado no pedido (snapshot) — mesma leitura dos espetos.
+        // Pedidos anteriores ao acréscimo por acompanhamento têm 0 gravado: nada muda neles.
+        .map((s) => ({ id: s.selected_product_id, nome: s.selected_product_name, quantidade: s.quantity, acrescimoUnitario: Number(s.extra_price) || 0 })),
       incluidos: selecoes.filter((s) => s.selection_type === 'included').map((s) => s.selected_product_name),
       extras: Number(item.extras_total) || 0,
       total: Number(item.total_price) || 0,

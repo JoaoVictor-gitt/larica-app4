@@ -135,11 +135,15 @@ async function excluirFotoProdutoPorPath(path) {
   if (error) throw new Error(error.message);
 }
 
-/** Busca todos os espetos ativos direto no Supabase (fonte da verdade pra saber quem pode ter acréscimo num combo) */
-async function _buscarEspetosAtivosNoSupabase() {
-  const { data, error } = await supabaseClient.from('products').select('id,name').eq('category', 'skewers').eq('active', true);
+/** Busca os produtos ativos de uma categoria (enum do banco: 'skewers', 'sides'...) direto no Supabase — fonte da verdade pra saber quem pode ter acréscimo num combo */
+async function _buscarProdutosAtivosDaCategoriaNoSupabase(categoriaBanco) {
+  const { data, error } = await supabaseClient.from('products').select('id,name').eq('category', categoriaBanco).eq('active', true);
   if (error) throw new Error(error.message);
   return data || [];
+}
+
+async function _buscarEspetosAtivosNoSupabase() {
+  return _buscarProdutosAtivosDaCategoriaNoSupabase('skewers');
 }
 
 /**
@@ -186,6 +190,29 @@ async function _salvarComboConfigNoSupabase(produtoId, comboConfig) {
     if (error) throw new Error(error.message);
   }
 
+  // Acréscimo por acompanhamento — tabela genérica combo_option_extras (option_type = 'side').
+  // Substitui só as linhas 'side' deste combo. Diferente dos espetos, aqui a linha NÃO define quem
+  // é selecionável (acompanhamento sem linha continua elegível, com acréscimo €0 — ver
+  // create_customer_order); grava uma linha por acompanhamento ativo, mesmo os de €0, como nos espetos.
+  const { error: erroDeleteExtrasLados } = await supabaseClient
+    .from('combo_option_extras')
+    .delete()
+    .eq('combo_id', produtoId)
+    .eq('option_type', 'side');
+  if (erroDeleteExtrasLados) throw new Error(erroDeleteExtrasLados.message);
+
+  const acompanhamentosAtivos = await _buscarProdutosAtivosDaCategoriaNoSupabase('sides');
+  const linhasExtrasLados = acompanhamentosAtivos.map((lado) => ({
+    combo_id: produtoId,
+    option_product_id: lado.id,
+    option_type: 'side',
+    extra_price: Math.max(0, Number(comboConfig.sideExtraPrices && comboConfig.sideExtraPrices[lado.id]) || 0),
+  }));
+  if (linhasExtrasLados.length > 0) {
+    const { error } = await supabaseClient.from('combo_option_extras').insert(linhasExtrasLados);
+    if (error) throw new Error(error.message);
+  }
+
   // Substitui os itens inclusos
   const { error: erroDeleteInclusos } = await supabaseClient.from('combo_included_products').delete().eq('combo_id', produtoId);
   if (erroDeleteInclusos) throw new Error(erroDeleteInclusos.message);
@@ -215,14 +242,16 @@ async function buscarProdutosDoSupabase() {
 
   const linhaPorId = new Map((linhas || []).map((l) => [l.id, l]));
 
-  const [respConfigs, respOpcoes, respInclusos] = await Promise.all([
+  const [respConfigs, respOpcoes, respInclusos, respExtrasOpcoes] = await Promise.all([
     supabaseClient.from('combo_configs').select('*').in('product_id', idsCombos),
     supabaseClient.from('combo_skewer_options').select('*').in('combo_id', idsCombos),
     supabaseClient.from('combo_included_products').select('*').in('combo_id', idsCombos),
+    supabaseClient.from('combo_option_extras').select('combo_id, option_product_id, option_type, extra_price').in('combo_id', idsCombos),
   ]);
   if (respConfigs.error) throw new Error(respConfigs.error.message);
   if (respOpcoes.error) throw new Error(respOpcoes.error.message);
   if (respInclusos.error) throw new Error(respInclusos.error.message);
+  if (respExtrasOpcoes.error) throw new Error(respExtrasOpcoes.error.message);
 
   const configPorProdutoId = new Map((respConfigs.data || []).map((c) => [c.product_id, c]));
 
@@ -237,6 +266,13 @@ async function buscarProdutosDoSupabase() {
         skewerExtraPrices[o.skewer_product_id] = Number(o.extra_price) || 0;
       });
 
+    const sideExtraPrices = {};
+    (respExtrasOpcoes.data || [])
+      .filter((o) => o.combo_id === produto.id && o.option_type === 'side')
+      .forEach((o) => {
+        sideExtraPrices[o.option_product_id] = Number(o.extra_price) || 0;
+      });
+
     const includedItems = (respInclusos.data || []).filter((i) => i.combo_id === produto.id).map((i) => i.included_product_id);
 
     produto.comboConfig = {
@@ -245,6 +281,7 @@ async function buscarProdutosDoSupabase() {
       allowedSides: config ? Number(config.allowed_sides) || 0 : 0,
       includedItems,
       skewerExtraPrices,
+      sideExtraPrices,
     };
   });
 

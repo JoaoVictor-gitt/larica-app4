@@ -98,14 +98,18 @@ function calcularTotalCarrinho(subtotal, taxaEntrega) {
 }
 
 /**
- * Calcula o total de um combo personalizado: preço base + acréscimos dos
- * espetos escolhidos (cada um com sua própria quantidade e acréscimo
- * unitário). Acompanhamentos não têm acréscimo dentro do combo. Função pura,
- * reaproveitada pelo modal de personalização em pedido.js.
+ * Calcula o total de um combo personalizado: preço base + acréscimos de
+ * QUALQUER grupo de escolhas (espetos, acompanhamentos...), cada escolha com
+ * sua própria quantidade e acréscimo unitário. Mesma regra do banco
+ * (create_customer_order): extra × quantidade da escolha, por combo. Função
+ * pura, reaproveitada pelo modal de personalização em pedido.js.
+ * Uso: calcularTotalCombo(precoBase, espetos, acompanhamentos)
  */
-function calcularTotalCombo(precoBase, espetosEscolhidos) {
-  const extras = (espetosEscolhidos || []).reduce(
-    (soma, e) => soma + (Number(e.acrescimoUnitario) || 0) * (Number(e.quantidade) || 0),
+function calcularTotalCombo(precoBase, ...gruposEscolhidos) {
+  const extras = gruposEscolhidos.reduce(
+    (somaGrupos, grupo) =>
+      somaGrupos +
+      (grupo || []).reduce((soma, e) => soma + (Number(e.acrescimoUnitario) || 0) * (Number(e.quantidade) || 0), 0),
     0
   );
   return { extras, total: (Number(precoBase) || 0) + extras };

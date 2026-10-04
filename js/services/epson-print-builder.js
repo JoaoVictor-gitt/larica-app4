@@ -230,21 +230,21 @@ function gerarComandaEposPrintXml(pedido) {
 
     // Complementos — só existem quando o item é um combo (espetos/acompanhamentos/incluidos
     // são as únicas estruturas de "complemento" que existem no modelo real hoje). Sem preço:
-    // já estão no total do combo. Espeto com acréscimo pago mostra o acréscimo (só informativo,
-    // já incluso em item.valorTotal) a partir de acrescimoUnitario = order_item_selections.extra_price
-    // gravado no pedido — mesma conta do banco: extra × qtd da seleção × qtd do combo.
+    // já estão no total do combo. Espeto ou acompanhamento com acréscimo pago mostra o acréscimo
+    // (só informativo, já incluso em item.valorTotal) a partir de acrescimoUnitario =
+    // order_item_selections.extra_price gravado no pedido — mesma conta do banco:
+    // extra × qtd da seleção × qtd do combo.
     if (item.combo) {
-      (item.combo.espetos || []).forEach(function (espeto) {
-        if (espeto.acrescimoUnitario > 0) {
-          const acrescimo = espeto.acrescimoUnitario * espeto.quantidade * item.quantidade;
-          builder.addText(_linhasItemComanda(espeto.quantidade + 'x ' + espeto.nome + ' (extra)', '+' + formatarMoeda(acrescimo), '   '));
+      const imprimirComponente = function (componente) {
+        if (componente.acrescimoUnitario > 0) {
+          const acrescimo = componente.acrescimoUnitario * componente.quantidade * item.quantidade;
+          builder.addText(_linhasItemComanda(componente.quantidade + 'x ' + componente.nome + ' (extra)', '+' + formatarMoeda(acrescimo), '   '));
         } else {
-          builder.addText('   ' + espeto.quantidade + 'x ' + espeto.nome + '\n');
+          builder.addText('   ' + componente.quantidade + 'x ' + componente.nome + '\n');
         }
-      });
-      (item.combo.acompanhamentos || []).forEach(function (acompanhamento) {
-        builder.addText('   ' + acompanhamento.quantidade + 'x ' + acompanhamento.nome + '\n');
-      });
+      };
+      (item.combo.espetos || []).forEach(imprimirComponente);
+      (item.combo.acompanhamentos || []).forEach(imprimirComponente);
       (item.combo.incluidos || []).forEach(function (nomeIncluido) {
         builder.addText('   ' + nomeIncluido + '\n');
       });

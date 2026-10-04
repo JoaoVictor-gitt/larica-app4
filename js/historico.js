@@ -425,7 +425,10 @@ function blocoComboDetalheHistoricoHtml(item, moeda) {
     )
     .join('');
   const acompanhamentos = (c.acompanhamentos || [])
-    .map((a) => `<li>${a.quantidade > 1 ? a.quantidade + 'x ' : ''}${escaparHtml(a.nome)}</li>`)
+    .map(
+      (a) =>
+        `<li>${a.quantidade > 1 ? a.quantidade + 'x ' : ''}${escaparHtml(a.nome)}${a.acrescimoUnitario > 0 ? ` (+${formatarMoeda(a.acrescimoUnitario * a.quantidade, moeda)})` : ''}</li>`
+    )
     .join('');
   const inclusos = (c.incluidos || []).map((i) => `<li>${escaparHtml(i)}</li>`).join('');
 

@@ -1384,16 +1384,16 @@ function renderizarComandaParaImpressao(pedido) {
 function linhasItensComandaHtml(pedido, moeda) {
   return (pedido.itens || [])
     .map((item) => {
-      // Espeto com acréscimo: valor informativo (já incluso no total do combo), de extra_price
-      // gravado no pedido — extra × qtd da seleção × qtd do combo, a mesma conta do banco.
+      // Espeto/acompanhamento com acréscimo: valor informativo (já incluso no total do combo), de
+      // extra_price gravado no pedido — extra × qtd da seleção × qtd do combo, a mesma conta do banco.
+      const componenteHtml = (c) =>
+        c.acrescimoUnitario > 0
+          ? `<div class="comanda-item-complemento comanda-linha-valor"><span>${c.quantidade}x ${escaparHtml(c.nome)} (extra)</span><span>+${formatarMoeda(c.acrescimoUnitario * c.quantidade * item.quantidade, moeda)}</span></div>`
+          : `<div class="comanda-item-complemento">${c.quantidade}x ${escaparHtml(c.nome)}</div>`;
       const complementos = item.combo
         ? [
-            ...(item.combo.espetos || []).map((e) =>
-              e.acrescimoUnitario > 0
-                ? `<div class="comanda-item-complemento comanda-linha-valor"><span>${e.quantidade}x ${escaparHtml(e.nome)} (extra)</span><span>+${formatarMoeda(e.acrescimoUnitario * e.quantidade * item.quantidade, moeda)}</span></div>`
-                : `<div class="comanda-item-complemento">${e.quantidade}x ${escaparHtml(e.nome)}</div>`
-            ),
-            ...(item.combo.acompanhamentos || []).map((a) => `<div class="comanda-item-complemento">${a.quantidade}x ${escaparHtml(a.nome)}</div>`),
+            ...(item.combo.espetos || []).map(componenteHtml),
+            ...(item.combo.acompanhamentos || []).map(componenteHtml),
             ...(item.combo.incluidos || []).map((i) => `<div class="comanda-item-complemento">${escaparHtml(i)}</div>`),
           ].join('')
         : '';
@@ -1904,7 +1904,10 @@ function blocoComboDetalhePedidoHtml(item, moeda) {
     )
     .join('');
   const acompanhamentos = (c.acompanhamentos || [])
-    .map((a) => `<li>${a.quantidade > 1 ? a.quantidade + 'x ' : ''}${escaparHtml(a.nome)}</li>`)
+    .map(
+      (a) =>
+        `<li>${a.quantidade > 1 ? a.quantidade + 'x ' : ''}${escaparHtml(a.nome)}${a.acrescimoUnitario > 0 ? ` (+${formatarMoeda(a.acrescimoUnitario * a.quantidade, moeda)})` : ''}</li>`
+    )
     .join('');
   const inclusos = (c.incluidos || []).map((i) => `<li>${escaparHtml(i)}</li>`).join('');
 
