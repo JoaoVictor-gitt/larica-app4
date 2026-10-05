@@ -134,6 +134,24 @@ function _itemSupabaseParaItemPedido(item) {
  *   `status` aceita tanto o valor em pt-BR (solicitado/em_preparo/pronto/finalizado)
  *   quanto o enum do banco (requested/preparing/ready/completed).
  */
+// Filtros .in() vão na URL (?coluna=in.(uuid,uuid,...)). Com o histórico crescendo, uma lista única
+// de UUIDs passa do limite de tamanho de URL do gateway do Supabase — 400 "Bad Request" antes de a
+// consulta chegar ao banco. Busca em lotes (~4 KB de URL cada) e junta; os lotes são disjuntos, então
+// o resultado é exatamente o mesmo de uma consulta única.
+const TAMANHO_LOTE_FILTRO_IN = 100;
+
+async function _selecionarEmLotes(tabela, colunaFiltro, ids, colunas = '*') {
+  const lotes = [];
+  for (let i = 0; i < ids.length; i += TAMANHO_LOTE_FILTRO_IN) lotes.push(ids.slice(i, i + TAMANHO_LOTE_FILTRO_IN));
+  const respostas = await Promise.all(lotes.map((lote) => supabaseClient.from(tabela).select(colunas).in(colunaFiltro, lote)));
+  const linhas = [];
+  respostas.forEach(({ data, error }) => {
+    if (error) throw new Error(error.message);
+    linhas.push(...(data || []));
+  });
+  return linhas;
+}
+
 async function getOrdersWithDetails({ status, orderIds, dateFrom, dateTo } = {}) {
   let consulta = supabaseClient.from('orders').select('*').order('created_at', { ascending: true });
   if (status) consulta = consulta.eq('status', STATUS_PARA_ENUM[status] || status);
@@ -146,18 +164,12 @@ async function getOrdersWithDetails({ status, orderIds, dateFrom, dateTo } = {})
   if (!orders || orders.length === 0) return [];
 
   const idsPedidos = orders.map((o) => o.id);
-  const { data: orderItems, error: erroItems } = await supabaseClient.from('order_items').select('*').in('order_id', idsPedidos);
-  if (erroItems) throw new Error(erroItems.message);
+  const orderItems = await _selecionarEmLotes('order_items', 'order_id', idsPedidos);
 
   const idsItens = (orderItems || []).map((i) => i.id);
   let selections = [];
   if (idsItens.length > 0) {
-    const { data: selectionsData, error: erroSelections } = await supabaseClient
-      .from('order_item_selections')
-      .select('*')
-      .in('order_item_id', idsItens);
-    if (erroSelections) throw new Error(erroSelections.message);
-    selections = selectionsData || [];
+    selections = await _selecionarEmLotes('order_item_selections', 'order_item_id', idsItens);
   }
 
   const selectionsPorItem = new Map();
