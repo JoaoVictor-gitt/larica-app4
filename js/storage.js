@@ -632,14 +632,34 @@ async function confirmarPagamentoPedido(id) {
   return atualizado;
 }
 
+/** Promise.race com limite de tempo — mesma ideia de _comTimeout (pedidos.js), local porque storage.js carrega antes. */
+function _comLimiteDeTempo(promessa, ms, rotulo) {
+  let timer;
+  const limite = new Promise((_, rejeitar) => {
+    timer = setTimeout(() => rejeitar(new Error('Timeout (' + ms + ' ms): ' + rotulo)), ms);
+  });
+  return Promise.race([promessa, limite]).finally(() => clearTimeout(timer));
+}
+
 /**
  * Registra a impressão da comanda via RPC register_order_print — não passa por
  * _atualizarStatusPedido() de propósito, pois imprimir não é status operacional
- * (orders.status não muda). Mesmo padrão de recarregar o cache depois da mudança.
+ * (orders.status não muda).
+ *
+ * Com timeout e SEM recarga completa do cache: antes esperava carregarPedidosClientesCache() inteiro
+ * (sem timeout) — com rede pendurada isso segurava o lock de impressão pra sempre e parava a fila de
+ * impressão automática. Agora atualiza no cache só os campos de impressão deste pedido, a partir do
+ * retorno da própria RPC; o polling traz o resto. ATENÇÃO: register_order_print NÃO é idempotente
+ * (print_count + 1 a cada chamada) — quem chama decide se pode repetir (ver pedidos.js).
  */
 async function registrarImpressaoPedido(id) {
-  const atualizado = await registerOrderPrintNoSupabase(id);
-  await carregarPedidosClientesCache();
+  const atualizado = await _comLimiteDeTempo(registerOrderPrintNoSupabase(id), 10000, 'register_order_print');
+  const noCache = obterPedidoClientePorId(id);
+  if (noCache && atualizado) {
+    noCache.impressoEm = atualizado.impressoEm;
+    noCache.qtdImpressoes = atualizado.qtdImpressoes;
+    noCache.ultimaImpressaoEm = atualizado.ultimaImpressaoEm;
+  }
   return atualizado;
 }
 

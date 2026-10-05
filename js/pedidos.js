@@ -891,10 +891,61 @@ window.addEventListener('afterprint', () => {
  * que a impressão física foi confirmada por outro meio (ex.: Epson respondeu sucesso).
  */
 function _registrarImpressaoEFinalizar(id, mensagemFalhaRpc) {
-  return registrarImpressaoPedido(id)
-    .then(() => mostrarToast('Impressão registrada.', 'sucesso'))
-    .catch((erro) => mostrarToast(mensagemFalhaRpc || erro.message || 'Não foi possível registrar a impressão.', 'erro'))
-    .finally(finalizarImpressaoPedido);
+  // A impressão física JÁ está confirmada (Epson respondeu sucesso ou um humano confirmou): o pedido
+  // nunca volta pra fila automática nesta aba, e o lock é liberado NA HORA — antes ele só soltava
+  // depois do register + recarga completa (sem timeout), e uma rede pendurada parava a fila inteira (C1).
+  // O registro segue em segundo plano, sem segurar o próximo pedido.
+  _idsImpressaoAutomaticaFinalizadosNestaAba.add(id);
+  finalizarImpressaoPedido();
+  return _registrarImpressaoComRecuperacao(id).then((registrado) => {
+    if (registrado) {
+      mostrarToast('Impressão registrada.', 'sucesso');
+    } else {
+      mostrarToast((mensagemFalhaRpc || 'Não foi possível registrar a impressão.') + ' A comanda não será reimpressa automaticamente.', 'erro');
+    }
+    renderizarQuadroPedidos();
+    aplicarBloqueioBotoesImpressao();
+  });
+}
+
+/**
+ * Registra (register_order_print) uma impressão que JÁ ACONTECEU — nunca reenvia nada à Epson.
+ * Até 3 tentativas. register_order_print NÃO é idempotente (print_count + 1), então antes de cada nova
+ * tentativa recupera o estado do pedido: se printed_at já estiver gravado (a tentativa anterior chegou
+ * ao banco e só a resposta se perdeu), para sem registrar de novo; se não der pra conferir, não
+ * registra às cegas naquela rodada. Nunca lança. Retorna true se o pedido terminou registrado.
+ */
+async function _registrarImpressaoComRecuperacao(id) {
+  for (let tentativa = 0; tentativa <= ESPERAS_RECUPERACAO_IMPRESSAO_MS.length; tentativa++) {
+    if (tentativa > 0) {
+      await _esperarMs(ESPERAS_RECUPERACAO_IMPRESSAO_MS[tentativa - 1]);
+      let estado;
+      try {
+        const lista = await _comTimeout(getOrdersWithDetails({ orderIds: [id] }), 15000, 'conferir registro de impressão');
+        estado = lista && lista[0];
+      } catch (erroEstado) {
+        console.error('[IMPRESSÃO] Não foi possível conferir o registro do pedido ' + id + ':', erroEstado);
+        continue;
+      }
+      if (!estado) return false; // pedido não existe mais — nada a registrar
+      if (estado.impressoEm) {
+        const noCache = obterPedidoClientePorId(id);
+        if (noCache) {
+          noCache.impressoEm = estado.impressoEm;
+          noCache.qtdImpressoes = estado.qtdImpressoes;
+          noCache.ultimaImpressaoEm = estado.ultimaImpressaoEm;
+        }
+        return true;
+      }
+    }
+    try {
+      await registrarImpressaoPedido(id);
+      return true;
+    } catch (erroRegistro) {
+      console.error('[IMPRESSÃO] Falha ao registrar a impressão do pedido ' + id + ' (tentativa ' + (tentativa + 1) + '):', erroRegistro);
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -921,6 +972,9 @@ async function _iniciarTentativaEpsonDireta(id, snapshot) {
   }
 
   const resultado = await EpsonPrinterService.imprimir(xml);
+  // Já foi à Epson por ação manual: a impressão automática nunca o pega depois nesta aba (qualquer resultado —
+  // num ambíguo/erro quem decide reimprimir é o operador, nos diálogos abaixo).
+  _idsImpressaoAutomaticaFinalizadosNestaAba.add(id);
 
   switch (resultado.codigo) {
     case 'SUCESSO':
@@ -1076,6 +1130,19 @@ function obterDeviceIdImpressora() {
 
 let _filaImpressaoAutomatica = []; // ids aguardando tentativa, nesta aba
 const _idsImpressaoAutomaticaEmFilaOuTentados = new Set(); // evita enfileirar o mesmo id 2x enquanto não resolvido
+// Guarda contra impressão duplicada NESTA aba: todo pedido que já foi enviado à Epson (qualquer
+// resultado — sucesso, falha ou ambíguo) ou cuja impressão foi confirmada por um humano nunca volta
+// pra fila automática, mesmo que o banco ainda mostre claimed/nulo porque resolve/register falharam.
+const _idsImpressaoAutomaticaFinalizadosNestaAba = new Set();
+// Pedidos cujo claim deu erro/timeout (≠ claimed:false) — podem ser tentados de novo (ver C3 abaixo).
+const _idsComFalhaDeClaim = new Set();
+// Esperas antes de repetir o que é SEGURO repetir (conferir/registrar impressão já confirmada,
+// resolve idempotente). Nunca usado pra reenviar nada à Epson.
+const ESPERAS_RECUPERACAO_IMPRESSAO_MS = [3000, 10000];
+
+function _esperarMs(ms) {
+  return new Promise((resolver) => setTimeout(resolver, ms));
+}
 
 // Mesmo valor usado no WHERE de claim_order_auto_print (SQL, migration
 // 20260923090000_allow_reclaim_abandoned_auto_print.sql) — mantenha os dois em sincronia.
@@ -1092,6 +1159,7 @@ function claimImpressaoAutomaticaAbandonado(pedido) {
 function pedidoEhCandidatoImpressaoAutomatica(pedido) {
   if (!_impressaoAutomaticaAtiva || !_impressaoAutomaticaAtivadaEm) return false;
   if (!IMPRESSAO_EPSON_DIRETA_ATIVA) return false; // impressão automática só existe pelo caminho Epson direto
+  if (_idsImpressaoAutomaticaFinalizadosNestaAba.has(pedido.id)) return false; // já foi à Epson nesta aba — nunca de novo
   if (pedido.impressoEm) return false;
   // succeeded/failed/ambiguous nunca são reconsiderados; um 'claimed' só volta a ser candidato
   // depois de MINUTOS_CLAIM_IMPRESSAO_AUTOMATICA_ABANDONADO (claim_order_auto_print reavalia
@@ -1165,6 +1233,10 @@ async function iniciarImpressaoAutomaticaPedido(id) {
     // nesse meio-tempo) — não é erro.
     console.log('[AUTO-PRINT] Descartado antes do claim (não é mais candidato)', { id });
     _metaImpressaoAutomatica.delete(id);
+    // Sai do Set: se o descarte foi momentâneo (ex.: configuração da impressão automática não carregou
+    // naquele ciclo), a próxima varredura reavalia. Seguro — a candidatura continua decidida pelo
+    // estado do pedido + claim atômico no banco; nada foi enviado à Epson.
+    _idsImpressaoAutomaticaEmFilaOuTentados.delete(id);
     processarFilaImpressaoAutomatica();
     return;
   }
@@ -1198,12 +1270,21 @@ async function _executarImpressaoAutomaticaClaimed(id, numero, meta) {
   try {
     resultadoClaim = await _comTimeout(claimOrderAutoPrintNoSupabase(id, _deviceIdImpressora), 10000, 'claim_order_auto_print');
   } catch (erroClaim) {
-    console.error('[AUTO-PRINT] Claim falhou', { id, numero }, erroClaim);
+    // C3: falha de rede/timeout no claim NÃO é "outro dispositivo pegou" — o pedido nunca chegou à
+    // Epson. Sai do Set pra próxima varredura tentar de novo (antes ficava preso nele até recarregar a
+    // página e o pedido simplesmente não imprimia). O claim atômico no banco continua decidindo quem imprime.
+    console.error('[AUTO-PRINT] Claim falhou — será tentado de novo na próxima varredura', { id, numero }, erroClaim);
+    _idsComFalhaDeClaim.add(id);
+    _idsImpressaoAutomaticaEmFilaOuTentados.delete(id);
     finalizarImpressaoPedido();
     return;
   }
 
   if (!resultadoClaim || !resultadoClaim.claimed) {
+    // Se este pedido já teve um claim com erro, o UPDATE daquele claim pode ter gravado e só a resposta
+    // se perdido (claim órfão desta própria aba, que nunca chegou à Epson). Libera pra reavaliação: o
+    // banco só concede de novo quando o claim for considerado abandonado (2 min, regra de sempre).
+    if (_idsComFalhaDeClaim.has(id)) _idsImpressaoAutomaticaEmFilaOuTentados.delete(id);
     // Outro dispositivo já reivindicou, ou um humano já imprimiu manualmente, ou a impressão
     // automática foi desativada entre o escaneamento e agora — resultado esperado, não é erro.
     console.log('[AUTO-PRINT] Claim recusado (claimed:false) — outro dispositivo/aba, já impresso, desativado ou fora da regra do banco', {
@@ -1214,6 +1295,7 @@ async function _executarImpressaoAutomaticaClaimed(id, numero, meta) {
     finalizarImpressaoPedido();
     return;
   }
+  _idsComFalhaDeClaim.delete(id);
   console.log('[AUTO-PRINT] Claim adquirido', { id, numero, claimMs: Date.now() - tClaim, desdeDeteccaoMs: Date.now() - meta.detectadoEm });
 
   // Dados completos: do cache se já estiver lá; senão (veio só do Realtime) busca só este pedido.
@@ -1248,6 +1330,9 @@ async function _executarImpressaoAutomaticaClaimed(id, numero, meta) {
   console.log('[AUTO-PRINT] Enviando para Epson', { id, numero, desdeDeteccaoMs: Date.now() - meta.detectadoEm });
   const tEpson = Date.now();
   const resultado = await EpsonPrinterService.imprimir(xml);
+  // A partir daqui o pedido JÁ FOI enviado à Epson: nunca mais entra na fila automática nesta aba,
+  // independente do resultado e de resolve/register conseguirem gravar.
+  _idsImpressaoAutomaticaFinalizadosNestaAba.add(id);
   console.log('[AUTO-PRINT] Epson result', {
     id,
     numero,
@@ -1274,17 +1359,49 @@ async function _executarImpressaoAutomaticaClaimed(id, numero, meta) {
   const statusResolucao = resultado.codigo === 'TIMEOUT' || resultado.codigo === 'ERRO_REDE' ? 'ambiguous' : 'failed';
   await _resolverImpressaoAutomaticaSemLancar(id, statusResolucao);
   console.log(statusResolucao === 'ambiguous' ? '[AUTO-PRINT] Resolve ambiguous' : '[AUTO-PRINT] Resolve failed', { id, numero });
+  // Aviso explícito ao operador (o card também mostra) — nunca reimprime sozinho.
+  mostrarToast(
+    statusResolucao === 'ambiguous'
+      ? '⚠️ Pedido ' + numero + ': a impressora não confirmou — verifique se a comanda saiu antes de reimprimir.'
+      : '⚠️ Pedido ' + numero + ': a impressão automática falhou — imprima manualmente.',
+    'erro'
+  );
   finalizarImpressaoPedido();
 }
 
-/** Grava o resultado terminal do claim; nunca lança — uma falha ao gravar não pode travar o lock nem a fila. */
-async function _resolverImpressaoAutomaticaSemLancar(id, status) {
+/** Uma tentativa de resolve; true se a RPC respondeu (resolved true ou false — repetir não muda um false). */
+async function _tentarResolverImpressaoAutomatica(id, status) {
   try {
     await _comTimeout(resolveOrderAutoPrintNoSupabase(id, _deviceIdImpressora, status), 10000, 'resolve_order_auto_print');
+    return true;
   } catch (erroResolver) {
     console.error('Não foi possível registrar o resultado (' + status + ') da impressão automática do pedido ' + id + ':', erroResolver);
-    // Segue mesmo assim — o pedido fica "claimed" sem resolução, tratado como ambíguo na UI (ver
-    // alertaImpressaoAutomaticaHtml) e nunca reconsiderado automaticamente por nenhum dispositivo.
+    return false;
+  }
+}
+
+/**
+ * Grava o resultado terminal do claim; nunca lança — uma falha ao gravar não pode travar o lock nem a
+ * fila. Se a 1ª tentativa falhar, repete EM SEGUNDO PLANO (sem segurar o lock): resolve_order_auto_print
+ * é idempotente (só muda 'claimed' -> final, e só pro dono do claim), então repetir é seguro — e gravar
+ * o resultado evita que, depois de 2 min, outro dispositivo trate o claim como abandonado e imprima de novo.
+ * Retorna true se a 1ª tentativa gravou.
+ */
+async function _resolverImpressaoAutomaticaSemLancar(id, status) {
+  const gravou = await _tentarResolverImpressaoAutomatica(id, status);
+  if (!gravou) {
+    (async () => {
+      for (const espera of ESPERAS_RECUPERACAO_IMPRESSAO_MS) {
+        await _esperarMs(espera);
+        if (await _tentarResolverImpressaoAutomatica(id, status)) {
+          console.log('[AUTO-PRINT] Resolve gravado na nova tentativa', { id, status });
+          return;
+        }
+      }
+      // Sem conseguir gravar: o pedido fica "claimed", tratado como ambíguo na UI (alertaImpressaoAutomaticaHtml);
+      // nesta aba nunca volta pra fila (_idsImpressaoAutomaticaFinalizadosNestaAba).
+      console.error('[AUTO-PRINT] Resolve não gravado após novas tentativas', { id, status });
+    })();
   }
   // Recarga completa do cache em segundo plano — NÃO bloqueia o lock/fila (com histórico grande
   // isso atrasava o próximo pedido). Traz o autoPrintStatus novo e redesenha quando terminar.
@@ -1293,6 +1410,7 @@ async function _resolverImpressaoAutomaticaSemLancar(id, status) {
     .catch((erroRecarregar) => {
       console.error('Não foi possível recarregar pedidos após resolver impressão automática:', erroRecarregar);
     });
+  return gravou;
 }
 
 // Um claim 'claimed' sem resolução por tempo demais (aba fechou/recarregou entre o claim e o
