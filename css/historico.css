@@ -34,46 +34,63 @@
 
 /*
  * Colunas da tabela — o <thead> e o <tbody> mudam de estrutura por aba (ver renderizarCabecalhoTabelaHistorico()
- * em historico.js): Finalizados tem 6 colunas [checkbox, Pedido, Data, Total, Status, Ações], Cancelados tem 7
- * [Pedido, Cliente, Tipo, Total, Cancelado em, Motivo, Ações]. Cada regra abaixo foi conferida nas duas
- * estruturas antes de entrar — só nth-child(6) foi propositalmente deixado de fora (ver comentário lá embaixo).
+ * em historico.js, que marca a <table> com data-aba): Finalizados tem 7 colunas [checkbox, Pedido, Cliente,
+ * Data, Total, Status, Ações], Cancelados tem 7 [Pedido, Cliente, Tipo, Total, Cancelado em, Motivo, Ações].
+ * As regras ficam escopadas por aba porque as posições não coincidem.
  */
 
-/* Número do pedido — âncora visual principal nas duas abas (posição 1 em Cancelados, 2 em Finalizados;
-   na posição "errada" de cada aba cai sobre o checkbox — sem efeito visual — ou sobre o Cliente, que só
-   fica um pouco mais forte que o "peso moderado" pedido, efeito colateral aceitável) */
-#cabecalho-tabela-historico th:nth-child(1),
-#cabecalho-tabela-historico th:nth-child(2),
-#corpo-tabela-pedidos-finalizados td:nth-child(1),
-#corpo-tabela-pedidos-finalizados td:nth-child(2) {
+/* Número do pedido — âncora visual principal */
+.tabela[data-aba="finalizado"] th:nth-child(2),
+.tabela[data-aba="finalizado"] td:nth-child(2),
+.tabela[data-aba="cancelado"] th:nth-child(1),
+.tabela[data-aba="cancelado"] td:nth-child(1) {
   font-weight: 700;
 }
 
-/* Data (Finalizados) / Tipo (Cancelados) — ambos são metadado secundário */
-#corpo-tabela-pedidos-finalizados td:nth-child(3) {
+/* Data (Finalizados) / Tipo (Cancelados) — metadado secundário */
+.tabela[data-aba="finalizado"] td:nth-child(4),
+.tabela[data-aba="cancelado"] td:nth-child(3) {
   color: var(--cor-texto-secundario);
   font-size: 0.85rem;
 }
 
-/* Total — mesma posição (4ª coluna) nas duas abas; mesmo destaque monetário usado em Dashboard/Pedido/Pedidos/Produtos */
-#cabecalho-tabela-historico th:nth-child(4),
-#corpo-tabela-pedidos-finalizados td:nth-child(4) {
+/* Total — mesmo destaque monetário usado em Dashboard/Pedido/Pedidos/Produtos */
+.tabela[data-aba="finalizado"] th:nth-child(5),
+.tabela[data-aba="finalizado"] td:nth-child(5),
+.tabela[data-aba="cancelado"] th:nth-child(4),
+.tabela[data-aba="cancelado"] td:nth-child(4) {
   text-align: right;
 }
 
-#corpo-tabela-pedidos-finalizados td:nth-child(4) {
+.tabela[data-aba="finalizado"] td:nth-child(5),
+.tabela[data-aba="cancelado"] td:nth-child(4) {
   font-weight: 700;
   color: var(--cor-terracota);
 }
 
-/* Status (badge, Finalizados) / Cancelado em (Cancelados) — o badge tem color próprio (mais específico
-   que a herança), então fica intocado; a data em Cancelados ganha o tom secundário */
-#corpo-tabela-pedidos-finalizados td:nth-child(5) {
+/* Cancelado em (Cancelados) — tom secundário. Status (Finalizados) é badge, com cor própria */
+.tabela[data-aba="cancelado"] td:nth-child(5) {
   color: var(--cor-texto-secundario);
 }
 
-/* nth-child(6) deliberadamente sem regra: é Ações em Finalizados (não pode ficar acinzentado) e Motivo em
-   Cancelados (fica no estilo padrão — não está na lista de prioridade pedida, sem necessidade de destaque) */
+/* Cliente — link pra ficha (só admin); "Não informado" em tom secundário */
+.link-cliente-historico {
+  color: var(--cor-texto);
+  text-decoration: underline;
+  text-decoration-color: var(--cor-borda);
+  text-underline-offset: 3px;
+}
+
+.link-cliente-historico:hover,
+.link-cliente-historico:focus-visible {
+  color: var(--cor-terracota);
+  text-decoration-color: var(--cor-terracota);
+}
+
+.cliente-nao-informado {
+  color: var(--cor-texto-secundario);
+  font-style: italic;
+}
 
 .acoes-linha {
   display: flex;

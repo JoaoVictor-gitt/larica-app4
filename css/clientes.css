@@ -1,0 +1,265 @@
+/*
+ * clientes.css
+ * Estilos específicos da página Clientes (indicadores, filtros, tabela
+ * clicável, paginação e ficha individual). Tabela/modal/aviso reaproveitam
+ * css/historico.css (carregado antes) e os tokens de css/style.css.
+ */
+
+/* Barra "Atualizado às … · Atualizar" (sincronização do cadastro + releitura) */
+.barra-atualizacao-clientes {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  flex-wrap: wrap;
+}
+
+.texto-atualizacao-clientes {
+  font-size: 0.8rem;
+  color: var(--cor-texto-secundario);
+}
+
+.aviso-sincronizacao-clientes {
+  background: rgba(224, 185, 78, 0.12);
+  border-left: 3px solid var(--cor-status-amarelo);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  font-size: 0.85rem;
+  margin-bottom: var(--espaco-md);
+}
+
+.grade-indicadores-clientes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-md);
+}
+
+.cartao-indicador-cliente {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cartao-indicador-rotulo {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cor-texto-secundario);
+}
+
+.cartao-indicador-valor {
+  font-size: 1.5rem;
+  color: var(--cor-terracota);
+}
+
+.cartao-indicador-dica {
+  font-size: 0.78rem;
+  color: var(--cor-texto-secundario);
+}
+
+.barra-filtros-clientes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espaco-sm);
+  margin-bottom: var(--espaco-md);
+}
+
+.barra-filtros-clientes input[type="search"] {
+  flex: 1 1 240px;
+}
+
+.barra-filtros-clientes select {
+  flex: 0 1 200px;
+}
+
+/* Mais específico que `.tabela-pedidos-finalizados-wrap .tabela` (historico.css, 560px) — senão a
+   tabela de clientes encolhe no celular em vez de rolar */
+.tabela-pedidos-finalizados-wrap .tabela-clientes {
+  min-width: 960px;
+}
+
+/* Colunas: Nome | Telefone | Situação | Pedidos | Total gasto | Ticket médio | Primeira | Última */
+.tabela-clientes td:nth-child(1) {
+  font-weight: 700;
+}
+
+.tabela-clientes th:nth-child(n + 4):nth-child(-n + 6),
+.tabela-clientes td:nth-child(n + 4):nth-child(-n + 6) {
+  text-align: right;
+}
+
+.tabela-clientes td:nth-child(5) {
+  font-weight: 700;
+  color: var(--cor-terracota);
+}
+
+.tabela-clientes td:nth-child(7),
+.tabela-clientes td:nth-child(8) {
+  color: var(--cor-texto-secundario);
+  font-size: 0.85rem;
+}
+
+/* Selos de situação (Identificação incompleta / Nome repetido / Telefone compartilhado / correspondências) */
+.selos-cliente {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.selo-cliente {
+  white-space: nowrap;
+  font-size: 0.72rem;
+}
+
+.linha-alertas-indicadores {
+  display: block;
+  margin-top: var(--espaco-xs);
+  font-weight: 600;
+}
+
+.linha-cliente-clicavel {
+  cursor: pointer;
+}
+
+.linha-cliente-clicavel:focus-visible {
+  outline: 2px solid var(--cor-terracota);
+  outline-offset: -2px;
+}
+
+.paginacao-clientes {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--espaco-sm);
+  margin-top: var(--espaco-md);
+  font-size: 0.85rem;
+  color: var(--cor-texto-secundario);
+}
+
+/* Ficha individual */
+.modal-ficha-cliente {
+  max-width: 720px;
+}
+
+.grade-metricas-ficha {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--espaco-sm);
+  margin-bottom: var(--espaco-md);
+}
+
+.grade-metricas-ficha .cartao-indicador-valor {
+  font-size: 1.2rem;
+}
+
+.texto-secundario-ficha {
+  color: var(--cor-texto-secundario);
+  font-size: 0.85rem;
+}
+
+.pedido-ficha-cliente {
+  padding: var(--espaco-sm) 0 var(--espaco-md);
+  border-bottom: 1px solid var(--cor-borda);
+  margin-bottom: var(--espaco-sm);
+}
+
+.pedido-ficha-cliente:last-of-type {
+  border-bottom: none;
+}
+
+.pedido-ficha-cliente-cabecalho {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--espaco-sm);
+  margin-bottom: var(--espaco-xs);
+}
+
+/* Alertas da ficha — cada item abre a outra ficha, nada é somado */
+.alerta-ficha-cliente {
+  border-left: 3px solid var(--cor-status-amarelo);
+  padding-left: var(--espaco-md);
+}
+
+.lista-relacionados-ficha {
+  margin: var(--espaco-xs) 0 0;
+  padding-left: var(--espaco-lg);
+}
+
+.lista-relacionados-ficha li {
+  margin-bottom: 4px;
+}
+
+.lista-relacionados-ficha a {
+  color: var(--cor-texto);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--cor-borda);
+  text-underline-offset: 3px;
+}
+
+.lista-relacionados-ficha a:hover,
+.lista-relacionados-ficha a:focus-visible {
+  color: var(--cor-terracota);
+  text-decoration-color: var(--cor-terracota);
+}
+
+/* Rodapé da ficha: "Excluir cliente" à esquerda, separado das ações neutras; quebra de
+   linha em telas estreitas para os três botões caberem no celular */
+.rodape-ficha-cliente {
+  flex-wrap: wrap;
+}
+
+.rodape-ficha-cliente #botao-excluir-cliente {
+  margin-right: auto;
+}
+
+/* Modais de editar / confirmar exclusão — abrem por cima da ficha (vêm depois no DOM) */
+.modal-editar-cliente,
+.modal-excluir-cliente {
+  max-width: 480px;
+}
+
+.modal-editar-cliente .form-grupo {
+  margin-bottom: var(--espaco-md);
+}
+
+.aviso-erro-cliente {
+  background: rgba(212, 98, 98, 0.12);
+  border-left: 3px solid var(--cor-status-vermelho);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  font-size: 0.85rem;
+  margin: var(--espaco-sm) 0 0;
+}
+
+@media (max-width: 480px) {
+  .rodape-ficha-cliente .btn {
+    flex: 1 1 auto;
+  }
+
+  .rodape-ficha-cliente #botao-excluir-cliente {
+    margin-right: 0;
+  }
+}
+
+/* Histórico de vínculos (auditoria) */
+.lista-auditoria-ficha {
+  margin: var(--espaco-xs) 0 0;
+  padding-left: var(--espaco-lg);
+  font-size: 0.88rem;
+}
+
+.lista-auditoria-ficha li {
+  margin-bottom: 4px;
+}
+
+.lista-auditoria-ficha small {
+  display: block;
+}
+
+.pedido-ficha-cliente-total {
+  margin-left: auto;
+  color: var(--cor-terracota);
+}

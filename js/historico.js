@@ -13,12 +13,15 @@
 let pedidosSelecionadosHistorico = new Set();
 let acaoPendenteExclusaoHistorico = null;
 let abaHistoricoAtual = 'finalizado'; // 'finalizado' | 'cancelado'
+// Link do nome do cliente -> ficha (clientes.html, admin-only). Fail closed: erro ao consultar = sem link.
+let historicoUsuarioEhAdmin = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
   const carregando = document.getElementById('estado-carregando-pedidos-finalizados');
   const erro = document.getElementById('estado-erro-pedidos-finalizados');
   try {
-    await carregarPedidosClientesCache();
+    const [, ehAdmin] = await Promise.all([carregarPedidosClientesCache(), usuarioEhAdminNoSupabase().catch(() => false)]);
+    historicoUsuarioEhAdmin = ehAdmin === true;
   } catch (erroCarregamento) {
     console.error('Erro ao carregar pedidos:', erroCarregamento);
     carregando.style.display = 'none';
@@ -107,6 +110,8 @@ function renderizarPedidosFinalizados() {
 /** Recria o <thead> conforme a aba ativa — colunas diferentes pra Finalizados (com seleção/exclusão) e Cancelados (sem nenhuma das duas) */
 function renderizarCabecalhoTabelaHistorico(ehCancelados) {
   const cabecalho = document.getElementById('cabecalho-tabela-historico');
+  // historico.css estiliza as colunas por posição, e as posições diferem entre as abas
+  cabecalho.closest('table').dataset.aba = ehCancelados ? 'cancelado' : 'finalizado';
   cabecalho.innerHTML = ehCancelados
     ? `<tr>
         <th>Pedido</th>
@@ -120,6 +125,7 @@ function renderizarCabecalhoTabelaHistorico(ehCancelados) {
     : `<tr>
         <th><input type="checkbox" id="checkbox-selecionar-todos-historico" aria-label="Selecionar todos" /></th>
         <th>Pedido</th>
+        <th>Cliente</th>
         <th>Data</th>
         <th>Total</th>
         <th>Status</th>
@@ -148,7 +154,7 @@ function linhaPedidoCanceladoHtml(pedido, moeda) {
   return `
     <tr>
       <td>${escaparHtml(pedido.numero)}</td>
-      <td>${escaparHtml((pedido.cliente || {}).nome || '(sem nome)')}</td>
+      <td>${celulaClienteHistoricoHtml(pedido)}</td>
       <td>${escaparHtml(tipoRotulo)}</td>
       <td>${formatarMoeda(pedido.total, moeda)}</td>
       <td>${escaparHtml(formatarData(pedido.canceladoEm))} ${escaparHtml(formatarHora(pedido.canceladoEm))}</td>
@@ -161,12 +167,24 @@ function linhaPedidoCanceladoHtml(pedido, moeda) {
     </tr>`;
 }
 
+/**
+ * Nome do cliente nas duas abas — "Não informado" sem nome; link pra ficha só pra admin. O link leva o
+ * id do pedido (nunca o telefone): a ficha resolve o cliente no banco (get_customer_detail).
+ */
+function celulaClienteHistoricoHtml(pedido) {
+  const nome = ((pedido.cliente || {}).nome || '').trim();
+  if (!nome) return '<span class="cliente-nao-informado">Não informado</span>';
+  if (!historicoUsuarioEhAdmin) return escaparHtml(nome);
+  return `<a class="link-cliente-historico" href="clientes.html?pedido=${encodeURIComponent(pedido.id)}" title="Ver ficha do cliente">${escaparHtml(nome)}</a>`;
+}
+
 function linhaPedidoFinalizadoHtml(pedido, moeda) {
   const marcado = pedidosSelecionadosHistorico.has(pedido.id);
   return `
     <tr>
       <td><input type="checkbox" class="checkbox-pedido-historico" data-id="${pedido.id}" ${marcado ? 'checked' : ''} /></td>
       <td>${escaparHtml(pedido.numero)}</td>
+      <td>${celulaClienteHistoricoHtml(pedido)}</td>
       <td>${formatarData(pedido.finalizadoEm || pedido.criadoEm)}</td>
       <td>${formatarMoeda(pedido.total, moeda)}</td>
       <td><span class="badge badge-cinza">${escaparHtml(ROTULOS_STATUS_PEDIDO[pedido.status] || pedido.status)}</span></td>

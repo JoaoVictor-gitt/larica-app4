@@ -12,6 +12,8 @@
 // Menu da área Painel Administrativo (gestão do food truck) — `permissao` é a permissão mínima
 // (sempre *.view, exceto Configurações que só tem settings.manage — não existe settings.view, ver
 // Fase 10C/Etapa 3) exigida tanto pra aparecer no menu quanto pra acessar a página diretamente por URL.
+// `somenteAdmin: true` = módulo exclusivo de admin (sem permissão concedível a employee) — as RPCs
+// da página também checam is_admin() no banco; isto aqui só esconde o menu e barra o acesso por URL.
 const MENU_ADMIN = [
   { chave: 'dashboard', rotulo: 'Dashboard', icone: '📊', href: 'dashboard.html', permissao: 'dashboard.view' },
   { chave: 'pedidos', rotulo: 'Pedidos', icone: '📋', href: 'pedidos.html', permissao: 'orders.view' },
@@ -20,12 +22,13 @@ const MENU_ADMIN = [
   { chave: 'compras', rotulo: 'Compras', icone: '🛒', href: 'compras.html', permissao: 'purchases.view' },
   { chave: 'producao', rotulo: 'Produção', icone: '🧾', href: 'producao.html', permissao: 'production.view' },
   { chave: 'historico', rotulo: 'Histórico', icone: '🕒', href: 'historico.html', permissao: 'history.view' },
+  { chave: 'clientes', rotulo: 'Clientes', icone: '👥', href: 'clientes.html', somenteAdmin: true },
   { chave: 'relatorios', rotulo: 'Relatórios', icone: '📈', href: 'relatorios.html', permissao: 'reports.view' },
   { chave: 'configuracoes', rotulo: 'Configurações', icone: '⚙️', href: 'configuracoes.html', permissao: 'settings.manage' },
 ];
 
-// Página -> permissão exigida, derivado de MENU_ADMIN (uma só fonte de verdade, nunca duplicado à mão)
-const PERMISSAO_POR_PAGINA = Object.fromEntries(MENU_ADMIN.map((item) => [item.chave, item.permissao]));
+// Página -> item de MENU_ADMIN (permissão/somenteAdmin), derivado de MENU_ADMIN (uma só fonte de verdade, nunca duplicado à mão)
+const ITEM_MENU_POR_PAGINA = Object.fromEntries(MENU_ADMIN.map((item) => [item.chave, item]));
 
 // Menu da área Fazer Pedido (fluxo único e autocontido, sem sub-navegação própria)
 const MENU_PEDIDO = [];
@@ -43,6 +46,7 @@ const TITULOS_PAGINA = {
   producao: 'Produção',
   produtos: 'Produtos',
   historico: 'Histórico',
+  clientes: 'Clientes',
   relatorios: 'Relatório Diário',
   configuracoes: 'Configurações',
 };
@@ -98,11 +102,18 @@ function temAcesso(contexto, permissao) {
   return (contexto.permissoes || []).includes(permissao);
 }
 
+/** true se o contexto pode ver/acessar o item de MENU_ADMIN — `somenteAdmin` exige admin, senão vale a permissão do item. Fail closed. */
+function itemMenuLiberado(contexto, item) {
+  if (!contexto || !item) return false;
+  if (item.somenteAdmin) return contexto.ehAdmin === true;
+  return temAcesso(contexto, item.permissao);
+}
+
 /** Primeira página de MENU_ADMIN que o contexto atual realmente pode acessar, ou null se nenhuma (zero permissões). */
 function primeiraPaginaPermitida(contexto) {
   if (!contexto) return null;
   if (contexto.ehAdmin) return MENU_ADMIN[0].href;
-  const item = MENU_ADMIN.find((m) => temAcesso(contexto, m.permissao));
+  const item = MENU_ADMIN.find((m) => itemMenuLiberado(contexto, m));
   return item ? item.href : null;
 }
 
@@ -115,9 +126,9 @@ function primeiraPaginaPermitida(contexto) {
  */
 function garantirAcessoPaginaAtual(contexto) {
   const pagina = document.body.dataset.pagina || '';
-  const permissaoNecessaria = PERMISSAO_POR_PAGINA[pagina];
+  const itemPagina = ITEM_MENU_POR_PAGINA[pagina];
 
-  if (permissaoNecessaria && temAcesso(contexto, permissaoNecessaria)) return true;
+  if (itemPagina && itemMenuLiberado(contexto, itemPagina)) return true;
 
   const destino = primeiraPaginaPermitida(contexto);
   if (destino) {
@@ -147,7 +158,7 @@ function montarShell(contextoPermissoes) {
   }
 
   // Admin (área protegida): só os itens que o contexto realmente autoriza.
-  const itensMenu = MENU_ADMIN.filter((p) => temAcesso(contextoPermissoes, p.permissao));
+  const itensMenu = MENU_ADMIN.filter((p) => itemMenuLiberado(contextoPermissoes, p));
 
   const linksMenu = itensMenu
     .map(
