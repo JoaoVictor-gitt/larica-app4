@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    (function () {
+      try {
+        var config = JSON.parse(localStorage.getItem('caju_configuracoes') || '{}');
+        document.documentElement.setAttribute('data-tema', config.tema === 'claro' ? 'claro' : 'escuro');
+      } catch (erro) {}
+    })();
+  </script>
+  <title>Clientes | Larica Food Truck</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/historico.css" />
+  <link rel="stylesheet" href="css/clientes.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body data-pagina="clientes" data-area="admin">
+  <div id="layout-shell"></div>
+  <main class="conteudo-pagina">
+    <div class="pagina-titulo">
+      <h1>Clientes</h1>
+      <div class="barra-atualizacao-clientes">
+        <span class="texto-atualizacao-clientes" id="texto-atualizacao-clientes">Sincronizando…</span>
+        <button type="button" class="btn btn-secundario" id="botao-atualizar-clientes">Atualizar</button>
+      </div>
+    </div>
+    <p class="aviso-sincronizacao-clientes" id="aviso-sincronizacao-clientes" style="display:none;"></p>
+
+    <!-- Indicadores gerais — métricas só de pedidos finalizados vinculados a cadastros ativos -->
+    <section class="grade-indicadores-clientes" id="indicadores-clientes">
+      <div class="card cartao-indicador-cliente">
+        <span class="cartao-indicador-rotulo">Clientes cadastrados</span>
+        <strong class="cartao-indicador-valor" id="indicador-clientes-cadastrados">—</strong>
+        <span class="cartao-indicador-dica">cadastros ativos</span>
+      </div>
+      <div class="card cartao-indicador-cliente">
+        <span class="cartao-indicador-rotulo">Já compraram</span>
+        <strong class="cartao-indicador-valor" id="indicador-clientes-compraram">—</strong>
+        <span class="cartao-indicador-dica">1 ou mais pedidos finalizados</span>
+      </div>
+      <div class="card cartao-indicador-cliente">
+        <span class="cartao-indicador-rotulo">Clientes recorrentes</span>
+        <strong class="cartao-indicador-valor" id="indicador-clientes-recorrentes">—</strong>
+        <span class="cartao-indicador-dica">2 ou mais pedidos finalizados</span>
+      </div>
+      <div class="card cartao-indicador-cliente">
+        <span class="cartao-indicador-rotulo">Pedidos de clientes</span>
+        <strong class="cartao-indicador-valor" id="indicador-pedidos-clientes">—</strong>
+      </div>
+      <div class="card cartao-indicador-cliente">
+        <span class="cartao-indicador-rotulo">Total gasto</span>
+        <strong class="cartao-indicador-valor" id="indicador-total-gasto">—</strong>
+      </div>
+      <div class="card cartao-indicador-cliente">
+        <span class="cartao-indicador-rotulo">Ticket médio</span>
+        <strong class="cartao-indicador-valor" id="indicador-ticket-medio">—</strong>
+      </div>
+    </section>
+    <p class="aviso-info" id="aviso-regras-clientes">
+      Cliente cadastrado é um cadastro ativo com nome e, quando informado, telefone irlandês. O vínculo automático de pedidos continua exigindo nome + telefone irlandês; pedidos sem telefone ficam como não cadastrados e nunca são agrupados pelo nome. As métricas contam só pedidos finalizados vinculados a um cadastro; cancelados e em andamento aparecem apenas no histórico da ficha.
+      <span class="linha-alertas-indicadores" id="aviso-qualidade-identificacao"></span>
+    </p>
+
+    <section class="secao-pedidos-finalizados">
+      <div class="barra-filtros-clientes">
+        <input type="search" class="input" id="busca-clientes" placeholder="Buscar por nome ou telefone" aria-label="Buscar por nome ou telefone" />
+        <select class="input" id="ordenacao-clientes" aria-label="Ordenar por">
+          <option value="nome">Nome (A–Z)</option>
+          <option value="ultima">Última compra</option>
+          <option value="pedidos">Nº de pedidos</option>
+          <option value="gasto">Valor gasto</option>
+        </select>
+      </div>
+
+      <div class="filtro-categorias" id="filtros-clientes">
+        <button type="button" class="filtro-categoria-botao ativo" data-filtro-clientes="todos">Todos</button>
+        <button type="button" class="filtro-categoria-botao" data-filtro-clientes="cadastrados">Cadastrados</button>
+        <button type="button" class="filtro-categoria-botao" data-filtro-clientes="compraram">Já compraram</button>
+        <button type="button" class="filtro-categoria-botao" data-filtro-clientes="naoCadastrados">Não cadastrados</button>
+        <button type="button" class="filtro-categoria-botao" data-filtro-clientes="duplicidades">Possíveis duplicidades</button>
+      </div>
+
+      <div class="card tabela-pedidos-finalizados-wrap">
+        <table class="tabela tabela-clientes">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Telefone</th>
+              <th>Situação</th>
+              <th>Pedidos</th>
+              <th>Total gasto</th>
+              <th>Ticket médio</th>
+              <th>Primeira compra</th>
+              <th>Última compra</th>
+            </tr>
+          </thead>
+          <tbody id="corpo-tabela-clientes"></tbody>
+        </table>
+        <div class="estado-vazio" id="estado-carregando-clientes">Carregando clientes...</div>
+        <div class="estado-vazio" id="estado-erro-clientes" style="display:none;"></div>
+        <div class="estado-vazio" id="estado-vazio-clientes" style="display:none;"></div>
+      </div>
+
+      <div class="paginacao-clientes" id="paginacao-clientes" style="display:none;">
+        <button type="button" class="btn btn-secundario" id="botao-pagina-anterior-clientes">Anterior</button>
+        <span id="rotulo-pagina-clientes"></span>
+        <button type="button" class="btn btn-secundario" id="botao-pagina-proxima-clientes">Próxima</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Ficha individual do cliente -->
+  <div class="modal-overlay" id="modal-overlay-ficha-cliente">
+    <div class="modal modal-ficha-cliente">
+      <div class="modal-cabecalho">
+        <h2 id="ficha-cliente-titulo">Cliente</h2>
+        <button class="btn-icone" id="botao-fechar-ficha-cliente" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-corpo" id="ficha-cliente-corpo"></div>
+      <div class="modal-rodape rodape-ficha-cliente">
+        <!-- Editar/Excluir: visíveis só na ficha de um cadastro ATIVO (ver clientes.js) -->
+        <button type="button" class="btn btn-perigo" id="botao-excluir-cliente" style="display:none;">Excluir cliente</button>
+        <button type="button" class="btn btn-secundario" id="botao-editar-cliente" style="display:none;">Editar cliente</button>
+        <button type="button" class="btn btn-secundario" id="botao-fechar-ficha-cliente-rodape">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Editar cliente (abre por cima da ficha) -->
+  <div class="modal-overlay" id="modal-overlay-editar-cliente">
+    <div class="modal modal-editar-cliente">
+      <div class="modal-cabecalho">
+        <h2>Editar cliente</h2>
+        <button class="btn-icone" id="botao-fechar-editar-cliente" aria-label="Fechar">✕</button>
+      </div>
+      <form id="form-editar-cliente" novalidate>
+        <div class="modal-corpo">
+          <div class="form-grupo">
+            <label for="campo-editar-cliente-nome">Nome *</label>
+            <input type="text" class="input" id="campo-editar-cliente-nome" maxlength="120" autocomplete="off" required />
+            <span class="campo-erro" id="erro-editar-cliente-nome"></span>
+          </div>
+          <div class="form-grupo">
+            <label for="campo-editar-cliente-telefone">Telefone (opcional)</label>
+            <input type="tel" class="input" id="campo-editar-cliente-telefone" maxlength="30" autocomplete="off" placeholder="087 123 4567" />
+            <span class="texto-secundario-ficha">Somente números irlandeses. Deixe vazio para remover o telefone do cadastro.</span>
+          </div>
+          <p class="texto-secundario-ficha">Os pedidos já vinculados a este cliente continuam vinculados. Nenhum pedido é alterado.</p>
+          <p class="aviso-erro-cliente" id="erro-editar-cliente" role="alert" style="display:none;"></p>
+        </div>
+        <div class="modal-rodape">
+          <button type="button" class="btn btn-secundario" id="botao-cancelar-editar-cliente">Cancelar</button>
+          <button type="submit" class="btn btn-primario" id="botao-salvar-editar-cliente">Salvar alterações</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Confirmação de exclusão (arquivamento) do cliente -->
+  <div class="modal-overlay" id="modal-overlay-excluir-cliente">
+    <div class="modal modal-excluir-cliente">
+      <div class="modal-cabecalho">
+        <h2>Excluir cliente?</h2>
+        <button class="btn-icone" id="botao-fechar-excluir-cliente" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-corpo">
+        <p><strong>Cliente: <span id="excluir-cliente-nome"></span></strong></p>
+        <p>Você está prestes a excluir este cliente do cadastro. Os pedidos realizados não serão apagados e continuarão disponíveis no histórico como Cliente não cadastrado. Esta operação arquivará o cadastro e desvinculará os pedidos associados.</p>
+        <p class="aviso-erro-cliente" id="erro-excluir-cliente" role="alert" style="display:none;"></p>
+      </div>
+      <div class="modal-rodape">
+        <button type="button" class="btn btn-secundario" id="botao-cancelar-excluir-cliente">Cancelar</button>
+        <button type="button" class="btn btn-perigo" id="botao-confirmar-excluir-cliente">Excluir cliente</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/services/permissions-service.js"></script>
+  <script src="js/services/orders-service.js"></script>
+  <script src="js/services/customers-service.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/clientes.js"></script>
+</body>
+</html>
