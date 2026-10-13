@@ -25,6 +25,7 @@
       <div class="barra-atualizacao-clientes">
         <span class="texto-atualizacao-clientes" id="texto-atualizacao-clientes">Sincronizando…</span>
         <button type="button" class="btn btn-secundario" id="botao-atualizar-clientes">Atualizar</button>
+        <button type="button" class="btn btn-primario" id="botao-cadastrar-cliente">Cadastrar cliente</button>
       </div>
     </div>
     <p class="aviso-sincronizacao-clientes" id="aviso-sincronizacao-clientes" style="display:none;"></p>
@@ -174,6 +175,105 @@
       <div class="modal-rodape">
         <button type="button" class="btn btn-secundario" id="botao-cancelar-excluir-cliente">Cancelar</button>
         <button type="button" class="btn btn-perigo" id="botao-confirmar-excluir-cliente">Excluir cliente</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cadastrar cliente: 1) dados -> 2) revisão de possíveis duplicidades -> 3) concluído -->
+  <div class="modal-overlay" id="modal-overlay-cadastrar-cliente">
+    <div class="modal modal-cadastrar-cliente">
+      <div class="modal-cabecalho">
+        <h2>Cadastrar cliente</h2>
+        <button class="btn-icone" id="botao-fechar-cadastrar-cliente" aria-label="Fechar">✕</button>
+      </div>
+      <form id="form-cadastrar-cliente" novalidate>
+        <div class="modal-corpo">
+          <div id="etapa-dados-cadastro-cliente">
+            <div class="form-grupo">
+              <label for="campo-cadastrar-cliente-nome">Nome *</label>
+              <input type="text" class="input" id="campo-cadastrar-cliente-nome" maxlength="120" autocomplete="off" required />
+              <span class="campo-erro" id="erro-cadastrar-cliente-nome"></span>
+            </div>
+            <div class="form-grupo">
+              <label for="campo-cadastrar-cliente-telefone">Telefone *</label>
+              <input type="tel" class="input" id="campo-cadastrar-cliente-telefone" maxlength="30" autocomplete="off" placeholder="087 123 4567" required />
+              <span class="campo-erro" id="erro-cadastrar-cliente-telefone"></span>
+              <span class="texto-secundario-ficha">Somente números irlandeses.</span>
+            </div>
+            <div class="form-grupo">
+              <label for="campo-cadastrar-cliente-eircode">Eircode (opcional)</label>
+              <input type="text" class="input" id="campo-cadastrar-cliente-eircode" maxlength="8" autocomplete="off" placeholder="D03 FX92" />
+              <span class="campo-erro" id="erro-cadastrar-cliente-eircode"></span>
+            </div>
+          </div>
+          <div id="etapa-revisao-cadastro-cliente" style="display:none;"></div>
+          <div id="etapa-concluido-cadastro-cliente" style="display:none;"></div>
+          <p class="aviso-erro-cliente" id="erro-cadastrar-cliente" role="alert" style="display:none;"></p>
+        </div>
+        <div class="modal-rodape">
+          <button type="button" class="btn btn-secundario" id="botao-cancelar-cadastrar-cliente">Cancelar</button>
+          <button type="button" class="btn btn-secundario" id="botao-voltar-cadastrar-cliente" style="display:none;">Voltar</button>
+          <button type="button" class="btn btn-secundario" id="botao-abrir-ficha-cadastrado" style="display:none;">Abrir ficha</button>
+          <button type="submit" class="btn btn-primario" id="botao-avancar-cadastrar-cliente">Continuar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Eircode do cadastro (abre por cima da ficha) -->
+  <div class="modal-overlay" id="modal-overlay-eircode-cliente">
+    <div class="modal modal-eircode-cliente">
+      <div class="modal-cabecalho">
+        <h2>Eircode do cliente</h2>
+        <button class="btn-icone" id="botao-fechar-eircode-cliente" aria-label="Fechar">✕</button>
+      </div>
+      <form id="form-eircode-cliente" novalidate>
+        <div class="modal-corpo">
+          <div class="form-grupo">
+            <label for="campo-eircode-cliente">Eircode (opcional)</label>
+            <input type="text" class="input" id="campo-eircode-cliente" maxlength="8" autocomplete="off" placeholder="D03 FX92" />
+            <span class="campo-erro" id="erro-campo-eircode-cliente"></span>
+            <span class="texto-secundario-ficha">Deixe vazio para remover. O Eircode dos pedidos não é alterado.</span>
+          </div>
+          <p class="aviso-erro-cliente" id="erro-eircode-cliente" role="alert" style="display:none;"></p>
+        </div>
+        <div class="modal-rodape">
+          <button type="button" class="btn btn-secundario" id="botao-cancelar-eircode-cliente">Cancelar</button>
+          <button type="submit" class="btn btn-primario" id="botao-salvar-eircode-cliente">Salvar Eircode</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Vincular pedido (um por vez): 1) pesquisa -> 2) confirmação -->
+  <div class="modal-overlay" id="modal-overlay-vincular-pedido">
+    <div class="modal modal-vincular-pedido">
+      <div class="modal-cabecalho">
+        <h2 id="vincular-pedido-titulo">Vincular pedido</h2>
+        <button class="btn-icone" id="botao-fechar-vincular-pedido" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-corpo">
+        <div id="etapa-busca-vincular-pedido">
+          <form class="barra-busca-vincular-pedido" id="form-busca-vincular-pedido" novalidate>
+            <input type="search" class="input" id="campo-busca-vincular-pedido" maxlength="80" autocomplete="off"
+                   placeholder="Nº do pedido, nome ou telefone" aria-label="Nº do pedido, nome ou telefone" />
+            <button type="submit" class="btn btn-secundario" id="botao-buscar-vincular-pedido">Buscar</button>
+          </form>
+          <p class="texto-secundario-ficha">Pedidos já vinculados a outro cliente não podem ser transferidos por aqui. Nenhum pedido é alterado.</p>
+          <div id="resultados-vincular-pedido"></div>
+          <div class="paginacao-clientes" id="paginacao-vincular-pedido" style="display:none;">
+            <button type="button" class="btn btn-secundario" id="botao-anterior-vincular-pedido">Anterior</button>
+            <span id="rotulo-pagina-vincular-pedido"></span>
+            <button type="button" class="btn btn-secundario" id="botao-proxima-vincular-pedido">Próxima</button>
+          </div>
+        </div>
+        <div id="etapa-confirmar-vincular-pedido" style="display:none;"></div>
+        <p class="aviso-erro-cliente" id="erro-vincular-pedido" role="alert" style="display:none;"></p>
+      </div>
+      <div class="modal-rodape">
+        <button type="button" class="btn btn-secundario" id="botao-cancelar-vincular-pedido">Fechar</button>
+        <button type="button" class="btn btn-secundario" id="botao-voltar-vincular-pedido" style="display:none;">Voltar</button>
+        <button type="button" class="btn btn-primario" id="botao-confirmar-vincular-pedido" style="display:none;">Confirmar vinculação</button>
       </div>
     </div>
   </div>

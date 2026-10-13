@@ -17,8 +17,16 @@
  * em andamento). Nunca bloqueia a leitura: espera no máximo 8 s e, se falhar/estiver ocupada,
  * mostra um aviso e carrega os dados mesmo assim.
  *
+ * Cadastro manual (botão "Cadastrar cliente"): dados -> revisão de possíveis duplicidades (cada
+ * aviso precisa ser confirmado) -> concluído. Eircode opcional, editável pela ficha. Vinculação
+ * manual de UM pedido por vez pela seção "Histórico de vínculos" da ficha: pesquisa -> confirmação
+ * (avisos de nome/telefone/cancelado e reativação de pedido desvinculado). O banco recalcula e exige
+ * tudo isso; aqui é só UX. Pedido vinculado a outro cliente nunca é transferido.
+ * Falha de rede = "não confirmado": a tela relê o estado no banco antes de permitir nova tentativa
+ * (cadastro repetido com o mesmo id de tentativa não duplica; vínculo repetido vira "já vinculado").
+ *
  * Toda agregação roda no banco (js/services/customers-service.js) — esta tela nunca carrega o
- * histórico inteiro de pedidos. Vinculação manual de pedidos a um cadastro = Fase 2 (não existe aqui).
+ * histórico inteiro de pedidos.
  * Depende de utils.js, storage.js e customers-service.js.
  */
 
@@ -28,15 +36,30 @@ const LIMITE_ESPERA_SINCRONIZACAO_MS = 8000;
 const INTERVALO_ATUALIZACAO_AUTOMATICA_MS = 120000;
 
 const estadoListaClientes = { busca: '', ordenacao: 'nome', filtro: 'todos', offset: 0, total: 0, seq: 0 };
-const estadoFichaCliente = { aberta: false, alvo: null, cadastrado: false, dados: null, pedidos: [], totalPedidos: 0, seq: 0 };
+const estadoFichaCliente = { aberta: false, alvo: null, cadastrado: false, dados: null, perfil: null, pedidos: [], totalPedidos: 0, seq: 0 };
 const estadoAtualizacaoClientes = { emAndamento: false };
-// Edição/exclusão em andamento: bloqueia cliques repetidos e o fechamento da ficha até terminar
+// Operação de escrita em andamento (editar, excluir, cadastrar, Eircode, vincular): bloqueia cliques
+// repetidos e o fechamento da ficha/modais até terminar
 const estadoOperacaoCliente = { emAndamento: false };
+const estadoCadastroCliente = {
+  aberto: false,
+  etapa: 'dados',
+  previa: null,
+  dados: null,
+  idTentativa: null,
+  tentativaEncerrada: false,
+  clienteCriadoId: null,
+};
+const estadoVincularPedido = { aberto: false, clienteId: null, busca: '', offset: 0, total: 0, pedidos: [], seq: 0, selecionado: null };
+const TAMANHO_PAGINA_VINCULAR_PEDIDO = 10;
 
 document.addEventListener('DOMContentLoaded', async () => {
   ligarEventosListaClientes();
   ligarEventosFichaCliente();
   ligarEventosEdicaoExclusaoCliente();
+  ligarEventosCadastroCliente();
+  ligarEventosEircodeCliente();
+  ligarEventosVincularPedido();
   document.getElementById('botao-atualizar-clientes').addEventListener('click', () => atualizarClientes({ manual: true }));
 
   await atualizarClientes({ manual: false });
@@ -46,7 +69,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   else if (parametros.get('pedido')) abrirFichaCliente({ pedidoId: parametros.get('pedido') });
 
   setInterval(() => {
-    if (document.visibilityState !== 'visible' || estadoFichaCliente.aberta || estadoAtualizacaoClientes.emAndamento) return;
+    if (
+      document.visibilityState !== 'visible' ||
+      estadoFichaCliente.aberta ||
+      estadoCadastroCliente.aberto ||
+      estadoOperacaoCliente.emAndamento ||
+      estadoAtualizacaoClientes.emAndamento
+    ) {
+      return;
+    }
     atualizarClientes({ manual: false });
   }, INTERVALO_ATUALIZACAO_AUTOMATICA_MS);
 });
@@ -336,6 +367,12 @@ function ligarEventosFichaCliente() {
       carregarMaisPedidosFicha();
       return;
     }
+    const acao = evento.target.closest('[data-acao-ficha]');
+    if (acao) {
+      if (acao.dataset.acaoFicha === 'editar-eircode') abrirEdicaoEircode();
+      else if (acao.dataset.acaoFicha === 'vincular-pedido') abrirVincularPedido();
+      return;
+    }
     const link = evento.target.closest('[data-abrir-cliente], [data-abrir-pedido]');
     if (!link) return;
     evento.preventDefault();
@@ -351,6 +388,7 @@ function fecharFichaCliente() {
   estadoFichaCliente.aberta = false;
   estadoFichaCliente.alvo = null;
   estadoFichaCliente.dados = null;
+  estadoFichaCliente.perfil = null;
   atualizarBotoesAcaoFichaCliente();
   // Tira ?pedido= / ?cliente= da URL pra um F5 não reabrir a ficha
   if (window.location.search) history.replaceState(null, '', window.location.pathname);
@@ -362,6 +400,7 @@ async function abrirFichaCliente(alvo) {
   const seq = ++estadoFichaCliente.seq; // dois cliques rápidos: só a última ficha pedida é exibida
   estadoFichaCliente.aberta = true;
   estadoFichaCliente.dados = null;
+  estadoFichaCliente.perfil = null;
   atualizarBotoesAcaoFichaCliente(); // esconde Editar/Excluir enquanto a ficha carrega
   const corpo = document.getElementById('ficha-cliente-corpo');
   document.getElementById('ficha-cliente-titulo').textContent = 'Cliente';
@@ -390,6 +429,36 @@ async function abrirFichaCliente(alvo) {
   corpo.innerHTML = fichaClienteHtml(ficha);
   corpo.scrollTop = 0;
   atualizarBotoesAcaoFichaCliente();
+  if (ficha.cadastrado && ficha.cliente.id) carregarPerfilFichaCliente(ficha.cliente.id, seq);
+}
+
+/** Eircode vem de admin_get_customer_profile (get_customer_detail não o devolve). Falha aqui não derruba a ficha. */
+async function carregarPerfilFichaCliente(clienteId, seq) {
+  let perfil;
+  try {
+    perfil = await getCustomerProfile(clienteId);
+  } catch (erro) {
+    if (seq !== estadoFichaCliente.seq) return;
+    console.error('Erro ao carregar o perfil do cliente:', erro);
+    atualizarLinhaEircodeFicha(null, 'Não foi possível carregar o Eircode.');
+    return;
+  }
+  if (seq !== estadoFichaCliente.seq) return;
+  estadoFichaCliente.perfil = perfil;
+  atualizarLinhaEircodeFicha(perfil, null);
+}
+
+function atualizarLinhaEircodeFicha(perfil, mensagemErro) {
+  const valor = document.getElementById('valor-eircode-ficha');
+  const botao = document.getElementById('botao-editar-eircode-ficha');
+  if (!valor) return;
+  if (mensagemErro) {
+    valor.textContent = mensagemErro;
+    if (botao) botao.disabled = true;
+    return;
+  }
+  valor.textContent = perfil && perfil.eircode ? formatarEircode(perfil.eircode) : 'Não informado';
+  if (botao) botao.disabled = false;
 }
 
 /** Ficha de um cadastro que pode ser editado/excluído: cadastrado, com id e não arquivado */
@@ -444,7 +513,9 @@ function fichaClienteHtml(ficha) {
       ${arquivado ? '<p class="aviso-info"><strong>Cadastro excluído (arquivado).</strong> Os pedidos deste cliente foram desvinculados e aparecem como Cliente não cadastrado. Este cadastro não pode mais ser editado.</p>' : ''}
       <p>${arquivado ? '<span class="badge badge-cinza">Arquivado</span>' : '<span class="badge badge-verde">Cadastrado</span>'}
         <small class="texto-secundario-ficha">desde ${escaparHtml(formatarData(cliente.cadastradoEm) || '—')} · origem: ${escaparHtml(ROTULOS_ORIGEM_CADASTRO[cliente.origem] || cliente.origem || '—')}</small></p>
-      <p>Telefone: ${cliente.telefone ? telefoneClienteHtml(cliente.telefone, false) : 'Não informado'}</p>`;
+      <p>Telefone: ${cliente.telefone ? telefoneClienteHtml(cliente.telefone, false) : 'Não informado'}</p>
+      <p class="linha-eircode-ficha">Eircode: <span id="valor-eircode-ficha">carregando…</span>
+        ${arquivado ? '' : '<button type="button" class="btn btn-secundario btn-compacto-cliente" id="botao-editar-eircode-ficha" data-acao-ficha="editar-eircode" disabled>Editar Eircode</button>'}</p>`;
   } else {
     let motivo;
     if (ficha.aguardandoSincronizacao) {
@@ -457,7 +528,7 @@ function fichaClienteHtml(ficha) {
       motivo = 'O pedido não tem telefone.';
     }
     blocoSituacao = `
-      <p class="aviso-info"><strong>Não cadastrado.</strong> ${escaparHtml(motivo)} A ficha mostra só este pedido, que não é agrupado com outros pelo nome nem entra nas métricas de clientes. A vinculação manual a um cadastro estará disponível em breve.</p>
+      <p class="aviso-info"><strong>Não cadastrado.</strong> ${escaparHtml(motivo)} A ficha mostra só este pedido, que não é agrupado com outros pelo nome nem entra nas métricas de clientes. Para vinculá-lo manualmente, abra a ficha do cliente e use "Vincular pedido" em Histórico de vínculos.</p>
       <p>Telefone: ${cliente.telefone ? telefoneClienteHtml(cliente.telefone, ficha.telefoneNaoReconhecido) : 'Não informado'}</p>`;
   }
 
@@ -508,7 +579,7 @@ function fichaClienteHtml(ficha) {
       <div class="detalhe-pedido-titulo">Histórico de compras</div>
       <div id="lista-pedidos-ficha-cliente">${pedidosFichaHtml()}</div>
     </div>
-    ${auditoriaFichaHtml(ficha.auditoria)}`;
+    ${auditoriaFichaHtml(ficha.auditoria, fichaPermiteEdicao(ficha))}`;
 }
 
 /** Alertas de possíveis duplicidades — cada item abre a outra ficha, nada é somado a esta */
@@ -631,22 +702,43 @@ const ROTULOS_ACAO_AUDITORIA = {
   customer_archived: 'Cliente arquivado',
 };
 
-/** "Histórico de vínculos" — últimos 20 eventos da auditoria (somente inclusão, no banco) */
-function auditoriaFichaHtml(eventos) {
-  if (!eventos || eventos.length === 0) return '';
-  const itens = eventos
+const ROTULOS_ALTERACAO_EIRCODE = { added: 'Eircode incluído', changed: 'Eircode alterado', removed: 'Eircode removido' };
+
+/** Rótulo do evento, com os detalhes que a auditoria guarda (nunca o texto do Eircode) */
+function rotuloEventoAuditoria(e) {
+  const d = e.detalhes || {};
+  if (e.acao === 'customer_updated' && d.field === 'eircode') return ROTULOS_ALTERACAO_EIRCODE[d.change] || 'Eircode alterado';
+  if (e.acao === 'customer_created' && d.manual) return 'Cadastro criado manualmente';
+  if (e.acao === 'link' && d.reactivated) return 'Vinculado manualmente (pedido reativado)';
+  return ROTULOS_ACAO_AUDITORIA[e.acao] || e.acao;
+}
+
+/**
+ * "Histórico de vínculos" — últimos 20 eventos da auditoria (somente inclusão, no banco). Em cadastro
+ * ativo aparece sempre (mesmo sem eventos), com o botão "Vincular pedido".
+ */
+function auditoriaFichaHtml(eventos, permitirVincular) {
+  const lista = eventos || [];
+  if (lista.length === 0 && !permitirVincular) return '';
+  const itens = lista
     .map((e) => {
       const autor = e.autorId ? 'admin ' + escaparHtml(String(e.autorId).slice(0, 8)) : 'sistema';
       const pedido = e.numeroPedido ? ' · ' + escaparHtml(e.numeroPedido) : '';
       const motivo = e.motivo ? ` · motivo: ${escaparHtml(e.motivo)}` : '';
-      return `<li><strong>${escaparHtml(ROTULOS_ACAO_AUDITORIA[e.acao] || e.acao)}</strong>${pedido}
+      return `<li><strong>${escaparHtml(rotuloEventoAuditoria(e))}</strong>${pedido}
         <small class="texto-secundario-ficha">${escaparHtml(formatarData(e.em))} ${escaparHtml(formatarHora(e.em))} · por ${autor}${motivo}</small></li>`;
     })
     .join('');
+  const botao = permitirVincular
+    ? '<button type="button" class="btn btn-secundario btn-compacto-cliente" data-acao-ficha="vincular-pedido">Vincular pedido</button>'
+    : '';
   return `
     <div class="detalhe-pedido-secao">
-      <div class="detalhe-pedido-titulo">Histórico de vínculos</div>
-      <ul class="lista-auditoria-ficha">${itens}</ul>
+      <div class="titulo-com-acao-ficha">
+        <div class="detalhe-pedido-titulo">Histórico de vínculos</div>
+        ${botao}
+      </div>
+      ${itens ? `<ul class="lista-auditoria-ficha">${itens}</ul>` : '<p class="texto-secundario-ficha">Nenhum evento registrado ainda.</p>'}
     </div>`;
 }
 
@@ -852,4 +944,860 @@ async function confirmarExclusaoCliente() {
     'sucesso'
   );
   recarregarListaEIndicadoresClientes();
+}
+
+// ---------------------------------------------------------------------------
+// Mensagens comuns das operações novas (cadastro, Eircode, vinculação). O banco devolve
+// `codigo` (HINT larica:*); erro de banco = transação desfeita = nada gravado. Falha de rede =
+// "não confirmado" (pode ter sido gravado): a tela relê o estado antes de nova tentativa.
+// ---------------------------------------------------------------------------
+
+function mensagemErroComumCliente(erro, acao) {
+  if (erro.falhaRede) {
+    return `Não foi possível confirmar ${acao} (falha de conexão). Confira a situação atual antes de tentar de novo.`;
+  }
+  if (erro.codigo === 'busy') {
+    return 'Outra operação está em andamento no cadastro (sincronização, edição ou exclusão). Nada foi gravado; tente novamente em alguns segundos.';
+  }
+  if (erro.codigo === 'forbidden' || /acesso negado|permission denied/i.test(erro.message || '')) {
+    return `Sem permissão para esta operação. Entre novamente como administrador. (${erro.message})`;
+  }
+  return `Não foi possível concluir ${acao}. Nada foi gravado. (${erro.message})`;
+}
+
+function linkFichaNovaAbaHtml(clienteId, texto) {
+  return `<a href="clientes.html?cliente=${encodeURIComponent(clienteId)}" target="_blank" rel="noopener">${escaparHtml(texto || 'Não informado')}</a>`;
+}
+
+// ---------------------------------------------------------------------------
+// Cadastrar cliente: dados -> revisão (cada aviso de possível duplicidade confirmado) -> concluído.
+// A revisão vem de admin_check_customer_duplicates; admin_create_customer recalcula tudo no banco.
+// idTentativa: gerado ao entrar na revisão e reaproveitado nas repetições dessa mesma revisão
+// (falha de rede depois do COMMIT não cria duplicado). Mudar os dados = nova revisão = novo id.
+// ---------------------------------------------------------------------------
+
+const IDS_BOTOES_CADASTRO_CLIENTE = [
+  'botao-avancar-cadastrar-cliente',
+  'botao-voltar-cadastrar-cliente',
+  'botao-cancelar-cadastrar-cliente',
+  'botao-fechar-cadastrar-cliente',
+  'botao-abrir-ficha-cadastrado',
+];
+const IDS_CAMPOS_CADASTRO_CLIENTE = ['campo-cadastrar-cliente-nome', 'campo-cadastrar-cliente-telefone', 'campo-cadastrar-cliente-eircode'];
+const MENSAGENS_CAMPO_CADASTRO_CLIENTE = {
+  nome: { required: 'Informe o nome do cliente.', too_long: 'Nome muito longo (máximo de 120 caracteres).' },
+  telefone: {
+    required: 'Informe o telefone do cliente.',
+    invalid: 'Telefone não reconhecido: informe um número irlandês (ex.: 087 123 4567).',
+  },
+  eircode: { invalid: 'Eircode inválido: use 7 letras/números (ex.: D03 FX92).' },
+};
+
+function ligarEventosCadastroCliente() {
+  document.getElementById('botao-cadastrar-cliente').addEventListener('click', abrirCadastroCliente);
+  document.getElementById('form-cadastrar-cliente').addEventListener('submit', (evento) => {
+    evento.preventDefault();
+    avancarCadastroCliente();
+  });
+  document.getElementById('botao-cancelar-cadastrar-cliente').addEventListener('click', fecharCadastroCliente);
+  document.getElementById('botao-fechar-cadastrar-cliente').addEventListener('click', fecharCadastroCliente);
+  document.getElementById('botao-voltar-cadastrar-cliente').addEventListener('click', () => {
+    if (estadoOperacaoCliente.emAndamento) return;
+    mostrarErroOperacaoCliente('erro-cadastrar-cliente', '');
+    mostrarEtapaCadastroCliente('dados');
+  });
+  document.getElementById('botao-abrir-ficha-cadastrado').addEventListener('click', () => {
+    const clienteId = estadoCadastroCliente.clienteCriadoId;
+    fecharCadastroCliente();
+    if (clienteId) abrirFichaCliente({ clienteId });
+  });
+  document.getElementById('modal-overlay-cadastrar-cliente').addEventListener('click', (evento) => {
+    if (evento.target.id === 'modal-overlay-cadastrar-cliente') fecharCadastroCliente();
+  });
+  const campoEircode = document.getElementById('campo-cadastrar-cliente-eircode');
+  campoEircode.addEventListener('input', () => {
+    campoEircode.value = formatarEircode(campoEircode.value);
+  });
+  document.getElementById('etapa-revisao-cadastro-cliente').addEventListener('change', (evento) => {
+    if (evento.target.matches('input[data-aviso-cadastro]')) atualizarBotaoConfirmarCadastro();
+  });
+}
+
+function abrirCadastroCliente() {
+  if (estadoOperacaoCliente.emAndamento) return;
+  Object.assign(estadoCadastroCliente, {
+    aberto: true,
+    etapa: 'dados',
+    previa: null,
+    dados: null,
+    idTentativa: null,
+    tentativaEncerrada: false,
+    clienteCriadoId: null,
+  });
+  IDS_CAMPOS_CADASTRO_CLIENTE.forEach((id) => {
+    document.getElementById(id).value = '';
+  });
+  mostrarErrosCamposCadastro({});
+  mostrarErroOperacaoCliente('erro-cadastrar-cliente', '');
+  mostrarEtapaCadastroCliente('dados');
+  document.getElementById('modal-overlay-cadastrar-cliente').classList.add('modal-visivel');
+  document.getElementById('campo-cadastrar-cliente-nome').focus();
+}
+
+function fecharCadastroCliente() {
+  if (estadoOperacaoCliente.emAndamento) return;
+  estadoCadastroCliente.aberto = false;
+  document.getElementById('modal-overlay-cadastrar-cliente').classList.remove('modal-visivel');
+}
+
+function mostrarEtapaCadastroCliente(etapa) {
+  estadoCadastroCliente.etapa = etapa;
+  document.getElementById('etapa-dados-cadastro-cliente').style.display = etapa === 'dados' ? '' : 'none';
+  document.getElementById('etapa-revisao-cadastro-cliente').style.display = etapa === 'revisao' ? '' : 'none';
+  document.getElementById('etapa-concluido-cadastro-cliente').style.display = etapa === 'concluido' ? '' : 'none';
+  const avancar = document.getElementById('botao-avancar-cadastrar-cliente');
+  avancar.style.display = etapa === 'concluido' ? 'none' : '';
+  avancar.textContent = etapa === 'revisao' ? 'Cadastrar cliente' : 'Continuar';
+  document.getElementById('botao-voltar-cadastrar-cliente').style.display = etapa === 'revisao' ? '' : 'none';
+  document.getElementById('botao-abrir-ficha-cadastrado').style.display = etapa === 'concluido' ? '' : 'none';
+  document.getElementById('botao-cancelar-cadastrar-cliente').textContent = etapa === 'concluido' ? 'Fechar' : 'Cancelar';
+  if (etapa === 'revisao') atualizarBotaoConfirmarCadastro();
+}
+
+/** Liga/desliga a operação do cadastro: trava botões, campos e confirmações (evita clique repetido) */
+function definirOperacaoCadastro(ativa, textoBotao) {
+  estadoOperacaoCliente.emAndamento = ativa;
+  IDS_BOTOES_CADASTRO_CLIENTE.concat(IDS_CAMPOS_CADASTRO_CLIENTE).forEach((id) => {
+    document.getElementById(id).disabled = ativa;
+  });
+  document.querySelectorAll('#etapa-revisao-cadastro-cliente input').forEach((caixa) => {
+    caixa.disabled = ativa;
+  });
+  if (ativa) document.getElementById('botao-avancar-cadastrar-cliente').textContent = textoBotao;
+  else mostrarEtapaCadastroCliente(estadoCadastroCliente.etapa); // restaura rótulos e o estado do botão
+  atualizarBotoesAcaoFichaCliente();
+}
+
+/** erros: { nome?, telefone?, eircode? } com os códigos do banco (required | invalid | too_long) */
+function mostrarErrosCamposCadastro(erros) {
+  let primeiroCampo = null;
+  ['nome', 'telefone', 'eircode'].forEach((campo) => {
+    const codigo = erros[campo];
+    const texto = codigo ? MENSAGENS_CAMPO_CADASTRO_CLIENTE[campo][codigo] || 'Valor inválido.' : '';
+    document.getElementById('erro-cadastrar-cliente-' + campo).textContent = texto;
+    if (texto && !primeiroCampo) primeiroCampo = campo;
+  });
+  if (primeiroCampo) document.getElementById('campo-cadastrar-cliente-' + primeiroCampo).focus();
+}
+
+function avancarCadastroCliente() {
+  if (estadoOperacaoCliente.emAndamento) return;
+  if (estadoCadastroCliente.etapa === 'dados') verificarCadastroCliente();
+  else if (estadoCadastroCliente.etapa === 'revisao') confirmarCadastroCliente();
+}
+
+/** Etapa 1 -> 2: valida localmente (formato) e pede a prévia ao banco (validação definitiva + duplicidades) */
+async function verificarCadastroCliente(mensagemRevisao) {
+  const dados = estadoCadastroCliente.etapa === 'dados' || !estadoCadastroCliente.dados
+    ? {
+        nome: document.getElementById('campo-cadastrar-cliente-nome').value.trim(),
+        telefone: document.getElementById('campo-cadastrar-cliente-telefone').value.trim(),
+        eircode: document.getElementById('campo-cadastrar-cliente-eircode').value.trim(),
+      }
+    : estadoCadastroCliente.dados;
+
+  mostrarErrosCamposCadastro({});
+  mostrarErroOperacaoCliente('erro-cadastrar-cliente', '');
+  const errosLocais = {};
+  if (!dados.nome) errosLocais.nome = 'required';
+  if (!dados.telefone) errosLocais.telefone = 'required';
+  if (dados.eircode && !validarFormatoEircode(dados.eircode)) errosLocais.eircode = 'invalid';
+  if (Object.keys(errosLocais).length > 0) {
+    mostrarEtapaCadastroCliente('dados');
+    mostrarErrosCamposCadastro(errosLocais);
+    return;
+  }
+
+  definirOperacaoCadastro(true, 'Verificando…');
+  let previa;
+  try {
+    previa = await checkCustomerDuplicates(dados);
+  } catch (erro) {
+    console.error('Erro ao verificar duplicidades do cliente:', erro);
+    definirOperacaoCadastro(false);
+    mostrarErroOperacaoCliente('erro-cadastrar-cliente', mensagemErroComumCliente(erro, 'a verificação'));
+    return;
+  }
+  definirOperacaoCadastro(false);
+  if (!estadoCadastroCliente.aberto) return;
+
+  if (!previa.valido) {
+    mostrarEtapaCadastroCliente('dados');
+    mostrarErrosCamposCadastro(previa.erros);
+    return;
+  }
+
+  estadoCadastroCliente.dados = dados;
+  estadoCadastroCliente.previa = previa;
+  estadoCadastroCliente.idTentativa = gerarId();
+  estadoCadastroCliente.tentativaEncerrada = false;
+  document.getElementById('etapa-revisao-cadastro-cliente').innerHTML = revisaoCadastroClienteHtml(previa);
+  mostrarEtapaCadastroCliente('revisao');
+  if (mensagemRevisao) mostrarErroOperacaoCliente('erro-cadastrar-cliente', mensagemRevisao);
+}
+
+function revisaoCadastroClienteHtml(previa) {
+  const n = previa.normalizado;
+  const resumo = `
+    <div class="resumo-cadastro-cliente">
+      <p><strong>${escaparHtml(n.nome)}</strong></p>
+      <p>Telefone: ${escaparHtml(formatarTelefoneIrlandes(n.telefone))}</p>
+      <p>Eircode: ${n.eircode ? escaparHtml(formatarEircode(n.eircode)) : 'Não informado'}</p>
+    </div>`;
+
+  if (previa.duplicidadeExata) {
+    const d = previa.duplicidadeExata;
+    return `${resumo}
+      <div class="aviso-erro-cliente">
+        <strong>Este cliente já está cadastrado.</strong> Já existe um cadastro ativo com o mesmo nome e telefone; nenhum cadastro novo será criado.
+        <p>${linkFichaNovaAbaHtml(d.clienteId, 'Abrir o cadastro existente: ' + d.nome)}</p>
+      </div>`;
+  }
+
+  const blocos = [];
+  if (previa.avisos.includes('same_name')) {
+    blocos.push(
+      blocoAvisoCadastroHtml(
+        'same_name',
+        'Nome repetido',
+        `${previa.totalMesmoNome} cadastro(s) ativo(s) com este nome e outro telefone (ou sem telefone). Homônimos são permitidos e os cadastros NÃO serão unidos.`,
+        previa.mesmoNome,
+        'Confirmo que é um cliente diferente e quero um cadastro separado.'
+      )
+    );
+  }
+  if (previa.avisos.includes('same_phone')) {
+    blocos.push(
+      blocoAvisoCadastroHtml(
+        'same_phone',
+        'Telefone compartilhado',
+        `${previa.totalMesmoTelefone} cadastro(s) ativo(s) com este telefone e outro nome. Nenhum cadastro será unido.`,
+        previa.mesmoTelefone,
+        'Confirmo o cadastro mesmo com o telefone compartilhado.'
+      )
+    );
+  }
+  if (previa.avisos.includes('archived_identity')) {
+    blocos.push(
+      blocoAvisoCadastroHtml(
+        'archived_identity',
+        'Cadastro excluído com os mesmos dados',
+        'Existe um cadastro excluído (arquivado) com o mesmo nome e telefone. Ele continua arquivado; um cadastro novo será criado.',
+        previa.arquivadosMesmaIdentidade,
+        'Confirmo a criação de um cadastro novo.'
+      )
+    );
+  }
+
+  const introducao =
+    blocos.length === 0
+      ? '<p class="aviso-info">Nenhuma possível duplicidade encontrada.</p>'
+      : '<p>Revise as possíveis duplicidades. Cada aviso precisa ser confirmado para continuar.</p>';
+  // Somente informativo: o cadastro não vincula nem reativa nenhum pedido
+  const aguardando = previa.pedidosAguardandoSincronizacaoMesmaIdentidade;
+  const desvinculados = previa.pedidosDesvinculadosMesmaIdentidade;
+  const infoPedidos = [
+    aguardando > 0
+      ? `${aguardando} pedido(s) com este nome e telefone ainda sem vínculo serão vinculados pela sincronização automática.`
+      : '',
+    desvinculados > 0
+      ? `${desvinculados} pedido(s) com este nome e telefone foram desvinculados anteriormente e continuarão desvinculados — só "Vincular pedido", com confirmação explícita, pode reativá-los.`
+      : '',
+  ]
+    .filter(Boolean)
+    .map((texto) => `<p class="texto-secundario-ficha">${escaparHtml(texto)}</p>`)
+    .join('');
+  return resumo + introducao + blocos.join('') + infoPedidos;
+}
+
+function blocoAvisoCadastroHtml(codigo, titulo, texto, itens, textoConfirmacao) {
+  const lista = itens
+    .map((c) => {
+      const detalhes = [
+        c.status === 'archived' ? 'arquivado' : 'ativo',
+        c.telefone ? escaparHtml(formatarTelefoneIrlandes(c.telefone)) : 'sem telefone',
+        c.cadastradoEm ? 'desde ' + escaparHtml(formatarData(c.cadastradoEm)) : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      return `<li>${linkFichaNovaAbaHtml(c.clienteId, c.nome)} <small class="texto-secundario-ficha">${detalhes}</small></li>`;
+    })
+    .join('');
+  return `
+    <div class="detalhe-pedido-secao alerta-ficha-cliente">
+      <div class="detalhe-pedido-titulo">${escaparHtml(titulo)}</div>
+      <p class="texto-secundario-ficha">${escaparHtml(texto)}</p>
+      ${lista ? `<ul class="lista-relacionados-ficha">${lista}</ul>` : ''}
+      <label class="confirmacao-cliente"><input type="checkbox" data-aviso-cadastro="${escaparHtml(codigo)}" /> <span>${escaparHtml(textoConfirmacao)}</span></label>
+    </div>`;
+}
+
+function atualizarBotaoConfirmarCadastro() {
+  const botao = document.getElementById('botao-avancar-cadastrar-cliente');
+  const previa = estadoCadastroCliente.previa;
+  if (!previa || previa.duplicidadeExata || estadoCadastroCliente.tentativaEncerrada) {
+    botao.disabled = true;
+    return;
+  }
+  const caixas = Array.from(document.querySelectorAll('#etapa-revisao-cadastro-cliente input[data-aviso-cadastro]'));
+  botao.disabled = estadoOperacaoCliente.emAndamento || caixas.some((caixa) => !caixa.checked);
+}
+
+/** Etapa 2 -> 3: cria o cadastro com os avisos confirmados (o banco recalcula e recusa se faltar algum) */
+async function confirmarCadastroCliente() {
+  const { previa, dados, idTentativa } = estadoCadastroCliente;
+  if (!previa || previa.duplicidadeExata || !dados || estadoCadastroCliente.tentativaEncerrada) return;
+  const caixas = Array.from(document.querySelectorAll('#etapa-revisao-cadastro-cliente input[data-aviso-cadastro]'));
+  if (caixas.some((caixa) => !caixa.checked)) return;
+
+  mostrarErroOperacaoCliente('erro-cadastrar-cliente', '');
+  definirOperacaoCadastro(true, 'Cadastrando…');
+  let resultado;
+  try {
+    resultado = await createCustomer({ ...dados, avisosConfirmados: previa.avisos, idTentativa });
+  } catch (erro) {
+    console.error('Erro ao cadastrar cliente:', erro);
+    definirOperacaoCadastro(false);
+    tratarErroCadastroCliente(erro);
+    return;
+  }
+  definirOperacaoCadastro(false);
+
+  estadoCadastroCliente.clienteCriadoId = resultado.clienteId;
+  document.getElementById('etapa-concluido-cadastro-cliente').innerHTML = `
+    <p class="aviso-info"><strong>${escaparHtml(resultado.nome)}</strong> ${
+      resultado.jaCriado ? 'já tinha sido cadastrado nesta mesma tentativa — nenhum cadastro duplicado foi criado.' : 'foi cadastrado.'
+    }</p>
+    <p>Telefone: ${escaparHtml(formatarTelefoneIrlandes(resultado.telefone))} · Eircode: ${
+      resultado.eircode ? escaparHtml(formatarEircode(resultado.eircode)) : 'Não informado'
+    }</p>
+    <p class="texto-secundario-ficha">Pedidos novos com este nome e telefone serão vinculados automaticamente. Para vincular pedidos já existentes, abra a ficha e use "Vincular pedido".</p>`;
+  mostrarEtapaCadastroCliente('concluido');
+  mostrarToast(resultado.jaCriado ? 'O cliente já estava cadastrado (nenhum duplicado criado).' : 'Cliente cadastrado.', 'sucesso');
+  recarregarListaEIndicadoresClientes();
+}
+
+function tratarErroCadastroCliente(erro) {
+  if (erro.codigo === 'confirmation_required') {
+    // Outro cadastro surgiu depois da revisão: refaz a prévia com os mesmos dados (nova tentativa)
+    verificarCadastroCliente('Os dados do cadastro mudaram desde a revisão (há novas possíveis duplicidades). Revise e confirme novamente. Nada foi gravado.');
+    return;
+  }
+  if (erro.codigo === 'customer_exists') {
+    verificarCadastroCliente('Já existe um cadastro ativo com este nome e telefone. Nenhum cadastro foi criado.');
+    return;
+  }
+  if (erro.codigo === 'request_already_used') {
+    // A tentativa já tinha criado um cadastro que depois foi arquivado/removido: nada novo é criado
+    const d = erro.detalhes || {};
+    estadoCadastroCliente.idTentativa = null;
+    estadoCadastroCliente.tentativaEncerrada = true; // só uma nova revisão (Voltar -> Continuar) libera o botão
+    document.getElementById('etapa-revisao-cadastro-cliente').insertAdjacentHTML(
+      'beforeend',
+      d.customer_id ? `<p>${linkFichaNovaAbaHtml(d.customer_id, 'Abrir o cadastro criado por esta tentativa')}</p>` : ''
+    );
+    mostrarErroOperacaoCliente('erro-cadastrar-cliente', `${erro.message}`);
+    document.getElementById('botao-avancar-cadastrar-cliente').disabled = true;
+    return;
+  }
+  if (erro.codigo === 'request_conflict') {
+    // Mesmo id de tentativa com dados diferentes: começa uma revisão nova (novo id)
+    verificarCadastroCliente('Os dados mudaram em relação à tentativa anterior. Revise e confirme novamente. Nada foi gravado.');
+    return;
+  }
+  if (erro.codigo === 'invalid') {
+    const d = erro.detalhes || {};
+    mostrarEtapaCadastroCliente('dados');
+    mostrarErrosCamposCadastro({ nome: d.name, telefone: d.phone, eircode: d.eircode });
+    mostrarErroOperacaoCliente('erro-cadastrar-cliente', 'Revise os dados informados. Nenhum cadastro foi criado.');
+    return;
+  }
+  if (erro.falhaRede) {
+    // Mesmo idTentativa na próxima tentativa: se o cadastro já tiver sido criado, o banco devolve o mesmo
+    mostrarErroOperacaoCliente(
+      'erro-cadastrar-cliente',
+      'Não foi possível confirmar o cadastro (falha de conexão). Clique em "Cadastrar cliente" novamente: se ele já tiver sido criado nesta tentativa, nenhum cadastro duplicado será gerado.'
+    );
+    return;
+  }
+  mostrarErroOperacaoCliente('erro-cadastrar-cliente', mensagemErroComumCliente(erro, 'o cadastro'));
+}
+
+// ---------------------------------------------------------------------------
+// Eircode do cadastro (ficha de cadastro ativo). Só o Eircode muda; pedidos não são tocados.
+// ---------------------------------------------------------------------------
+
+const IDS_CONTROLES_EIRCODE_CLIENTE = [
+  'campo-eircode-cliente',
+  'botao-salvar-eircode-cliente',
+  'botao-cancelar-eircode-cliente',
+  'botao-fechar-eircode-cliente',
+];
+
+function ligarEventosEircodeCliente() {
+  document.getElementById('form-eircode-cliente').addEventListener('submit', (evento) => {
+    evento.preventDefault();
+    salvarEircodeCliente();
+  });
+  document.getElementById('botao-cancelar-eircode-cliente').addEventListener('click', fecharEdicaoEircode);
+  document.getElementById('botao-fechar-eircode-cliente').addEventListener('click', fecharEdicaoEircode);
+  document.getElementById('modal-overlay-eircode-cliente').addEventListener('click', (evento) => {
+    if (evento.target.id === 'modal-overlay-eircode-cliente') fecharEdicaoEircode();
+  });
+  const campo = document.getElementById('campo-eircode-cliente');
+  campo.addEventListener('input', () => {
+    campo.value = formatarEircode(campo.value);
+  });
+}
+
+function abrirEdicaoEircode() {
+  const ficha = estadoFichaCliente.dados;
+  const perfil = estadoFichaCliente.perfil;
+  if (!fichaPermiteEdicao(ficha) || !perfil || estadoOperacaoCliente.emAndamento) return;
+  document.getElementById('campo-eircode-cliente').value = perfil.eircode ? formatarEircode(perfil.eircode) : '';
+  document.getElementById('erro-campo-eircode-cliente').textContent = '';
+  mostrarErroOperacaoCliente('erro-eircode-cliente', '');
+  document.getElementById('modal-overlay-eircode-cliente').classList.add('modal-visivel');
+  document.getElementById('campo-eircode-cliente').focus();
+}
+
+function fecharEdicaoEircode() {
+  if (estadoOperacaoCliente.emAndamento) return;
+  document.getElementById('modal-overlay-eircode-cliente').classList.remove('modal-visivel');
+}
+
+function definirOperacaoEircode(ativa) {
+  estadoOperacaoCliente.emAndamento = ativa;
+  IDS_CONTROLES_EIRCODE_CLIENTE.forEach((id) => {
+    document.getElementById(id).disabled = ativa;
+  });
+  document.getElementById('botao-salvar-eircode-cliente').textContent = ativa ? 'Salvando…' : 'Salvar Eircode';
+  atualizarBotoesAcaoFichaCliente();
+}
+
+async function salvarEircodeCliente() {
+  if (estadoOperacaoCliente.emAndamento) return;
+  const ficha = estadoFichaCliente.dados;
+  const perfil = estadoFichaCliente.perfil;
+  if (!fichaPermiteEdicao(ficha) || !perfil) {
+    mostrarErroOperacaoCliente('erro-eircode-cliente', 'Este cadastro não pode mais ser editado. Feche e abra a ficha novamente.');
+    return;
+  }
+
+  const clienteId = ficha.cliente.id;
+  const valor = document.getElementById('campo-eircode-cliente').value.trim();
+  document.getElementById('erro-campo-eircode-cliente').textContent = '';
+  mostrarErroOperacaoCliente('erro-eircode-cliente', '');
+  if (valor && !validarFormatoEircode(valor)) {
+    document.getElementById('erro-campo-eircode-cliente').textContent = MENSAGENS_CAMPO_CADASTRO_CLIENTE.eircode.invalid;
+    return;
+  }
+  const compacto = (v) => String(v || '').toUpperCase().replace(/\s+/g, '');
+  if (compacto(valor) === compacto(perfil.eircode)) {
+    fecharEdicaoEircode();
+    mostrarToast('Nenhuma alteração para salvar.', 'info');
+    return;
+  }
+
+  definirOperacaoEircode(true);
+  let resultado;
+  try {
+    resultado = await updateCustomerEircode({ clienteId, eircode: valor });
+  } catch (erro) {
+    console.error('Erro ao salvar o Eircode:', erro);
+    definirOperacaoEircode(false);
+    if (erro.codigo === 'invalid') {
+      document.getElementById('erro-campo-eircode-cliente').textContent = MENSAGENS_CAMPO_CADASTRO_CLIENTE.eircode.invalid;
+      return;
+    }
+    if (erro.falhaRede || erro.codigo === 'customer_archived' || erro.codigo === 'customer_not_found') {
+      // Estado incerto ou cadastro mudou: fecha e relê a ficha do banco
+      fecharEdicaoEircode();
+      mostrarToast(
+        erro.falhaRede ? mensagemErroComumCliente(erro, 'o Eircode') : 'Este cadastro foi arquivado ou não existe mais. Nada foi gravado.',
+        'erro'
+      );
+      abrirFichaCliente({ clienteId });
+      return;
+    }
+    mostrarErroOperacaoCliente('erro-eircode-cliente', mensagemErroComumCliente(erro, 'o Eircode'));
+    return;
+  }
+  definirOperacaoEircode(false);
+
+  fecharEdicaoEircode();
+  mostrarToast(!resultado.alterado ? 'Nenhuma alteração para salvar.' : resultado.eircode ? 'Eircode salvo.' : 'Eircode removido.', resultado.alterado ? 'sucesso' : 'info');
+  abrirFichaCliente({ clienteId }); // relê Eircode e histórico de vínculos
+}
+
+// ---------------------------------------------------------------------------
+// Vincular pedido (um por vez): pesquisa -> confirmação. Pedido de outro cliente nunca é
+// selecionável; desvinculado (excluded) exige confirmar a reativação; divergências de nome,
+// telefone e pedido cancelado exigem confirmação. O banco recalcula e exige tudo isso.
+// ---------------------------------------------------------------------------
+
+const IDS_BOTOES_VINCULAR_PEDIDO = [
+  'botao-fechar-vincular-pedido',
+  'botao-cancelar-vincular-pedido',
+  'botao-voltar-vincular-pedido',
+  'botao-confirmar-vincular-pedido',
+  'botao-buscar-vincular-pedido',
+  'botao-anterior-vincular-pedido',
+  'botao-proxima-vincular-pedido',
+  'campo-busca-vincular-pedido',
+];
+const ROTULOS_AVISO_VINCULO = { name_mismatch: 'Nome diferente', phone_mismatch: 'Telefone diferente ou ausente', order_cancelled: 'Pedido cancelado' };
+const ROTULOS_ULTIMA_ACAO_DESVINCULO = {
+  customer_archived: 'o cliente foi excluído (arquivado)',
+  unlink: 'desvinculado manualmente',
+  link_deleted: 'vínculo removido',
+};
+
+function ligarEventosVincularPedido() {
+  document.getElementById('form-busca-vincular-pedido').addEventListener('submit', (evento) => {
+    evento.preventDefault();
+    if (estadoOperacaoCliente.emAndamento) return;
+    estadoVincularPedido.busca = document.getElementById('campo-busca-vincular-pedido').value.trim();
+    estadoVincularPedido.offset = 0;
+    buscarPedidosParaVincular();
+  });
+  document.getElementById('botao-anterior-vincular-pedido').addEventListener('click', () => {
+    estadoVincularPedido.offset = Math.max(0, estadoVincularPedido.offset - TAMANHO_PAGINA_VINCULAR_PEDIDO);
+    buscarPedidosParaVincular();
+  });
+  document.getElementById('botao-proxima-vincular-pedido').addEventListener('click', () => {
+    estadoVincularPedido.offset += TAMANHO_PAGINA_VINCULAR_PEDIDO;
+    buscarPedidosParaVincular();
+  });
+  document.getElementById('resultados-vincular-pedido').addEventListener('click', (evento) => {
+    const botao = evento.target.closest('[data-selecionar-pedido]');
+    if (botao) selecionarPedidoParaVincular(botao.dataset.selecionarPedido);
+  });
+  document.getElementById('etapa-confirmar-vincular-pedido').addEventListener('change', atualizarBotaoConfirmarVinculo);
+  document.getElementById('botao-cancelar-vincular-pedido').addEventListener('click', fecharVincularPedido);
+  document.getElementById('botao-fechar-vincular-pedido').addEventListener('click', fecharVincularPedido);
+  document.getElementById('botao-voltar-vincular-pedido').addEventListener('click', () => {
+    if (estadoOperacaoCliente.emAndamento) return;
+    mostrarErroOperacaoCliente('erro-vincular-pedido', '');
+    mostrarEtapaVincularPedido('busca');
+  });
+  document.getElementById('botao-confirmar-vincular-pedido').addEventListener('click', confirmarVincularPedido);
+  document.getElementById('modal-overlay-vincular-pedido').addEventListener('click', (evento) => {
+    if (evento.target.id === 'modal-overlay-vincular-pedido') fecharVincularPedido();
+  });
+}
+
+function abrirVincularPedido() {
+  const ficha = estadoFichaCliente.dados;
+  if (!fichaPermiteEdicao(ficha) || estadoOperacaoCliente.emAndamento) return;
+  Object.assign(estadoVincularPedido, { aberto: true, clienteId: ficha.cliente.id, busca: '', offset: 0, total: 0, pedidos: [], selecionado: null });
+  estadoVincularPedido.seq++;
+  document.getElementById('vincular-pedido-titulo').textContent = 'Vincular pedido a ' + (ficha.cliente.nome || 'cliente');
+  document.getElementById('campo-busca-vincular-pedido').value = '';
+  document.getElementById('resultados-vincular-pedido').innerHTML =
+    '<p class="texto-secundario-ficha">Pesquise pelo número do pedido (ex.: 123 ou #LARICA-123), pelo nome ou pelo telefone.</p>';
+  document.getElementById('paginacao-vincular-pedido').style.display = 'none';
+  mostrarErroOperacaoCliente('erro-vincular-pedido', '');
+  mostrarEtapaVincularPedido('busca');
+  document.getElementById('modal-overlay-vincular-pedido').classList.add('modal-visivel');
+  document.getElementById('campo-busca-vincular-pedido').focus();
+}
+
+function fecharVincularPedido() {
+  if (estadoOperacaoCliente.emAndamento) return;
+  estadoVincularPedido.aberto = false;
+  estadoVincularPedido.seq++; // descarta pesquisa em andamento
+  document.getElementById('modal-overlay-vincular-pedido').classList.remove('modal-visivel');
+}
+
+function mostrarEtapaVincularPedido(etapa) {
+  const confirmar = etapa === 'confirmar';
+  document.getElementById('etapa-busca-vincular-pedido').style.display = confirmar ? 'none' : '';
+  document.getElementById('etapa-confirmar-vincular-pedido').style.display = confirmar ? '' : 'none';
+  document.getElementById('botao-voltar-vincular-pedido').style.display = confirmar ? '' : 'none';
+  document.getElementById('botao-confirmar-vincular-pedido').style.display = confirmar ? '' : 'none';
+  document.getElementById('botao-cancelar-vincular-pedido').textContent = confirmar ? 'Cancelar' : 'Fechar';
+  if (confirmar) atualizarBotaoConfirmarVinculo();
+  else estadoVincularPedido.selecionado = null;
+}
+
+function definirOperacaoVinculo(ativa) {
+  estadoOperacaoCliente.emAndamento = ativa;
+  IDS_BOTOES_VINCULAR_PEDIDO.forEach((id) => {
+    document.getElementById(id).disabled = ativa;
+  });
+  document.querySelectorAll('#etapa-confirmar-vincular-pedido input, #etapa-confirmar-vincular-pedido textarea').forEach((campo) => {
+    campo.disabled = ativa;
+  });
+  document.getElementById('botao-confirmar-vincular-pedido').textContent = ativa ? 'Vinculando…' : 'Confirmar vinculação';
+  if (!ativa) {
+    atualizarPaginacaoVincularPedido();
+    atualizarBotaoConfirmarVinculo();
+  }
+  atualizarBotoesAcaoFichaCliente();
+}
+
+async function buscarPedidosParaVincular() {
+  const estado = estadoVincularPedido;
+  const seq = ++estado.seq;
+  const resultados = document.getElementById('resultados-vincular-pedido');
+  mostrarErroOperacaoCliente('erro-vincular-pedido', '');
+  if (estado.busca.length < 2) {
+    resultados.innerHTML = '<p class="texto-secundario-ficha">Digite ao menos 2 caracteres.</p>';
+    estado.total = 0;
+    estado.pedidos = [];
+    atualizarPaginacaoVincularPedido();
+    return;
+  }
+  resultados.innerHTML = '<div class="estado-vazio">Buscando pedidos...</div>';
+
+  let resposta;
+  try {
+    resposta = await searchOrdersForLink({
+      clienteId: estado.clienteId,
+      busca: estado.busca,
+      limite: TAMANHO_PAGINA_VINCULAR_PEDIDO,
+      offset: estado.offset,
+    });
+  } catch (erro) {
+    if (seq !== estado.seq) return;
+    console.error('Erro ao pesquisar pedidos para vincular:', erro);
+    resultados.innerHTML = `<div class="estado-vazio">Não foi possível pesquisar os pedidos. ${escaparHtml(erro.message)}</div>`;
+    estado.total = 0;
+    estado.pedidos = [];
+    atualizarPaginacaoVincularPedido();
+    return;
+  }
+  if (seq !== estado.seq) return;
+
+  estado.total = resposta.total;
+  estado.pedidos = resposta.pedidos;
+  resultados.innerHTML =
+    resposta.pedidos.length > 0
+      ? resposta.pedidos.map(linhaPedidoVincularHtml).join('')
+      : '<div class="estado-vazio">Nenhum pedido encontrado.</div>';
+  atualizarPaginacaoVincularPedido();
+}
+
+function atualizarPaginacaoVincularPedido() {
+  const { offset, total } = estadoVincularPedido;
+  const paginacao = document.getElementById('paginacao-vincular-pedido');
+  if (total <= TAMANHO_PAGINA_VINCULAR_PEDIDO) {
+    paginacao.style.display = 'none';
+    return;
+  }
+  paginacao.style.display = '';
+  const pagina = Math.floor(offset / TAMANHO_PAGINA_VINCULAR_PEDIDO) + 1;
+  const totalPaginas = Math.ceil(total / TAMANHO_PAGINA_VINCULAR_PEDIDO);
+  document.getElementById('rotulo-pagina-vincular-pedido').textContent = `Página ${pagina} de ${totalPaginas} · ${total} pedidos`;
+  document.getElementById('botao-anterior-vincular-pedido').disabled = estadoOperacaoCliente.emAndamento || offset === 0;
+  document.getElementById('botao-proxima-vincular-pedido').disabled =
+    estadoOperacaoCliente.emAndamento || offset + TAMANHO_PAGINA_VINCULAR_PEDIDO >= total;
+}
+
+function pedidoSelecionavelParaVinculo(p) {
+  return p.situacaoVinculo === 'semVinculo' || p.situacaoVinculo === 'excluido';
+}
+
+function linhaPedidoVincularHtml(p) {
+  const moeda = obterConfiguracoes().moeda;
+  let situacao;
+  if (p.situacaoVinculo === 'desteCliente') {
+    situacao = seloHtml('Já vinculado a este cliente', 'badge-verde', 'Nada a fazer');
+  } else if (p.situacaoVinculo === 'outroCliente') {
+    situacao = `${seloHtml('Vinculado a outro cliente', 'badge-vermelho', 'Não pode ser transferido por aqui')} ${
+      p.outroClienteId ? linkFichaNovaAbaHtml(p.outroClienteId, p.outroClienteNome || 'outro cadastro') : ''
+    }`;
+  } else if (p.situacaoVinculo === 'excluido') {
+    const motivo = p.ultimaAcaoAuditoria ? ROTULOS_ULTIMA_ACAO_DESVINCULO[p.ultimaAcaoAuditoria] || p.ultimaAcaoAuditoria : 'motivo não registrado';
+    situacao = seloHtml('Desvinculado anteriormente', 'badge-amarelo', 'Fora da sincronização automática: ' + motivo);
+  } else {
+    situacao = seloHtml('Sem vínculo', 'badge-cinza', 'Pedido sem cliente');
+  }
+  const avisos = pedidoSelecionavelParaVinculo(p)
+    ? p.avisos.map((a) => seloHtml(ROTULOS_AVISO_VINCULO[a] || a, a === 'order_cancelled' ? 'badge-vermelho' : 'badge-amarelo', 'Exigirá confirmação')).join('')
+    : '';
+  const acao = pedidoSelecionavelParaVinculo(p)
+    ? `<button type="button" class="btn btn-secundario btn-compacto-cliente" data-selecionar-pedido="${escaparHtml(p.id)}">Selecionar</button>`
+    : '';
+  return `
+    <div class="pedido-vincular">
+      <div class="pedido-ficha-cliente-cabecalho">
+        <strong>${escaparHtml(p.numero)}</strong>
+        <span class="texto-secundario-ficha">${escaparHtml(formatarData(p.criadoEm))} ${escaparHtml(formatarHora(p.criadoEm))}</span>
+        <span class="badge ${CLASSE_BADGE_STATUS_FICHA[p.status] || 'badge-amarelo'}">${escaparHtml(ROTULOS_STATUS_PEDIDO[p.status] || p.status)}</span>
+        <strong class="pedido-ficha-cliente-total">${formatarMoeda(p.total, moeda)}</strong>
+      </div>
+      <p class="texto-secundario-ficha">${escaparHtml(p.nomeCliente || 'Sem nome')} · ${p.telefoneCliente ? escaparHtml(p.telefoneCliente) : 'sem telefone'}</p>
+      <div class="pedido-vincular-rodape">
+        <div class="selos-cliente">${situacao}${avisos}</div>
+        ${acao}
+      </div>
+    </div>`;
+}
+
+function selecionarPedidoParaVincular(pedidoId) {
+  if (estadoOperacaoCliente.emAndamento) return;
+  const pedido = estadoVincularPedido.pedidos.find((p) => p.id === pedidoId);
+  if (!pedido || !pedidoSelecionavelParaVinculo(pedido)) return;
+  estadoVincularPedido.selecionado = pedido;
+  document.getElementById('etapa-confirmar-vincular-pedido').innerHTML = confirmacaoVinculoHtml(pedido);
+  mostrarErroOperacaoCliente('erro-vincular-pedido', '');
+  mostrarEtapaVincularPedido('confirmar');
+}
+
+function confirmacaoVinculoHtml(p) {
+  const moeda = obterConfiguracoes().moeda;
+  const cliente = (estadoFichaCliente.dados && estadoFichaCliente.dados.cliente) || {};
+  const telefoneCadastro = cliente.telefone ? formatarTelefoneIrlandes(cliente.telefone) : 'sem telefone';
+  const textosAviso = {
+    name_mismatch: `O nome no pedido ("${p.nomeCliente || 'sem nome'}") é diferente do cadastro ("${cliente.nome || ''}"). Confirmo que o pedido é deste cliente.`,
+    phone_mismatch: `O telefone do pedido (${p.telefoneCliente || 'não informado'}) não confirma o cadastro (${telefoneCadastro}). Confirmo que o pedido é deste cliente.`,
+    order_cancelled: 'O pedido está CANCELADO. Confirmo a vinculação mesmo assim (pedidos cancelados não entram nas métricas; o pedido não é alterado).',
+  };
+  const confirmacoes = p.avisos.map(
+    (a) =>
+      `<label class="confirmacao-cliente"><input type="checkbox" data-aviso-vinculo="${escaparHtml(a)}" /> <span>${escaparHtml(
+        textosAviso[a] || a
+      )}</span></label>`
+  );
+  if (p.situacaoVinculo === 'excluido') {
+    const motivo = p.ultimaAcaoAuditoria ? ROTULOS_ULTIMA_ACAO_DESVINCULO[p.ultimaAcaoAuditoria] || p.ultimaAcaoAuditoria : 'motivo não registrado';
+    confirmacoes.unshift(
+      `<label class="confirmacao-cliente"><input type="checkbox" data-confirmacao-reativacao="sim" /> <span>${escaparHtml(
+        `Este pedido foi desvinculado anteriormente (${motivo}) e está fora da sincronização automática. Confirmo a reativação do vínculo com este cliente.`
+      )}</span></label>`
+    );
+  }
+
+  return `
+    <div class="comparacao-vinculo">
+      <div class="resumo-cadastro-cliente">
+        <div class="detalhe-pedido-titulo">Pedido</div>
+        <p><strong>${escaparHtml(p.numero)}</strong> · ${escaparHtml(ROTULOS_STATUS_PEDIDO[p.status] || p.status)} · ${formatarMoeda(p.total, moeda)}</p>
+        <p>${escaparHtml(formatarData(p.criadoEm))} ${escaparHtml(formatarHora(p.criadoEm))}</p>
+        <p>${escaparHtml(p.nomeCliente || 'Sem nome')} · ${p.telefoneCliente ? escaparHtml(p.telefoneCliente) : 'sem telefone'}</p>
+      </div>
+      <div class="resumo-cadastro-cliente">
+        <div class="detalhe-pedido-titulo">Cliente</div>
+        <p><strong>${escaparHtml(cliente.nome || 'Não informado')}</strong></p>
+        <p>${escaparHtml(telefoneCadastro)}</p>
+      </div>
+    </div>
+    ${
+      confirmacoes.length > 0
+        ? `<p>Confirme cada item para continuar:</p>${confirmacoes.join('')}`
+        : '<p class="aviso-info">Nome e telefone do pedido conferem com o cadastro.</p>'
+    }
+    <div class="form-grupo">
+      <label for="campo-motivo-vincular-pedido">Motivo (opcional)</label>
+      <textarea class="input" id="campo-motivo-vincular-pedido" maxlength="500" rows="2" placeholder="Ex.: cliente confirmou por telefone"></textarea>
+    </div>
+    <p class="texto-secundario-ficha">O pedido não é alterado. A vinculação fica registrada no histórico com o administrador e a data.</p>`;
+}
+
+function atualizarBotaoConfirmarVinculo() {
+  const botao = document.getElementById('botao-confirmar-vincular-pedido');
+  const caixas = Array.from(document.querySelectorAll('#etapa-confirmar-vincular-pedido input[type="checkbox"]'));
+  botao.disabled = estadoOperacaoCliente.emAndamento || !estadoVincularPedido.selecionado || caixas.some((caixa) => !caixa.checked);
+}
+
+async function confirmarVincularPedido() {
+  if (estadoOperacaoCliente.emAndamento) return;
+  const estado = estadoVincularPedido;
+  const pedido = estado.selecionado;
+  if (!pedido) return;
+  const caixas = Array.from(document.querySelectorAll('#etapa-confirmar-vincular-pedido input[type="checkbox"]'));
+  if (caixas.some((caixa) => !caixa.checked)) return;
+
+  const avisosConfirmados = Array.from(document.querySelectorAll('#etapa-confirmar-vincular-pedido input[data-aviso-vinculo]')).map(
+    (caixa) => caixa.dataset.avisoVinculo
+  );
+  const confirmarReativacao = !!document.querySelector('#etapa-confirmar-vincular-pedido input[data-confirmacao-reativacao]:checked');
+  const motivo = document.getElementById('campo-motivo-vincular-pedido').value.trim();
+
+  mostrarErroOperacaoCliente('erro-vincular-pedido', '');
+  definirOperacaoVinculo(true);
+  let resultado;
+  try {
+    resultado = await linkOrderToCustomer({ clienteId: estado.clienteId, pedidoId: pedido.id, confirmarReativacao, avisosConfirmados, motivo });
+  } catch (erro) {
+    console.error('Erro ao vincular pedido:', erro);
+    definirOperacaoVinculo(false);
+    tratarErroVinculoPedido(erro, pedido);
+    return;
+  }
+  definirOperacaoVinculo(false);
+
+  const clienteId = estado.clienteId;
+  fecharVincularPedido();
+  mostrarToast(
+    resultado.jaVinculado
+      ? `${pedido.numero} já estava vinculado a este cliente.`
+      : resultado.reativado
+        ? `${pedido.numero} reativado e vinculado ao cliente.`
+        : `${pedido.numero} vinculado ao cliente.`,
+    'sucesso'
+  );
+  abrirFichaCliente({ clienteId });
+  recarregarListaEIndicadoresClientes();
+}
+
+function tratarErroVinculoPedido(erro, pedido) {
+  const estado = estadoVincularPedido;
+  if (erro.codigo === 'customer_archived' || erro.codigo === 'customer_not_found') {
+    const clienteId = estado.clienteId;
+    fecharVincularPedido();
+    mostrarToast('Este cadastro foi arquivado ou não existe mais. Nenhum pedido foi vinculado.', 'erro');
+    abrirFichaCliente({ clienteId });
+    return;
+  }
+  if (erro.codigo === 'invalid') {
+    mostrarErroOperacaoCliente('erro-vincular-pedido', `${erro.message} Nada foi gravado.`);
+    return;
+  }
+  if (erro.codigo === 'busy' || erro.codigo === 'forbidden' || (!erro.codigo && !erro.falhaRede)) {
+    mostrarErroOperacaoCliente('erro-vincular-pedido', mensagemErroComumCliente(erro, 'a vinculação'));
+    return; // continua na confirmação para tentar de novo
+  }
+
+  // Situação do pedido mudou (avisos, desvínculo, outro cliente, excluído) ou resposta perdida na rede:
+  // relê o pedido no banco antes de qualquer nova tentativa.
+  let mensagem;
+  if (erro.falhaRede) mensagem = mensagemErroComumCliente(erro, 'a vinculação');
+  else if (erro.codigo === 'linked_to_other') mensagem = erro.message;
+  else if (erro.codigo === 'order_not_found') mensagem = 'Este pedido não existe mais (pode ter sido excluído). Nada foi gravado.';
+  else mensagem = 'Os dados do pedido mudaram desde a pesquisa. Revise a situação atualizada e confirme novamente. Nada foi gravado.';
+  reconsultarPedidoParaVincular(pedido, mensagem);
+}
+
+async function reconsultarPedidoParaVincular(pedido, mensagem) {
+  const estado = estadoVincularPedido;
+  estado.busca = pedido.numero;
+  estado.offset = 0;
+  document.getElementById('campo-busca-vincular-pedido').value = pedido.numero;
+  mostrarEtapaVincularPedido('busca');
+  await buscarPedidosParaVincular();
+  if (!estado.aberto) return;
+
+  const atual = estado.pedidos.find((p) => p.id === pedido.id);
+  if (atual && atual.situacaoVinculo === 'desteCliente') {
+    mostrarErroOperacaoCliente('erro-vincular-pedido', '');
+    mostrarToast(`${pedido.numero} está vinculado a este cliente (a operação anterior foi concluída).`, 'sucesso');
+    abrirFichaCliente({ clienteId: estado.clienteId });
+    recarregarListaEIndicadoresClientes();
+    return;
+  }
+  if (atual && pedidoSelecionavelParaVinculo(atual)) selecionarPedidoParaVincular(atual.id);
+  mostrarErroOperacaoCliente('erro-vincular-pedido', mensagem);
 }

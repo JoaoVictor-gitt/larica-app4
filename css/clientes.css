@@ -263,3 +263,118 @@
   margin-left: auto;
   color: var(--cor-terracota);
 }
+
+/* Cadastro manual, Eircode e vinculação manual de pedidos */
+.btn-compacto-cliente {
+  padding: 4px var(--espaco-sm);
+  font-size: 0.8rem;
+}
+
+.titulo-com-acao-ficha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-sm);
+  flex-wrap: wrap;
+}
+
+.linha-eircode-ficha {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  flex-wrap: wrap;
+}
+
+.modal-cadastrar-cliente {
+  max-width: 560px;
+}
+
+.modal-eircode-cliente {
+  max-width: 420px;
+}
+
+.modal-vincular-pedido {
+  max-width: 680px;
+}
+
+.modal-cadastrar-cliente .form-grupo,
+.modal-eircode-cliente .form-grupo,
+.modal-vincular-pedido .form-grupo {
+  margin-bottom: var(--espaco-md);
+}
+
+.resumo-cadastro-cliente {
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  margin-bottom: var(--espaco-md);
+}
+
+.resumo-cadastro-cliente p {
+  margin: 2px 0;
+}
+
+/* Caixa "Confirmo…" — texto longo quebra ao lado da caixa, sem empurrar o layout */
+.confirmacao-cliente {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--espaco-sm);
+  margin: var(--espaco-sm) 0;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.confirmacao-cliente input {
+  margin-top: 3px;
+  flex: 0 0 auto;
+}
+
+.barra-busca-vincular-pedido {
+  display: flex;
+  gap: var(--espaco-sm);
+  margin-bottom: var(--espaco-sm);
+}
+
+.barra-busca-vincular-pedido input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pedido-vincular {
+  padding: var(--espaco-sm) 0;
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+.pedido-vincular:last-child {
+  border-bottom: none;
+}
+
+.pedido-vincular p {
+  margin: 2px 0;
+}
+
+.pedido-vincular-rodape {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espaco-sm);
+  flex-wrap: wrap;
+}
+
+.comparacao-vinculo {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--espaco-sm);
+}
+
+.modal-vincular-pedido textarea.input {
+  width: 100%;
+  resize: vertical;
+}
+
+@media (max-width: 480px) {
+  .comparacao-vinculo {
+    grid-template-columns: 1fr;
+  }
+}
