@@ -116,6 +116,17 @@
                 <option value="Bebidas">Bebidas</option>
                 <option value="Outro">Outro</option>
               </select>
+              <!-- Categorias personalizadas e "+ Criar nova categoria" (só admin) são acrescentadas por js/produtos.js -->
+              <div id="grupo-nova-categoria" class="grupo-nova-categoria" style="display:none;">
+                <label for="campo-nova-categoria">Nome da nova categoria</label>
+                <div class="linha-nova-categoria">
+                  <input type="text" id="campo-nova-categoria" class="input" maxlength="40" placeholder="Ex.: Cafés, Sobremesas" />
+                  <button type="button" class="btn btn-primario" id="botao-criar-categoria">Criar</button>
+                  <button type="button" class="btn btn-secundario" id="botao-cancelar-nova-categoria">Cancelar</button>
+                </div>
+                <p class="dica-campo">Até 40 caracteres. Não pode repetir uma categoria existente (maiúsculas, espaços e acentos são ignorados na comparação).</p>
+                <p class="dica-campo erro-nova-categoria" id="erro-nova-categoria" style="display:none;"></p>
+              </div>
             </div>
 
             <div style="display:flex; gap:12px;">

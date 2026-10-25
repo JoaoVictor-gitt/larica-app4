@@ -422,6 +422,23 @@
             </label>
           </div>
         </div>
+
+        <!-- Segunda via para o cliente — carregamento/erro próprios: uma falha aqui nunca esconde o toggle acima -->
+        <div class="estado-vazio" id="estado-carregando-segunda-via-cliente">Carregando...</div>
+        <div class="estado-vazio" id="estado-erro-segunda-via-cliente" style="display:none;"></div>
+
+        <div id="conteudo-segunda-via-cliente" style="display:none;">
+          <div class="linha-toggle">
+            <div class="linha-toggle-texto">
+              <label for="campo-segunda-via-cliente-ativa">Imprimir segunda via para o cliente</label>
+              <span>Quando ativado, o sistema imprime automaticamente uma segunda via do pedido para entregar ao cliente.</span>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="campo-segunda-via-cliente-ativa" />
+              <span class="toggle-switch-trilho"></span>
+            </label>
+          </div>
+        </div>
       </div>
       </section>
 
