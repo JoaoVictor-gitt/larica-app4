@@ -122,6 +122,26 @@
   border-top: 1px solid var(--cor-borda);
 }
 
+/* Criação de categoria personalizada (só admin) — abaixo do select de categoria */
+.grupo-nova-categoria {
+  margin-top: var(--espaco-sm);
+}
+
+.linha-nova-categoria {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espaco-sm);
+}
+
+.linha-nova-categoria .input {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.erro-nova-categoria {
+  color: var(--cor-status-vermelho);
+}
+
 /* ---------------------------------------------------------------------- */
 /* Campos extras do combo (categoria "Combos"): checklist de itens inclusos */
 /* e de acréscimo por espeto                                              */

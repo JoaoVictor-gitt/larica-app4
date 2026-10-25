@@ -378,3 +378,175 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Vinculação de vários pedidos: rodapé (contador + botões) sempre visível; só o corpo rola */
+.modal-vincular-pedido {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-vincular-pedido .modal-corpo {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.modal-vincular-pedido .modal-cabecalho,
+.modal-vincular-pedido .modal-rodape {
+  flex: 0 0 auto;
+}
+
+.rodape-vincular-pedido {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.contador-selecao-vincular-pedido {
+  margin-right: auto;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--cor-texto-secundario);
+}
+
+/* Lista de mensagens de erro com uma linha por pedido */
+#erro-vincular-pedido {
+  white-space: pre-line;
+}
+
+/* Linha de pedido com caixa de seleção (a linha elegível inteira é clicável) */
+.pedido-vincular {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--espaco-sm);
+}
+
+.pedido-vincular-conteudo {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.caixa-pedido-vincular {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+}
+
+.pedido-vincular-selecionavel {
+  cursor: pointer;
+  border-radius: var(--raio-sm);
+  padding-left: var(--espaco-xs);
+  padding-right: var(--espaco-xs);
+}
+
+.pedido-vincular-selecionavel:hover,
+.pedido-vincular-selecionavel:focus-within {
+  background: var(--cor-cinza-claro);
+}
+
+.pedido-vincular-selecionado {
+  background: var(--cor-cinza-claro);
+  box-shadow: inset 3px 0 0 var(--cor-terracota);
+}
+
+.pedido-vincular-indisponivel {
+  opacity: 0.75;
+}
+
+.selecionar-todos-vincular-pedido {
+  margin: var(--espaco-xs) 0 var(--espaco-sm);
+}
+
+/* Pedidos selecionados (mantidos entre pesquisas) */
+.selecao-vincular-pedido {
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  margin-bottom: var(--espaco-sm);
+}
+
+.lista-selecao-vincular-pedido {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espaco-xs);
+  list-style: none;
+  margin: var(--espaco-xs) 0 0;
+  padding: 0;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.item-selecao-vincular-pedido {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-sm);
+  padding: 2px 4px 2px var(--espaco-sm);
+  font-size: 0.85rem;
+}
+
+.item-selecao-vincular-pedido .btn-icone {
+  width: 24px;
+  height: 24px;
+  font-size: 0.75rem;
+}
+
+/* Confirmação de vários pedidos */
+.lista-confirmacao-vincular {
+  margin: var(--espaco-sm) 0 var(--espaco-md);
+}
+
+.pedido-confirmacao-vincular {
+  padding: var(--espaco-sm) 0;
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+.pedido-confirmacao-vincular:last-child {
+  border-bottom: none;
+}
+
+.pedido-confirmacao-vincular p {
+  margin: 2px 0;
+}
+
+/* Indicador de carregamento no botão durante a vinculação */
+.btn-carregando-cliente {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--espaco-xs);
+}
+
+.btn-carregando-cliente::before {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: girar-carregando-cliente 0.8s linear infinite;
+}
+
+@keyframes girar-carregando-cliente {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-carregando-cliente::before {
+    animation: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .rodape-vincular-pedido .btn {
+    flex: 1 1 auto;
+  }
+
+  .contador-selecao-vincular-pedido {
+    flex: 1 1 100%;
+    margin-right: 0;
+  }
+}

@@ -71,12 +71,157 @@ function custoUnitarioDoProduto(produto) {
   return mapaCustos.has(produto.id) ? mapaCustos.get(produto.id) : null;
 }
 
-/** Preenche o <select> de filtro por categoria com a lista fixa (CATEGORIAS_PADRAO, utils.js) */
+/**
+ * Preenche o <select> de filtro por categoria: lista fixa (CATEGORIAS_PADRAO, utils.js) + categorias
+ * personalizadas (por nome — produto.categoria já é o nome delas). Preserva o filtro escolhido.
+ */
 function preencherFiltroCategorias() {
   const select = document.getElementById('filtro-categoria');
+  const valorAtual = select.value;
+  const personalizadas = obterCategoriasPersonalizadas()
+    .map((c) => c.nome)
+    .filter((nome) => !CATEGORIAS_PADRAO.includes(nome))
+    .sort((a, b) => a.localeCompare(b));
   select.innerHTML =
     '<option value="">Todas</option>' +
-    CATEGORIAS_PADRAO.map((c) => `<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+    CATEGORIAS_PADRAO.concat(personalizadas).map((c) => `<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+  if (Array.from(select.options).some((o) => o.value === valorAtual)) select.value = valorAtual;
+}
+
+// ---------------------------------------------------------------------------
+// Categorias personalizadas no formulário
+//
+// Valores do <select id="campo-categoria">: as 5 categorias fixas (texto de sempre, no HTML),
+// 'custom:<uuid>' para cada categoria personalizada e VALOR_NOVA_CATEGORIA para "+ Criar nova
+// categoria" (só aparece para admin — a barreira real é a RPC admin_create_product_category, que
+// exige is_admin() no banco).
+// ---------------------------------------------------------------------------
+
+const VALOR_NOVA_CATEGORIA = '__nova_categoria__';
+const PREFIXO_CATEGORIA_PERSONALIZADA = 'custom:';
+const TAMANHO_MAXIMO_NOME_CATEGORIA = 40;
+// Mesma lista reservada da RPC (nomes normalizados das categorias padrão, em pt e no rótulo em inglês do cardápio).
+const NOMES_CATEGORIA_RESERVADOS = ['combos', 'combo', 'espetinhos', 'espetinho', 'espetos', 'espeto', 'acompanhamentos', 'acompanhamento', 'bebidas', 'bebida', 'outro', 'outros', 'skewers', 'sides', 'drinks', 'other', 'others'];
+let _valorCategoriaAnterior = 'Combos';
+
+/** Mesma regra do banco: trim, espaços repetidos viram 1, minúsculas, sem acentos comuns. */
+function normalizarNomeCategoria(nome) {
+  return String(nome || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/[áàãâäéèêëíìîïóòõôöúùûüçñ]/g, (c) => 'aaaaaeeeeiiiiooooouuuucn'['áàãâäéèêëíìîïóòõôöúùûüçñ'.indexOf(c)]);
+}
+
+/** Valor do select para um produto: 'custom:<id>' se tiver categoria personalizada, senão a categoria fixa. */
+function valorCategoriaDoProduto(produto) {
+  return produto.categoriaPersonalizadaId ? PREFIXO_CATEGORIA_PERSONALIZADA + produto.categoriaPersonalizadaId : produto.categoria;
+}
+
+/**
+ * Recria só as opções dinâmicas do select (as fixas do HTML ficam): categorias personalizadas ativas,
+ * mais a do produto em edição se ela não estiver na lista (inativa ou não carregada — nunca some nem
+ * vira "Outro" ao salvar), mais "+ Criar nova categoria" para admin com a tabela disponível.
+ */
+function preencherOpcoesCategoriaFormulario(produtoAtual) {
+  const select = document.getElementById('campo-categoria');
+  select.querySelectorAll('[data-categoria-dinamica]').forEach((el) => el.remove());
+
+  const opcoes = obterCategoriasPersonalizadas()
+    .filter((c) => c.ativa)
+    .sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome))
+    .map((c) => ({ valor: PREFIXO_CATEGORIA_PERSONALIZADA + c.id, rotulo: c.nome }));
+
+  if (produtoAtual && produtoAtual.categoriaPersonalizadaId) {
+    const valor = PREFIXO_CATEGORIA_PERSONALIZADA + produtoAtual.categoriaPersonalizadaId;
+    if (!opcoes.some((o) => o.valor === valor)) {
+      const conhecida = obterCategoriasPersonalizadas().find((c) => c.id === produtoAtual.categoriaPersonalizadaId);
+      opcoes.push({ valor, rotulo: conhecida ? conhecida.nome + ' (inativa)' : 'Categoria personalizada (não carregada)' });
+    }
+  }
+
+  if (opcoes.length > 0) {
+    const grupo = document.createElement('optgroup');
+    grupo.label = 'Categorias personalizadas';
+    grupo.setAttribute('data-categoria-dinamica', '');
+    opcoes.forEach((o) => {
+      const opcao = document.createElement('option');
+      opcao.value = o.valor;
+      opcao.textContent = o.rotulo;
+      grupo.appendChild(opcao);
+    });
+    select.appendChild(grupo);
+  }
+
+  if (souAdmin && categoriasPersonalizadasCarregadas()) {
+    const criar = document.createElement('option');
+    criar.value = VALOR_NOVA_CATEGORIA;
+    criar.textContent = '+ Criar nova categoria';
+    criar.setAttribute('data-categoria-dinamica', '');
+    select.appendChild(criar);
+  }
+}
+
+function mostrarGrupoNovaCategoria(visivel) {
+  document.getElementById('grupo-nova-categoria').style.display = visivel ? '' : 'none';
+  document.getElementById('erro-nova-categoria').style.display = 'none';
+  if (visivel) {
+    const campo = document.getElementById('campo-nova-categoria');
+    campo.value = '';
+    campo.focus();
+  }
+}
+
+function mostrarErroNovaCategoria(mensagem) {
+  const erro = document.getElementById('erro-nova-categoria');
+  erro.textContent = mensagem;
+  erro.style.display = '';
+}
+
+/** Validação local (a definitiva é a do banco) — devolve a mensagem de erro, ou '' se ok. */
+function validarNomeNovaCategoria(nome) {
+  const limpo = String(nome || '').trim().replace(/\s+/g, ' ');
+  if (!limpo) return 'Informe o nome da categoria.';
+  if (limpo.length > TAMANHO_MAXIMO_NOME_CATEGORIA) return 'O nome da categoria pode ter no máximo ' + TAMANHO_MAXIMO_NOME_CATEGORIA + ' caracteres.';
+  const normalizado = normalizarNomeCategoria(limpo);
+  if (NOMES_CATEGORIA_RESERVADOS.includes(normalizado)) return 'Esse nome já é uma categoria padrão.';
+  const existente = obterCategoriasPersonalizadas().find((c) => normalizarNomeCategoria(c.nome) === normalizado);
+  if (existente) return 'Já existe a categoria "' + existente.nome + '".';
+  return '';
+}
+
+let _criandoCategoria = false;
+
+async function criarCategoriaPeloFormulario() {
+  if (_criandoCategoria) return;
+  const campo = document.getElementById('campo-nova-categoria');
+  const nome = campo.value.trim().replace(/\s+/g, ' ');
+  const erroLocal = validarNomeNovaCategoria(nome);
+  if (erroLocal) {
+    mostrarErroNovaCategoria(erroLocal);
+    return;
+  }
+
+  const botao = document.getElementById('botao-criar-categoria');
+  _criandoCategoria = true;
+  botao.disabled = true;
+  try {
+    const criada = await criarCategoriaPersonalizadaNoSupabase(nome);
+    const idEmEdicao = document.getElementById('campo-id').value;
+    preencherOpcoesCategoriaFormulario(idEmEdicao ? obterProdutoPorId(idEmEdicao) : null);
+    const select = document.getElementById('campo-categoria');
+    select.value = PREFIXO_CATEGORIA_PERSONALIZADA + criada.id;
+    _valorCategoriaAnterior = select.value;
+    atualizarVisibilidadeCamposPorCategoria();
+    preencherFiltroCategorias();
+    mostrarGrupoNovaCategoria(false);
+    mostrarToast('Categoria "' + criada.nome + '" criada.', 'sucesso');
+  } catch (erro) {
+    mostrarErroNovaCategoria(erro.message || 'Não foi possível criar a categoria.');
+  } finally {
+    _criandoCategoria = false;
+    botao.disabled = false;
+  }
 }
 
 /** Lê os filtros/ordenação atuais da tela e redesenha a tabela */
@@ -275,11 +420,22 @@ function ligarEventosModal() {
   document.getElementById('form-produto').addEventListener('submit', salvarFormularioProduto);
   document.getElementById('campo-origem-estoque').addEventListener('change', atualizarDicaOrigemEstoque);
   ligarEventoCategoria();
+
+  document.getElementById('botao-criar-categoria').addEventListener('click', criarCategoriaPeloFormulario);
+  document.getElementById('botao-cancelar-nova-categoria').addEventListener('click', () => mostrarGrupoNovaCategoria(false));
+  document.getElementById('campo-nova-categoria').addEventListener('keydown', (evento) => {
+    if (evento.key !== 'Enter') return;
+    evento.preventDefault(); // Enter aqui cria a categoria — nunca envia o formulário do produto
+    criarCategoriaPeloFormulario();
+  });
 }
 
 function abrirModalCriacao() {
   document.getElementById('modal-titulo').textContent = 'Novo Produto';
+  preencherOpcoesCategoriaFormulario(null);
+  mostrarGrupoNovaCategoria(false);
   document.getElementById('form-produto').reset();
+  _valorCategoriaAnterior = document.getElementById('campo-categoria').value;
   document.getElementById('campo-id').value = '';
   document.getElementById('campo-estoque').value = 0;
   document.getElementById('campo-status').value = 'ativo';
@@ -300,7 +456,10 @@ function abrirModalEdicao(id) {
   document.getElementById('modal-titulo').textContent = 'Editar Produto';
   document.getElementById('campo-id').value = produto.id;
   document.getElementById('campo-nome').value = produto.nome;
-  document.getElementById('campo-categoria').value = produto.categoria;
+  preencherOpcoesCategoriaFormulario(produto);
+  mostrarGrupoNovaCategoria(false);
+  document.getElementById('campo-categoria').value = valorCategoriaDoProduto(produto);
+  _valorCategoriaAnterior = document.getElementById('campo-categoria').value;
   document.getElementById('campo-preco').value = produto.preco;
   document.getElementById('campo-estoque').value = produto.quantidadeEstoque;
   document.getElementById('campo-descricao').value = produto.descricao || '';
@@ -340,7 +499,14 @@ function atualizarDicaOrigemEstoque() {
 
 /** Mostra/esconde os campos de combo reagindo à troca de categoria (select fixo) */
 function ligarEventoCategoria() {
-  document.getElementById('campo-categoria').addEventListener('change', () => {
+  document.getElementById('campo-categoria').addEventListener('change', (evento) => {
+    // "+ Criar nova categoria" não é uma categoria: abre o campo de nome e volta o select pro valor anterior.
+    if (evento.target.value === VALOR_NOVA_CATEGORIA) {
+      evento.target.value = _valorCategoriaAnterior;
+      mostrarGrupoNovaCategoria(true);
+      return;
+    }
+    _valorCategoriaAnterior = evento.target.value;
     const secao = document.getElementById('secao-campos-combo');
     const estavaVisivel = secao.style.display !== 'none';
     atualizarVisibilidadeCamposPorCategoria();
@@ -620,7 +786,16 @@ async function salvarFormularioProduto(evento) {
   evento.preventDefault();
 
   const id = document.getElementById('campo-id').value;
-  const categoria = document.getElementById('campo-categoria').value;
+  const valorCategoria = document.getElementById('campo-categoria').value;
+  // Categoria personalizada: produto.categoria = nome dela (o que o app exibe/agrupa) e
+  // categoriaPersonalizadaId = id (o que o banco grava; category vira 'other' em products-service.js).
+  let categoria = valorCategoria === VALOR_NOVA_CATEGORIA ? '' : valorCategoria;
+  let categoriaPersonalizadaId = null;
+  if (valorCategoria.startsWith(PREFIXO_CATEGORIA_PERSONALIZADA)) {
+    categoriaPersonalizadaId = valorCategoria.slice(PREFIXO_CATEGORIA_PERSONALIZADA.length);
+    const personalizada = obterCategoriasPersonalizadas().find((c) => c.id === categoriaPersonalizadaId);
+    categoria = personalizada ? personalizada.nome : 'Outro';
+  }
   const ehCombo = categoria === 'Combos';
   const ehEspetinho = categoria === 'Espetinhos';
 
@@ -652,6 +827,7 @@ async function salvarFormularioProduto(evento) {
   const produto = {
     nome,
     categoria,
+    categoriaPersonalizadaId,
     preco: Number(document.getElementById('campo-preco').value) || 0,
     quantidadeEstoque: ehCombo ? 0 : Math.max(0, Number(document.getElementById('campo-estoque').value) || 0),
     descricao: document.getElementById('campo-descricao').value.trim(),

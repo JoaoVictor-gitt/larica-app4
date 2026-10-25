@@ -19,9 +19,11 @@
  *
  * Cadastro manual (botão "Cadastrar cliente"): dados -> revisão de possíveis duplicidades (cada
  * aviso precisa ser confirmado) -> concluído. Eircode opcional, editável pela ficha. Vinculação
- * manual de UM pedido por vez pela seção "Histórico de vínculos" da ficha: pesquisa -> confirmação
- * (avisos de nome/telefone/cancelado e reativação de pedido desvinculado). O banco recalcula e exige
- * tudo isso; aqui é só UX. Pedido vinculado a outro cliente nunca é transferido.
+ * manual pela seção "Histórico de vínculos" da ficha: pesquisa com seleção de UM ou VÁRIOS pedidos
+ * (mantida entre pesquisas) -> confirmação (avisos de nome/telefone/cancelado e reativação de pedido
+ * desvinculado) -> vinculação. 1 pedido usa a RPC individual; 2+ pedidos, uma única operação
+ * tudo-ou-nada no banco. O banco recalcula e exige tudo isso; aqui é só UX. Pedido vinculado a
+ * outro cliente nunca é transferido.
  * Falha de rede = "não confirmado": a tela relê o estado no banco antes de permitir nova tentativa
  * (cadastro repetido com o mesmo id de tentativa não duplica; vínculo repetido vira "já vinculado").
  *
@@ -50,7 +52,19 @@ const estadoCadastroCliente = {
   tentativaEncerrada: false,
   clienteCriadoId: null,
 };
-const estadoVincularPedido = { aberto: false, clienteId: null, busca: '', offset: 0, total: 0, pedidos: [], seq: 0, selecionado: null };
+// selecionados: Map pedidoId -> pedido (mantido entre pesquisas enquanto a janela está aberta);
+// confirmando: pedidos exibidos na etapa de confirmação
+const estadoVincularPedido = {
+  aberto: false,
+  clienteId: null,
+  busca: '',
+  offset: 0,
+  total: 0,
+  pedidos: [],
+  seq: 0,
+  selecionados: new Map(),
+  confirmando: [],
+};
 const TAMANHO_PAGINA_VINCULAR_PEDIDO = 10;
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -1441,20 +1455,28 @@ async function salvarEircodeCliente() {
 }
 
 // ---------------------------------------------------------------------------
-// Vincular pedido (um por vez): pesquisa -> confirmação. Pedido de outro cliente nunca é
-// selecionável; desvinculado (excluded) exige confirmar a reativação; divergências de nome,
-// telefone e pedido cancelado exigem confirmação. O banco recalcula e exige tudo isso.
+// Vincular pedidos: pesquisa com seleção (checkboxes; a seleção é mantida entre pesquisas enquanto
+// a janela está aberta) -> confirmação -> vinculação.
+//   1 pedido   -> RPC individual (admin_link_order_to_customer), como sempre foi;
+//   2+ pedidos -> uma única operação tudo-ou-nada (admin_link_orders_to_customer, M3), que reaplica
+//                 no banco, pedido a pedido, as mesmas regras da individual.
+// Pedido de outro cliente ou já vinculado a este nunca é selecionável; desvinculado (excluded) exige
+// confirmar a reativação; divergências de nome/telefone e pedido cancelado exigem confirmação.
 // ---------------------------------------------------------------------------
 
+const MAXIMO_PEDIDOS_VINCULO_MULTIPLO = 50;
 const IDS_BOTOES_VINCULAR_PEDIDO = [
   'botao-fechar-vincular-pedido',
   'botao-cancelar-vincular-pedido',
   'botao-voltar-vincular-pedido',
   'botao-confirmar-vincular-pedido',
+  'botao-vincular-selecionados',
+  'botao-limpar-selecao-vincular-pedido',
   'botao-buscar-vincular-pedido',
   'botao-anterior-vincular-pedido',
   'botao-proxima-vincular-pedido',
   'campo-busca-vincular-pedido',
+  'selecionar-todos-vincular-pedido',
 ];
 const ROTULOS_AVISO_VINCULO = { name_mismatch: 'Nome diferente', phone_mismatch: 'Telefone diferente ou ausente', order_cancelled: 'Pedido cancelado' };
 const ROTULOS_ULTIMA_ACAO_DESVINCULO = {
@@ -1479,11 +1501,38 @@ function ligarEventosVincularPedido() {
     estadoVincularPedido.offset += TAMANHO_PAGINA_VINCULAR_PEDIDO;
     buscarPedidosParaVincular();
   });
-  document.getElementById('resultados-vincular-pedido').addEventListener('click', (evento) => {
-    const botao = evento.target.closest('[data-selecionar-pedido]');
-    if (botao) selecionarPedidoParaVincular(botao.dataset.selecionarPedido);
+  document.getElementById('resultados-vincular-pedido').addEventListener('change', (evento) => {
+    const caixa = evento.target.closest('input[data-selecionar-pedido]');
+    if (!caixa) return;
+    alternarSelecaoPedido(caixa.dataset.selecionarPedido, caixa.checked);
+    atualizarSelecaoVincularPedido();
   });
-  document.getElementById('etapa-confirmar-vincular-pedido').addEventListener('change', atualizarBotaoConfirmarVinculo);
+  document.getElementById('selecionar-todos-vincular-pedido').addEventListener('change', (evento) => {
+    selecionarTodosDaPaginaVincular(evento.target.checked);
+    atualizarSelecaoVincularPedido();
+  });
+  document.getElementById('lista-selecao-vincular-pedido').addEventListener('click', (evento) => {
+    const botao = evento.target.closest('[data-remover-selecao]');
+    if (!botao || estadoOperacaoCliente.emAndamento) return;
+    estadoVincularPedido.selecionados.delete(botao.dataset.removerSelecao);
+    atualizarSelecaoVincularPedido();
+  });
+  document.getElementById('botao-limpar-selecao-vincular-pedido').addEventListener('click', () => {
+    if (estadoOperacaoCliente.emAndamento) return;
+    estadoVincularPedido.selecionados.clear();
+    mostrarErroOperacaoCliente('erro-vincular-pedido', '');
+    atualizarSelecaoVincularPedido();
+  });
+  document.getElementById('botao-vincular-selecionados').addEventListener('click', abrirConfirmacaoVinculo);
+  const etapaConfirmar = document.getElementById('etapa-confirmar-vincular-pedido');
+  etapaConfirmar.addEventListener('change', atualizarBotaoConfirmarVinculo);
+  etapaConfirmar.addEventListener('click', (evento) => {
+    if (!evento.target.closest('[data-marcar-todas-confirmacoes]') || estadoOperacaoCliente.emAndamento) return;
+    etapaConfirmar.querySelectorAll('input[type="checkbox"]').forEach((caixa) => {
+      caixa.checked = true;
+    });
+    atualizarBotaoConfirmarVinculo();
+  });
   document.getElementById('botao-cancelar-vincular-pedido').addEventListener('click', fecharVincularPedido);
   document.getElementById('botao-fechar-vincular-pedido').addEventListener('click', fecharVincularPedido);
   document.getElementById('botao-voltar-vincular-pedido').addEventListener('click', () => {
@@ -1500,9 +1549,18 @@ function ligarEventosVincularPedido() {
 function abrirVincularPedido() {
   const ficha = estadoFichaCliente.dados;
   if (!fichaPermiteEdicao(ficha) || estadoOperacaoCliente.emAndamento) return;
-  Object.assign(estadoVincularPedido, { aberto: true, clienteId: ficha.cliente.id, busca: '', offset: 0, total: 0, pedidos: [], selecionado: null });
+  Object.assign(estadoVincularPedido, {
+    aberto: true,
+    clienteId: ficha.cliente.id,
+    busca: '',
+    offset: 0,
+    total: 0,
+    pedidos: [],
+    selecionados: new Map(),
+    confirmando: [],
+  });
   estadoVincularPedido.seq++;
-  document.getElementById('vincular-pedido-titulo').textContent = 'Vincular pedido a ' + (ficha.cliente.nome || 'cliente');
+  document.getElementById('vincular-pedido-titulo').textContent = 'Vincular pedidos a ' + (ficha.cliente.nome || 'cliente');
   document.getElementById('campo-busca-vincular-pedido').value = '';
   document.getElementById('resultados-vincular-pedido').innerHTML =
     '<p class="texto-secundario-ficha">Pesquise pelo número do pedido (ex.: 123 ou #LARICA-123), pelo nome ou pelo telefone.</p>';
@@ -1517,6 +1575,8 @@ function fecharVincularPedido() {
   if (estadoOperacaoCliente.emAndamento) return;
   estadoVincularPedido.aberto = false;
   estadoVincularPedido.seq++; // descarta pesquisa em andamento
+  estadoVincularPedido.selecionados.clear(); // a seleção vale só enquanto a janela está aberta
+  estadoVincularPedido.confirmando = [];
   document.getElementById('modal-overlay-vincular-pedido').classList.remove('modal-visivel');
 }
 
@@ -1526,23 +1586,38 @@ function mostrarEtapaVincularPedido(etapa) {
   document.getElementById('etapa-confirmar-vincular-pedido').style.display = confirmar ? '' : 'none';
   document.getElementById('botao-voltar-vincular-pedido').style.display = confirmar ? '' : 'none';
   document.getElementById('botao-confirmar-vincular-pedido').style.display = confirmar ? '' : 'none';
+  document.getElementById('botao-vincular-selecionados').style.display = confirmar ? 'none' : '';
   document.getElementById('botao-cancelar-vincular-pedido').textContent = confirmar ? 'Cancelar' : 'Fechar';
-  if (confirmar) atualizarBotaoConfirmarVinculo();
-  else estadoVincularPedido.selecionado = null;
+  if (confirmar) {
+    atualizarBotaoConfirmarVinculo();
+  } else {
+    estadoVincularPedido.confirmando = [];
+    atualizarSelecaoVincularPedido();
+  }
 }
 
+/** Trava a janela durante a vinculação: sem cliques repetidos, com indicador de carregamento no botão */
 function definirOperacaoVinculo(ativa) {
   estadoOperacaoCliente.emAndamento = ativa;
   IDS_BOTOES_VINCULAR_PEDIDO.forEach((id) => {
     document.getElementById(id).disabled = ativa;
   });
-  document.querySelectorAll('#etapa-confirmar-vincular-pedido input, #etapa-confirmar-vincular-pedido textarea').forEach((campo) => {
-    campo.disabled = ativa;
-  });
-  document.getElementById('botao-confirmar-vincular-pedido').textContent = ativa ? 'Vinculando…' : 'Confirmar vinculação';
-  if (!ativa) {
+  document
+    .querySelectorAll(
+      '#etapa-confirmar-vincular-pedido input, #etapa-confirmar-vincular-pedido textarea, #etapa-confirmar-vincular-pedido button, #resultados-vincular-pedido input, #lista-selecao-vincular-pedido button'
+    )
+    .forEach((campo) => {
+      campo.disabled = ativa;
+    });
+  const botaoConfirmar = document.getElementById('botao-confirmar-vincular-pedido');
+  botaoConfirmar.classList.toggle('btn-carregando-cliente', ativa);
+  botaoConfirmar.setAttribute('aria-busy', ativa ? 'true' : 'false');
+  if (ativa) {
+    botaoConfirmar.textContent = 'Vinculando…';
+  } else {
     atualizarPaginacaoVincularPedido();
     atualizarBotaoConfirmarVinculo();
+    atualizarSelecaoVincularPedido();
   }
   atualizarBotoesAcaoFichaCliente();
 }
@@ -1557,6 +1632,7 @@ async function buscarPedidosParaVincular() {
     estado.total = 0;
     estado.pedidos = [];
     atualizarPaginacaoVincularPedido();
+    atualizarSelecaoVincularPedido();
     return;
   }
   resultados.innerHTML = '<div class="estado-vazio">Buscando pedidos...</div>';
@@ -1576,17 +1652,42 @@ async function buscarPedidosParaVincular() {
     estado.total = 0;
     estado.pedidos = [];
     atualizarPaginacaoVincularPedido();
+    atualizarSelecaoVincularPedido();
     return;
   }
   if (seq !== estado.seq) return;
 
   estado.total = resposta.total;
   estado.pedidos = resposta.pedidos;
+  const removidos = sincronizarSelecaoComPesquisa(resposta.pedidos);
   resultados.innerHTML =
     resposta.pedidos.length > 0
       ? resposta.pedidos.map(linhaPedidoVincularHtml).join('')
       : '<div class="estado-vazio">Nenhum pedido encontrado.</div>';
   atualizarPaginacaoVincularPedido();
+  atualizarSelecaoVincularPedido();
+  if (removidos.length > 0) {
+    mostrarErroOperacaoCliente(
+      'erro-vincular-pedido',
+      `${removidos.join(', ')} saiu(ram) da seleção: a situação do pedido mudou e ele não pode mais ser vinculado por aqui.`
+    );
+  }
+}
+
+/** Atualiza os pedidos selecionados que voltaram na pesquisa (dados mais recentes); tira os que deixaram de ser elegíveis */
+function sincronizarSelecaoComPesquisa(pedidos) {
+  const { selecionados } = estadoVincularPedido;
+  const removidos = [];
+  pedidos.forEach((p) => {
+    if (!selecionados.has(p.id)) return;
+    if (pedidoSelecionavelParaVinculo(p)) {
+      selecionados.set(p.id, p);
+    } else {
+      selecionados.delete(p.id);
+      removidos.push(p.numero);
+    }
+  });
+  return removidos;
 }
 
 function atualizarPaginacaoVincularPedido() {
@@ -1609,8 +1710,76 @@ function pedidoSelecionavelParaVinculo(p) {
   return p.situacaoVinculo === 'semVinculo' || p.situacaoVinculo === 'excluido';
 }
 
+/** Marca/desmarca um pedido. Retorna false se não pôde marcar (inelegível ou limite atingido). */
+function alternarSelecaoPedido(pedidoId, marcar) {
+  const estado = estadoVincularPedido;
+  if (estadoOperacaoCliente.emAndamento) return false;
+  if (!marcar) {
+    estado.selecionados.delete(pedidoId);
+    return true;
+  }
+  const pedido = estado.pedidos.find((p) => p.id === pedidoId) || estado.selecionados.get(pedidoId);
+  if (!pedido || !pedidoSelecionavelParaVinculo(pedido)) return false;
+  if (!estado.selecionados.has(pedidoId) && estado.selecionados.size >= MAXIMO_PEDIDOS_VINCULO_MULTIPLO) {
+    mostrarErroOperacaoCliente('erro-vincular-pedido', `Selecione no máximo ${MAXIMO_PEDIDOS_VINCULO_MULTIPLO} pedidos por operação.`);
+    return false;
+  }
+  estado.selecionados.set(pedidoId, pedido);
+  return true;
+}
+
+function selecionarTodosDaPaginaVincular(marcar) {
+  const elegiveis = estadoVincularPedido.pedidos.filter(pedidoSelecionavelParaVinculo);
+  for (const p of elegiveis) {
+    if (marcar && !estadoVincularPedido.selecionados.has(p.id) && !alternarSelecaoPedido(p.id, true)) break; // limite atingido
+    if (!marcar) estadoVincularPedido.selecionados.delete(p.id);
+  }
+}
+
+/** Contador, botão "Vincular X pedidos", lista de selecionados, "Selecionar todos" e caixas da página atual */
+function atualizarSelecaoVincularPedido() {
+  const estado = estadoVincularPedido;
+  const n = estado.selecionados.size;
+  const textoQuantidade = n === 0 ? 'Nenhum pedido selecionado' : n === 1 ? '1 pedido selecionado' : `${n} pedidos selecionados`;
+  document.getElementById('contador-selecao-vincular-pedido').textContent = textoQuantidade;
+
+  const botaoVincular = document.getElementById('botao-vincular-selecionados');
+  botaoVincular.textContent = n > 1 ? `Vincular ${n} pedidos` : 'Vincular pedido';
+  botaoVincular.disabled = n === 0 || estadoOperacaoCliente.emAndamento;
+
+  const blocoSelecao = document.getElementById('selecao-vincular-pedido');
+  blocoSelecao.style.display = n > 0 ? '' : 'none';
+  document.getElementById('titulo-selecao-vincular-pedido').textContent = textoQuantidade;
+  document.getElementById('lista-selecao-vincular-pedido').innerHTML = Array.from(estado.selecionados.values())
+    .map(
+      (p) => `
+      <li class="item-selecao-vincular-pedido">
+        <span>${escaparHtml(p.numero)} <small class="texto-secundario-ficha">${escaparHtml(formatarData(p.criadoEm))}</small></span>
+        <button type="button" class="btn-icone" data-remover-selecao="${escaparHtml(p.id)}" aria-label="Remover ${escaparHtml(p.numero)} da seleção"${
+          estadoOperacaoCliente.emAndamento ? ' disabled' : ''
+        }>✕</button>
+      </li>`
+    )
+    .join('');
+
+  const elegiveis = estado.pedidos.filter(pedidoSelecionavelParaVinculo);
+  const marcados = elegiveis.filter((p) => estado.selecionados.has(p.id)).length;
+  const todos = document.getElementById('selecionar-todos-vincular-pedido');
+  document.getElementById('barra-selecionar-todos-vincular-pedido').style.display = elegiveis.length > 1 ? '' : 'none';
+  todos.checked = elegiveis.length > 0 && marcados === elegiveis.length;
+  todos.indeterminate = marcados > 0 && marcados < elegiveis.length;
+
+  document.querySelectorAll('#resultados-vincular-pedido input[data-selecionar-pedido]').forEach((caixa) => {
+    caixa.checked = estado.selecionados.has(caixa.dataset.selecionarPedido);
+    const linha = caixa.closest('.pedido-vincular');
+    if (linha) linha.classList.toggle('pedido-vincular-selecionado', caixa.checked);
+  });
+}
+
 function linhaPedidoVincularHtml(p) {
   const moeda = obterConfiguracoes().moeda;
+  const selecionavel = pedidoSelecionavelParaVinculo(p);
+  const marcado = estadoVincularPedido.selecionados.has(p.id);
   let situacao;
   if (p.situacaoVinculo === 'desteCliente') {
     situacao = seloHtml('Já vinculado a este cliente', 'badge-verde', 'Nada a fazer');
@@ -1624,47 +1793,68 @@ function linhaPedidoVincularHtml(p) {
   } else {
     situacao = seloHtml('Sem vínculo', 'badge-cinza', 'Pedido sem cliente');
   }
-  const avisos = pedidoSelecionavelParaVinculo(p)
+  const avisos = selecionavel
     ? p.avisos.map((a) => seloHtml(ROTULOS_AVISO_VINCULO[a] || a, a === 'order_cancelled' ? 'badge-vermelho' : 'badge-amarelo', 'Exigirá confirmação')).join('')
     : '';
-  const acao = pedidoSelecionavelParaVinculo(p)
-    ? `<button type="button" class="btn btn-secundario btn-compacto-cliente" data-selecionar-pedido="${escaparHtml(p.id)}">Selecionar</button>`
-    : '';
-  return `
-    <div class="pedido-vincular">
-      <div class="pedido-ficha-cliente-cabecalho">
-        <strong>${escaparHtml(p.numero)}</strong>
-        <span class="texto-secundario-ficha">${escaparHtml(formatarData(p.criadoEm))} ${escaparHtml(formatarHora(p.criadoEm))}</span>
-        <span class="badge ${CLASSE_BADGE_STATUS_FICHA[p.status] || 'badge-amarelo'}">${escaparHtml(ROTULOS_STATUS_PEDIDO[p.status] || p.status)}</span>
-        <strong class="pedido-ficha-cliente-total">${formatarMoeda(p.total, moeda)}</strong>
-      </div>
-      <p class="texto-secundario-ficha">${escaparHtml(p.nomeCliente || 'Sem nome')} · ${p.telefoneCliente ? escaparHtml(p.telefoneCliente) : 'sem telefone'}</p>
-      <div class="pedido-vincular-rodape">
+  const conteudo = `
+      <div class="pedido-vincular-conteudo">
+        <div class="pedido-ficha-cliente-cabecalho">
+          <strong>${escaparHtml(p.numero)}</strong>
+          <span class="texto-secundario-ficha">${escaparHtml(formatarData(p.criadoEm))} ${escaparHtml(formatarHora(p.criadoEm))}</span>
+          <span class="badge ${CLASSE_BADGE_STATUS_FICHA[p.status] || 'badge-amarelo'}">${escaparHtml(ROTULOS_STATUS_PEDIDO[p.status] || p.status)}</span>
+          <strong class="pedido-ficha-cliente-total">${formatarMoeda(p.total, moeda)}</strong>
+        </div>
+        <p class="texto-secundario-ficha">${escaparHtml(p.nomeCliente || 'Sem nome')} · ${p.telefoneCliente ? escaparHtml(p.telefoneCliente) : 'sem telefone'}</p>
         <div class="selos-cliente">${situacao}${avisos}</div>
-        ${acao}
-      </div>
+      </div>`;
+
+  // Linha elegível inteira é um <label>: tocar em qualquer ponto marca/desmarca (bom no celular)
+  if (selecionavel) {
+    return `
+    <label class="pedido-vincular pedido-vincular-selecionavel${marcado ? ' pedido-vincular-selecionado' : ''}">
+      <input type="checkbox" class="caixa-pedido-vincular" data-selecionar-pedido="${escaparHtml(p.id)}"${marcado ? ' checked' : ''}
+             aria-label="Selecionar ${escaparHtml(p.numero)}" />
+      ${conteudo}
+    </label>`;
+  }
+  return `
+    <div class="pedido-vincular pedido-vincular-indisponivel">
+      <span class="caixa-pedido-vincular" aria-hidden="true"></span>
+      ${conteudo}
     </div>`;
 }
 
-function selecionarPedidoParaVincular(pedidoId) {
+/** Etapa de confirmação para os pedidos selecionados (1 = tela individual de sempre; 2+ = lista) */
+function abrirConfirmacaoVinculo() {
   if (estadoOperacaoCliente.emAndamento) return;
-  const pedido = estadoVincularPedido.pedidos.find((p) => p.id === pedidoId);
-  if (!pedido || !pedidoSelecionavelParaVinculo(pedido)) return;
-  estadoVincularPedido.selecionado = pedido;
-  document.getElementById('etapa-confirmar-vincular-pedido').innerHTML = confirmacaoVinculoHtml(pedido);
+  const lista = Array.from(estadoVincularPedido.selecionados.values()).sort((a, b) => String(b.criadoEm).localeCompare(String(a.criadoEm)));
+  if (lista.length === 0) return;
+  estadoVincularPedido.confirmando = lista;
+  document.getElementById('etapa-confirmar-vincular-pedido').innerHTML =
+    lista.length === 1 ? confirmacaoVinculoHtml(lista[0]) : confirmacaoVinculoMultiploHtml(lista);
   mostrarErroOperacaoCliente('erro-vincular-pedido', '');
   mostrarEtapaVincularPedido('confirmar');
+}
+
+function textosAvisoVinculo(p, cliente) {
+  const telefoneCadastro = cliente.telefone ? formatarTelefoneIrlandes(cliente.telefone) : 'sem telefone';
+  return {
+    name_mismatch: `O nome no pedido ("${p.nomeCliente || 'sem nome'}") é diferente do cadastro ("${cliente.nome || ''}"). Confirmo que o pedido é deste cliente.`,
+    phone_mismatch: `O telefone do pedido (${p.telefoneCliente || 'não informado'}) não confirma o cadastro (${telefoneCadastro}). Confirmo que o pedido é deste cliente.`,
+    order_cancelled: 'O pedido está CANCELADO. Confirmo a vinculação mesmo assim (pedidos cancelados não entram nas métricas; o pedido não é alterado).',
+  };
+}
+
+function textoReativacaoVinculo(p) {
+  const motivo = p.ultimaAcaoAuditoria ? ROTULOS_ULTIMA_ACAO_DESVINCULO[p.ultimaAcaoAuditoria] || p.ultimaAcaoAuditoria : 'motivo não registrado';
+  return `Este pedido foi desvinculado anteriormente (${motivo}) e está fora da sincronização automática. Confirmo a reativação do vínculo com este cliente.`;
 }
 
 function confirmacaoVinculoHtml(p) {
   const moeda = obterConfiguracoes().moeda;
   const cliente = (estadoFichaCliente.dados && estadoFichaCliente.dados.cliente) || {};
   const telefoneCadastro = cliente.telefone ? formatarTelefoneIrlandes(cliente.telefone) : 'sem telefone';
-  const textosAviso = {
-    name_mismatch: `O nome no pedido ("${p.nomeCliente || 'sem nome'}") é diferente do cadastro ("${cliente.nome || ''}"). Confirmo que o pedido é deste cliente.`,
-    phone_mismatch: `O telefone do pedido (${p.telefoneCliente || 'não informado'}) não confirma o cadastro (${telefoneCadastro}). Confirmo que o pedido é deste cliente.`,
-    order_cancelled: 'O pedido está CANCELADO. Confirmo a vinculação mesmo assim (pedidos cancelados não entram nas métricas; o pedido não é alterado).',
-  };
+  const textosAviso = textosAvisoVinculo(p, cliente);
   const confirmacoes = p.avisos.map(
     (a) =>
       `<label class="confirmacao-cliente"><input type="checkbox" data-aviso-vinculo="${escaparHtml(a)}" /> <span>${escaparHtml(
@@ -1672,10 +1862,9 @@ function confirmacaoVinculoHtml(p) {
       )}</span></label>`
   );
   if (p.situacaoVinculo === 'excluido') {
-    const motivo = p.ultimaAcaoAuditoria ? ROTULOS_ULTIMA_ACAO_DESVINCULO[p.ultimaAcaoAuditoria] || p.ultimaAcaoAuditoria : 'motivo não registrado';
     confirmacoes.unshift(
       `<label class="confirmacao-cliente"><input type="checkbox" data-confirmacao-reativacao="sim" /> <span>${escaparHtml(
-        `Este pedido foi desvinculado anteriormente (${motivo}) e está fora da sincronização automática. Confirmo a reativação do vínculo com este cliente.`
+        textoReativacaoVinculo(p)
       )}</span></label>`
     );
   }
@@ -1706,25 +1895,89 @@ function confirmacaoVinculoHtml(p) {
     <p class="texto-secundario-ficha">O pedido não é alterado. A vinculação fica registrada no histórico com o administrador e a data.</p>`;
 }
 
+function confirmacaoVinculoMultiploHtml(lista) {
+  const moeda = obterConfiguracoes().moeda;
+  const cliente = (estadoFichaCliente.dados && estadoFichaCliente.dados.cliente) || {};
+  const telefoneCadastro = cliente.telefone ? formatarTelefoneIrlandes(cliente.telefone) : 'sem telefone';
+  let totalConfirmacoes = 0;
+
+  const blocos = lista.map((p) => {
+    const textosAviso = textosAvisoVinculo(p, cliente);
+    const confirmacoes = p.avisos.map(
+      (a) =>
+        `<label class="confirmacao-cliente"><input type="checkbox" data-pedido-id="${escaparHtml(p.id)}" data-aviso-vinculo="${escaparHtml(a)}" /> <span>${escaparHtml(
+          textosAviso[a] || a
+        )}</span></label>`
+    );
+    if (p.situacaoVinculo === 'excluido') {
+      confirmacoes.unshift(
+        `<label class="confirmacao-cliente"><input type="checkbox" data-pedido-id="${escaparHtml(p.id)}" data-confirmacao-reativacao="sim" /> <span>${escaparHtml(
+          textoReativacaoVinculo(p)
+        )}</span></label>`
+      );
+    }
+    totalConfirmacoes += confirmacoes.length;
+    return `
+      <div class="pedido-confirmacao-vincular">
+        <div class="pedido-ficha-cliente-cabecalho">
+          <strong>${escaparHtml(p.numero)}</strong>
+          <span class="texto-secundario-ficha">${escaparHtml(formatarData(p.criadoEm))} ${escaparHtml(formatarHora(p.criadoEm))}</span>
+          <span class="badge ${CLASSE_BADGE_STATUS_FICHA[p.status] || 'badge-amarelo'}">${escaparHtml(ROTULOS_STATUS_PEDIDO[p.status] || p.status)}</span>
+          <strong class="pedido-ficha-cliente-total">${formatarMoeda(p.total, moeda)}</strong>
+        </div>
+        <p class="texto-secundario-ficha">${escaparHtml(p.nomeCliente || 'Sem nome')} · ${p.telefoneCliente ? escaparHtml(p.telefoneCliente) : 'sem telefone'}</p>
+        ${confirmacoes.length > 0 ? confirmacoes.join('') : '<p class="texto-secundario-ficha">Nome e telefone conferem com o cadastro.</p>'}
+      </div>`;
+  });
+
+  return `
+    <div class="resumo-cadastro-cliente">
+      <div class="detalhe-pedido-titulo">Cliente</div>
+      <p><strong>${escaparHtml(cliente.nome || 'Não informado')}</strong> · ${escaparHtml(telefoneCadastro)}</p>
+      <p>${lista.length} pedidos serão vinculados numa única operação: ou todos são vinculados, ou nenhum.</p>
+    </div>
+    ${
+      totalConfirmacoes > 0
+        ? `<div class="titulo-com-acao-ficha">
+             <p>Confirme cada item (${totalConfirmacoes}) para continuar:</p>
+             <button type="button" class="btn btn-secundario btn-compacto-cliente" data-marcar-todas-confirmacoes>Marcar todas</button>
+           </div>`
+        : '<p class="aviso-info">Nome e telefone de todos os pedidos conferem com o cadastro.</p>'
+    }
+    <div class="lista-confirmacao-vincular">${blocos.join('')}</div>
+    <div class="form-grupo">
+      <label for="campo-motivo-vincular-pedido">Motivo (opcional, registrado em todos os pedidos)</label>
+      <textarea class="input" id="campo-motivo-vincular-pedido" maxlength="500" rows="2" placeholder="Ex.: cliente confirmou por telefone"></textarea>
+    </div>
+    <p class="texto-secundario-ficha">Os pedidos não são alterados. Cada vinculação fica registrada no histórico com o administrador e a data.</p>`;
+}
+
 function atualizarBotaoConfirmarVinculo() {
   const botao = document.getElementById('botao-confirmar-vincular-pedido');
+  const n = estadoVincularPedido.confirmando.length;
   const caixas = Array.from(document.querySelectorAll('#etapa-confirmar-vincular-pedido input[type="checkbox"]'));
-  botao.disabled = estadoOperacaoCliente.emAndamento || !estadoVincularPedido.selecionado || caixas.some((caixa) => !caixa.checked);
+  botao.disabled = estadoOperacaoCliente.emAndamento || n === 0 || caixas.some((caixa) => !caixa.checked);
+  if (!estadoOperacaoCliente.emAndamento) botao.textContent = n > 1 ? `Confirmar vinculação de ${n} pedidos` : 'Confirmar vinculação';
 }
 
 async function confirmarVincularPedido() {
   if (estadoOperacaoCliente.emAndamento) return;
-  const estado = estadoVincularPedido;
-  const pedido = estado.selecionado;
-  if (!pedido) return;
+  const lista = estadoVincularPedido.confirmando;
+  if (lista.length === 0) return;
   const caixas = Array.from(document.querySelectorAll('#etapa-confirmar-vincular-pedido input[type="checkbox"]'));
   if (caixas.some((caixa) => !caixa.checked)) return;
+  const motivo = document.getElementById('campo-motivo-vincular-pedido').value.trim();
+  if (lista.length === 1) return confirmarVinculoIndividual(lista[0], motivo);
+  return confirmarVinculoMultiplo(lista, motivo);
+}
 
+/** Um pedido: RPC individual de sempre (mesmo comportamento anterior à seleção múltipla) */
+async function confirmarVinculoIndividual(pedido, motivo) {
+  const estado = estadoVincularPedido;
   const avisosConfirmados = Array.from(document.querySelectorAll('#etapa-confirmar-vincular-pedido input[data-aviso-vinculo]')).map(
     (caixa) => caixa.dataset.avisoVinculo
   );
   const confirmarReativacao = !!document.querySelector('#etapa-confirmar-vincular-pedido input[data-confirmacao-reativacao]:checked');
-  const motivo = document.getElementById('campo-motivo-vincular-pedido').value.trim();
 
   mostrarErroOperacaoCliente('erro-vincular-pedido', '');
   definirOperacaoVinculo(true);
@@ -1749,6 +2002,43 @@ async function confirmarVincularPedido() {
         : `${pedido.numero} vinculado ao cliente.`,
     'sucesso'
   );
+  abrirFichaCliente({ clienteId });
+  recarregarListaEIndicadoresClientes();
+}
+
+/** 2+ pedidos: uma única operação tudo-ou-nada no banco */
+async function confirmarVinculoMultiplo(lista, motivo) {
+  const estado = estadoVincularPedido;
+  const itensPorPedido = new Map(lista.map((p) => [p.id, { pedidoId: p.id, avisosConfirmados: [], confirmarReativacao: false }]));
+  document.querySelectorAll('#etapa-confirmar-vincular-pedido input[data-pedido-id]').forEach((caixa) => {
+    const item = itensPorPedido.get(caixa.dataset.pedidoId);
+    if (!item || !caixa.checked) return;
+    if (caixa.dataset.avisoVinculo) item.avisosConfirmados.push(caixa.dataset.avisoVinculo);
+    if (caixa.dataset.confirmacaoReativacao) item.confirmarReativacao = true;
+  });
+
+  mostrarErroOperacaoCliente('erro-vincular-pedido', '');
+  definirOperacaoVinculo(true);
+  let resultado;
+  try {
+    resultado = await linkOrdersToCustomer({ clienteId: estado.clienteId, itens: Array.from(itensPorPedido.values()), motivo });
+  } catch (erro) {
+    console.error('Erro ao vincular pedidos:', erro);
+    definirOperacaoVinculo(false);
+    tratarErroVinculoMultiplo(erro, lista);
+    return;
+  }
+  definirOperacaoVinculo(false);
+
+  const clienteId = estado.clienteId;
+  fecharVincularPedido();
+  const partes = [];
+  if (resultado.vinculados > 0) partes.push(`${resultado.vinculados} ${resultado.vinculados === 1 ? 'pedido vinculado' : 'pedidos vinculados'}`);
+  if (resultado.reativados > 0) partes.push(`${resultado.reativados} ${resultado.reativados === 1 ? 'pedido reativado e vinculado' : 'pedidos reativados e vinculados'}`);
+  if (resultado.jaVinculados > 0) {
+    partes.push(`${resultado.jaVinculados} ${resultado.jaVinculados === 1 ? 'já estava vinculado' : 'já estavam vinculados'} a este cliente`);
+  }
+  mostrarToast((partes.join(' · ') || 'Nenhum pedido novo vinculado') + '.', 'sucesso');
   abrirFichaCliente({ clienteId });
   recarregarListaEIndicadoresClientes();
 }
@@ -1798,6 +2088,89 @@ async function reconsultarPedidoParaVincular(pedido, mensagem) {
     recarregarListaEIndicadoresClientes();
     return;
   }
-  if (atual && pedidoSelecionavelParaVinculo(atual)) selecionarPedidoParaVincular(atual.id);
+  if (atual && pedidoSelecionavelParaVinculo(atual)) {
+    estado.selecionados.set(atual.id, atual);
+    abrirConfirmacaoVinculo();
+  }
   mostrarErroOperacaoCliente('erro-vincular-pedido', mensagem);
+}
+
+/** Erro da operação múltipla: nada foi vinculado (tudo ou nada). Mostra cada pedido com problema e ajusta a seleção. */
+function tratarErroVinculoMultiplo(erro, lista) {
+  const estado = estadoVincularPedido;
+  if (erro.funcaoAusente) {
+    mostrarErroOperacaoCliente(
+      'erro-vincular-pedido',
+      'A vinculação de vários pedidos ainda não está disponível no banco de dados. Nenhum pedido foi vinculado. Por enquanto, selecione um pedido por vez.'
+    );
+    return;
+  }
+  if (erro.codigo === 'customer_archived' || erro.codigo === 'customer_not_found') {
+    tratarErroVinculoPedido(erro, lista[0]);
+    return;
+  }
+  if (erro.codigo === 'invalid') {
+    mostrarErroOperacaoCliente('erro-vincular-pedido', `${erro.message} Nenhum pedido foi vinculado.`);
+    return;
+  }
+  if (erro.falhaRede) {
+    reconsultarVinculoMultiplo(lista);
+    return;
+  }
+  if (erro.codigo !== 'batch_failed') {
+    // busy, forbidden ou erro inesperado: nada gravado, continua na confirmação para tentar de novo
+    mostrarErroOperacaoCliente('erro-vincular-pedido', mensagemErroComumCliente(erro, 'a vinculação dos pedidos'));
+    return;
+  }
+
+  const falhas = (erro.detalhes && erro.detalhes.falhas) || [];
+  const linhas = falhas.map((f) => {
+    const pedido = estado.selecionados.get(f.pedidoId);
+    let ajuste = '';
+    if (pedido && ['linked_to_other', 'order_not_found', 'conflict'].includes(f.codigo)) {
+      estado.selecionados.delete(f.pedidoId);
+      ajuste = ' — removido da seleção';
+    } else if (pedido && f.codigo === 'confirmation_required' && f.detalhe && Array.isArray(f.detalhe.warnings)) {
+      pedido.avisos = Array.from(new Set(pedido.avisos.concat(f.detalhe.warnings)));
+      ajuste = ' — revise as confirmações';
+    } else if (pedido && f.codigo === 'reactivation_required') {
+      pedido.situacaoVinculo = 'excluido';
+      if (f.detalhe && f.detalhe.last_audit_action) pedido.ultimaAcaoAuditoria = f.detalhe.last_audit_action;
+      ajuste = ' — exige confirmar a reativação';
+    }
+    return `• ${f.numero || 'Pedido'}: ${f.mensagem}${ajuste}`;
+  });
+  const mensagem = [erro.message, ...linhas, 'Nenhum pedido foi vinculado. Revise a seleção e clique em Vincular novamente.'].join('\n');
+  mostrarEtapaVincularPedido('busca');
+  if (estado.busca.length >= 2) {
+    buscarPedidosParaVincular().then(() => mostrarErroOperacaoCliente('erro-vincular-pedido', mensagem));
+  } else {
+    mostrarErroOperacaoCliente('erro-vincular-pedido', mensagem);
+  }
+}
+
+/** Resposta perdida na rede: a operação é tudo-ou-nada, então basta conferir UM pedido da seleção */
+async function reconsultarVinculoMultiplo(lista) {
+  const estado = estadoVincularPedido;
+  const referencia = lista[0];
+  estado.busca = referencia.numero;
+  estado.offset = 0;
+  document.getElementById('campo-busca-vincular-pedido').value = referencia.numero;
+  mostrarEtapaVincularPedido('busca');
+  await buscarPedidosParaVincular();
+  if (!estado.aberto) return;
+
+  const atual = estado.pedidos.find((p) => p.id === referencia.id);
+  if (atual && atual.situacaoVinculo === 'desteCliente') {
+    const clienteId = estado.clienteId;
+    fecharVincularPedido();
+    mostrarToast(`A vinculação dos ${lista.length} pedidos foi concluída (confirmado após falha de conexão).`, 'sucesso');
+    abrirFichaCliente({ clienteId });
+    recarregarListaEIndicadoresClientes();
+    return;
+  }
+  mostrarErroOperacaoCliente(
+    'erro-vincular-pedido',
+    'Não foi possível confirmar a vinculação (falha de conexão) e os pedidos continuam sem vínculo com este cliente: nada foi gravado. A seleção foi mantida — clique em Vincular novamente.'
+  );
 }

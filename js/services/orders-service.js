@@ -20,6 +20,19 @@ const ENUM_PARA_PAGAMENTO = { card: 'cartao', cash: 'dinheiro', revolut: 'revolu
 const STATUS_PARA_ENUM = { solicitado: 'requested', em_preparo: 'preparing', pronto: 'ready', finalizado: 'completed', cancelado: 'cancelled' };
 const ENUM_PARA_STATUS = { requested: 'solicitado', preparing: 'em_preparo', ready: 'pronto', completed: 'finalizado', cancelled: 'cancelado' };
 
+// Canal de venda (orders.sales_channel, migration 20261025120000_add_orders_sales_channel.sql) —
+// independente da forma de pagamento. Pedido sem a coluna (antes da migration) ou com valor
+// desconhecido é tratado como Larica, que é o default do banco para todo pedido existente.
+const ROTULOS_CANAL_VENDA = { larica: 'Larica', deliveroo: 'Deliveroo', just_eat: 'Just Eat' };
+
+function canalVendaDoPedido(valor) {
+  return Object.prototype.hasOwnProperty.call(ROTULOS_CANAL_VENDA, valor) ? valor : 'larica';
+}
+
+function rotuloCanalVenda(canal) {
+  return ROTULOS_CANAL_VENDA[canalVendaDoPedido(canal)];
+}
+
 const STATUS_PAGAMENTO_PARA_ENUM = { pendente: 'pending', pago: 'paid', pagar_na_entrega: 'pay_on_delivery', legado: 'legacy' };
 const ENUM_PARA_STATUS_PAGAMENTO = { pending: 'pendente', paid: 'pago', pay_on_delivery: 'pagar_na_entrega', legacy: 'legado' };
 
@@ -30,6 +43,7 @@ function _linhaSupabaseParaPedido(o) {
     id: o.id,
     numero: '#LARICA-' + o.order_number,
     status: ENUM_PARA_STATUS[o.status] || o.status,
+    canal: canalVendaDoPedido(o.sales_channel),
     criadoEm: o.created_at,
     aceitoEm: o.accepted_at,
     prontoEm: o.ready_at,
@@ -421,23 +435,37 @@ function unsubscribeFromOrders(canal) {
  * horário de Dublin (ver função de timezone em dashboard.js) — aqui só
  * filtra e devolve, sem nenhuma lógica de fuso.
  */
-async function getOrdersForReport({ desdeUtc, ateUtc } = {}) {
-  let consulta = supabaseClient
-    .from('orders')
-    .select(
-      'id, order_number, created_at, accepted_at, ready_at, completed_at, cancelled_at, status, fulfilment_type, payment_method, payment_status, subtotal, delivery_fee, total, discount_amount, coupon_id, coupon_code, cash_amount, change_amount, needs_change'
-    )
-    .order('created_at', { ascending: true });
-  if (desdeUtc) consulta = consulta.gte('created_at', desdeUtc);
-  if (ateUtc) consulta = consulta.lt('created_at', ateUtc);
+const COLUNAS_PEDIDOS_RELATORIO =
+  'id, order_number, created_at, accepted_at, ready_at, completed_at, cancelled_at, status, fulfilment_type, payment_method, payment_status, subtotal, delivery_fee, total, discount_amount, coupon_id, coupon_code, cash_amount, change_amount, needs_change';
+// false depois que o banco responder que orders.sales_channel não existe (migration ainda não
+// aplicada) — daí em diante a consulta volta à lista de colunas de sempre, sem repetir o erro.
+let _relatorioPedidosComCanal = true;
 
-  const { data, error } = await consulta;
+function _erroColunaCanalInexistente(error) {
+  return !!error && (error.code === '42703' || /sales_channel/.test(error.message || ''));
+}
+
+async function getOrdersForReport({ desdeUtc, ateUtc } = {}) {
+  const consultar = (colunas) => {
+    let consulta = supabaseClient.from('orders').select(colunas).order('created_at', { ascending: true });
+    if (desdeUtc) consulta = consulta.gte('created_at', desdeUtc);
+    if (ateUtc) consulta = consulta.lt('created_at', ateUtc);
+    return consulta;
+  };
+
+  let resposta = await consultar(_relatorioPedidosComCanal ? COLUNAS_PEDIDOS_RELATORIO + ', sales_channel' : COLUNAS_PEDIDOS_RELATORIO);
+  if (resposta.error && _relatorioPedidosComCanal && _erroColunaCanalInexistente(resposta.error)) {
+    _relatorioPedidosComCanal = false;
+    resposta = await consultar(COLUNAS_PEDIDOS_RELATORIO);
+  }
+  const { data, error } = resposta;
   if (error) throw new Error(error.message);
 
   return (data || []).map((o) => ({
     id: o.id,
     orderNumber: Number(o.order_number),
     numero: '#LARICA-' + o.order_number,
+    canal: canalVendaDoPedido(o.sales_channel),
     criadoEm: o.created_at,
     // accepted_at/ready_at/completed_at (Etapa 2 — Tempo de Preparo): mesmo padrão de nomes já usado
     // em _linhaSupabaseParaPedido() (aceitoEm/prontoEm/finalizadoEm) — nunca com fallback pro

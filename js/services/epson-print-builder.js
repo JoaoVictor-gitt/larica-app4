@@ -126,20 +126,49 @@ function _percentualComanda(valor) {
   return String(valor).replace('.', ',') + '%';
 }
 
+/** Validação comum + builder novo — mesmas mensagens de erro de sempre. */
+function _novoBuilderComandaEpson(pedido, nomeFuncao) {
+  if (!pedido) {
+    throw new Error(nomeFuncao + ': "pedido" é obrigatório.');
+  }
+  if (typeof epson === 'undefined' || typeof epson.ePOSBuilder === 'undefined') {
+    throw new Error('epson.ePOSBuilder não está disponível — carregue vendor/epson/epos-2.27.0.js antes deste arquivo.');
+  }
+  return new epson.ePOSBuilder();
+}
+
 /**
  * Gera o XML <epos-print> completo de uma comanda de cozinha.
  * @param {object} pedido — mesmo formato retornado por orders-service.js.
  * @returns {string} XML pronto para ir dentro de <s:Body> no POST a /cgi-bin/epos/service.cgi.
  */
 function gerarComandaEposPrintXml(pedido) {
-  if (!pedido) {
-    throw new Error('gerarComandaEposPrintXml: "pedido" é obrigatório.');
-  }
-  if (typeof epson === 'undefined' || typeof epson.ePOSBuilder === 'undefined') {
-    throw new Error('epson.ePOSBuilder não está disponível — carregue vendor/epson/epos-2.27.0.js antes deste arquivo.');
-  }
+  const builder = _novoBuilderComandaEpson(pedido, 'gerarComandaEposPrintXml');
+  _adicionarComandaCozinhaEpson(builder, pedido);
+  return builder.toString();
+}
 
-  const builder = new epson.ePOSBuilder();
+/**
+ * Comanda da cozinha + via do cliente num ÚNICO <epos-print> (uma só requisição à Epson =
+ * um só resultado: nunca uma via reenviada por causa da outra). Ordem física: cozinha, corte,
+ * via do cliente, corte.
+ */
+function gerarComandaComViaClienteEposPrintXml(pedido) {
+  const builder = _novoBuilderComandaEpson(pedido, 'gerarComandaComViaClienteEposPrintXml');
+  _adicionarComandaCozinhaEpson(builder, pedido);
+  _adicionarViaClienteEpson(builder, pedido);
+  return builder.toString();
+}
+
+/** Só a via do cliente (botão "Imprimir via do cliente"). */
+function gerarViaClienteEposPrintXml(pedido) {
+  const builder = _novoBuilderComandaEpson(pedido, 'gerarViaClienteEposPrintXml');
+  _adicionarViaClienteEpson(builder, pedido);
+  return builder.toString();
+}
+
+/** Corpo da comanda da cozinha (layout de sempre, inalterado), terminando no corte. */
+function _adicionarComandaCozinhaEpson(builder, pedido) {
   const ehEntrega = pedido.fulfilment === 'entrega';
   const itens = pedido.itens || [];
   const cliente = pedido.cliente || {};
@@ -363,6 +392,134 @@ function gerarComandaEposPrintXml(pedido) {
 
   builder.addFeedLine(4);
   builder.addCut(builder.CUT_FEED);
+}
 
-  return builder.toString();
+// --- Via do cliente ---
+// Mais simples que a da cozinha: identificação na retirada. Sem pagamento, troco, endereço,
+// observações, preços por linha nem nada interno. Data/hora sempre em Europe/Dublin (fuso do
+// restaurante), independente do fuso do dispositivo.
+const FORMATADOR_DATA_HORA_VIA_CLIENTE = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/Dublin',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** "DD/MM/YYYY HH:mm" em Dublin, ou '' se a data for ausente/inválida (nunca inventa). */
+function _dataHoraViaCliente(iso) {
+  if (!iso) return '';
+  const data = new Date(iso);
+  if (isNaN(data.getTime())) return '';
+  const partes = {};
+  FORMATADOR_DATA_HORA_VIA_CLIENTE.formatToParts(data).forEach(function (p) {
+    partes[p.type] = p.value;
+  });
+  return partes.day + '/' + partes.month + '/' + partes.year + ' ' + partes.hour + ':' + partes.minute;
+}
+
+// Rodapé por tipo de pedido — campo real pedido.fulfilment (orders.fulfilment_type mapeado em
+// orders-service.js). Só 'retirada' recebe a frase de retirada; entrega, comer no local, valor
+// desconhecido ou ausente recebem a mensagem neutra (nunca inferido por endereço/nome).
+const RODAPE_VIA_CLIENTE_POR_TIPO = { retirada: 'Apresente esta via para retirar seu pedido.' };
+const RODAPE_VIA_CLIENTE_NEUTRO = 'Via de identificação do pedido.';
+
+function _rodapeViaCliente(fulfilment) {
+  return Object.prototype.hasOwnProperty.call(RODAPE_VIA_CLIENTE_POR_TIPO, fulfilment)
+    ? RODAPE_VIA_CLIENTE_POR_TIPO[fulfilment]
+    : RODAPE_VIA_CLIENTE_NEUTRO;
+}
+
+/** "#LARICA-123" -> "#123" (número em destaque); sem dígitos no fim, devolve o número como veio. */
+function _numeroCurtoViaCliente(numero) {
+  const texto = String(numero || '');
+  const encontrado = texto.match(/(\d+)\s*$/);
+  return encontrado ? '#' + encontrado[1] : texto;
+}
+
+/**
+ * Corpo da via do cliente, terminando no próprio corte. Começa redefinindo alinhamento/tamanho/
+ * estilo — num job combinado ele vem logo depois da comanda da cozinha, e esses atributos
+ * persistem entre elementos do <epos-print>.
+ */
+function _adicionarViaClienteEpson(builder, pedido) {
+  const itens = pedido.itens || [];
+  const cliente = pedido.cliente || {};
+
+  builder.addTextAlign(builder.ALIGN_CENTER);
+  builder.addTextSize(1, 1);
+  builder.addTextStyle(false, false, false);
+
+  builder.addTextStyle(false, false, true);
+  builder.addTextSize(2, 2);
+  builder.addText('LARICA\n');
+  builder.addTextSize(2, 1);
+  builder.addText('VIA DO CLIENTE\n');
+  builder.addTextSize(1, 1);
+  builder.addTextStyle(false, false, false);
+
+  builder.addFeedLine(1);
+
+  builder.addTextStyle(false, false, true);
+  builder.addTextSize(2, 2);
+  builder.addText('PEDIDO\n');
+  builder.addTextSize(4, 4);
+  builder.addText(_numeroCurtoViaCliente(pedido.numero) + '\n');
+  builder.addTextSize(1, 1);
+  builder.addTextStyle(false, false, false);
+
+  builder.addFeedLine(1);
+
+  if (cliente.nome) {
+    builder.addTextStyle(false, false, true);
+    builder.addText(cliente.nome + '\n');
+    builder.addTextStyle(false, false, false);
+  }
+  const dataHora = _dataHoraViaCliente(pedido.criadoEm);
+  if (dataHora) builder.addText(dataHora + '\n');
+
+  builder.addFeedLine(1);
+  builder.addHLine(0, EPSON_PRINT_LARGURA_DOTS - 1, builder.LINE_THIN);
+  builder.addFeedLine(1);
+
+  // Itens: só quantidade e nome (a impressora quebra linhas longas sozinha). Componentes do
+  // combo recuados, sem preço — ajudam o cliente a conferir o que pediu.
+  builder.addTextAlign(builder.ALIGN_LEFT);
+  itens.forEach(function (item) {
+    builder.addTextStyle(false, false, true);
+    builder.addText(item.quantidade + 'x ' + item.nome + '\n');
+    builder.addTextStyle(false, false, false);
+    if (item.combo) {
+      (item.combo.espetos || []).forEach(function (c) {
+        builder.addText('   ' + c.quantidade + 'x ' + c.nome + '\n');
+      });
+      (item.combo.acompanhamentos || []).forEach(function (c) {
+        builder.addText('   ' + c.quantidade + 'x ' + c.nome + '\n');
+      });
+      (item.combo.incluidos || []).forEach(function (nomeIncluido) {
+        builder.addText('   ' + nomeIncluido + '\n');
+      });
+    }
+  });
+
+  builder.addFeedLine(1);
+  builder.addHLine(0, EPSON_PRINT_LARGURA_DOTS - 1, builder.LINE_THIN);
+  builder.addFeedLine(1);
+
+  builder.addTextStyle(false, false, true);
+  builder.addTextSize(2, 2);
+  builder.addText(_linhaDuasColunasComanda('TOTAL:', formatarMoeda(pedido.total), EPSON_PRINT_COLUNAS / 2));
+  builder.addTextSize(1, 1);
+  builder.addTextStyle(false, false, false);
+
+  builder.addFeedLine(1);
+  builder.addTextAlign(builder.ALIGN_CENTER);
+  builder.addTextStyle(false, false, true);
+  builder.addText(_rodapeViaCliente(pedido.fulfilment) + '\n');
+  builder.addTextStyle(false, false, false);
+
+  builder.addFeedLine(4);
+  builder.addCut(builder.CUT_FEED);
 }

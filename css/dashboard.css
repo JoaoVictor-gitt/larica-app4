@@ -234,4 +234,10 @@
 /* Formas de pagamento / Delivery×Collection — linhas simples dentro do card, reaproveitando .linha-resumo */
 .lista-resumo-relatorio .linha-resumo:last-child { border-bottom: none; }
 
+/* Canais de venda — card próprio entre os gráficos; números alinhados à direita, linha de total em destaque */
+.cartao-canais-venda { margin-top: var(--espaco-lg); }
+.tabela-canais-venda th:not(:first-child),
+.tabela-canais-venda td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.tabela-canais-venda .linha-total-canais td { font-weight: 700; }
+
 /* Breakpoints ficam centralizados em responsive.css */

@@ -25,11 +25,88 @@ const ENUM_PARA_CATEGORIA = {
   other: 'Outro',
 };
 
+// ---------------------------------------------------------------------------
+// Categorias personalizadas (migration 20261025110000_add_product_categories.sql)
+//
+// products.category continua sendo a chave das 5 categorias de sistema (combos/skewers/sides/drinks/
+// other) — create_customer_order e as RPCs de custo/produção dependem dela e não mudam. Uma categoria
+// personalizada (Cafés, Sobremesas...) é public.product_categories, ligada por
+// products.custom_category_id, e só vale para produtos category='other' (CHECK no banco).
+// No app, produto.categoria passa a ser o NOME da categoria personalizada — o cardápio, os filtros,
+// o estoque e os relatórios já agrupam por esse texto. Se a leitura das categorias falhar, o produto
+// aparece como "Outro" (nunca some), e categoriaPersonalizadaId continua guardado para não se perder
+// ao salvar.
+// ---------------------------------------------------------------------------
+
+let _categoriasPersonalizadas = []; // [{ id, nome, ordem, ativa }]
+let _categoriasPersonalizadasCarregadas = false;
+// true quando a coluna products.custom_category_id comprovadamente existe (migration aplicada). Só
+// então o save envia custom_category_id — antes da migration o payload é exatamente o de sempre.
+let _colunaCategoriaPersonalizadaDisponivel = false;
+
+function _linhaSupabaseParaCategoriaPersonalizada(linha) {
+  return { id: linha.id, nome: linha.name, ordem: Number(linha.display_order) || 0, ativa: linha.active !== false };
+}
+
+/** Busca as categorias personalizadas (leitura pública: o cardápio também precisa dos nomes). */
+async function buscarCategoriasPersonalizadasDoSupabase() {
+  const { data, error } = await supabaseClient
+    .from('product_categories')
+    .select('id, name, display_order, active')
+    .order('display_order', { ascending: true })
+    .order('name', { ascending: true });
+  if (error) throw new Error(error.message);
+  _categoriasPersonalizadas = (data || []).map(_linhaSupabaseParaCategoriaPersonalizada);
+  _categoriasPersonalizadasCarregadas = true;
+  _colunaCategoriaPersonalizadaDisponivel = true; // tabela e coluna nascem na mesma migration
+  return obterCategoriasPersonalizadas();
+}
+
+/** Nunca lança: falha => mantém o que já havia (ou nada) e os produtos caem em "Outro". */
+async function _carregarCategoriasPersonalizadasSemLancar() {
+  try {
+    await buscarCategoriasPersonalizadasDoSupabase();
+  } catch (erro) {
+    console.warn('[CATEGORIAS] Não foi possível carregar as categorias personalizadas (produtos aparecem em "Outro"):', erro.message);
+  }
+}
+
+function obterCategoriasPersonalizadas() {
+  return _categoriasPersonalizadas.map((c) => ({ ...c }));
+}
+
+function categoriasPersonalizadasCarregadas() {
+  return _categoriasPersonalizadasCarregadas;
+}
+
+function _categoriaPersonalizadaPorId(id) {
+  return _categoriasPersonalizadas.find((c) => c.id === id) || null;
+}
+
+/**
+ * Cria uma categoria (RPC admin_create_product_category — is_admin() no banco, nome normalizado,
+ * duplicidade ignorando maiúsculas/espaços/acentos, nomes das categorias padrão reservados).
+ * Recarrega a lista em seguida. Devolve { id, nome }.
+ */
+async function criarCategoriaPersonalizadaNoSupabase(nome) {
+  const { data, error } = await supabaseClient.rpc('admin_create_product_category', { p_name: nome });
+  if (error) throw new Error(error.message);
+  await buscarCategoriasPersonalizadasDoSupabase();
+  return { id: data.id, nome: data.name };
+}
+
 function _linhaSupabaseParaProduto(linha) {
+  const idPersonalizada = linha.category === 'other' && linha.custom_category_id ? linha.custom_category_id : null;
+  const personalizada = idPersonalizada ? _categoriaPersonalizadaPorId(idPersonalizada) : null;
   return {
     id: linha.id,
     nome: linha.name,
-    categoria: ENUM_PARA_CATEGORIA[linha.category] || 'Outro',
+    categoria: personalizada
+      ? personalizada.nome
+      : Object.prototype.hasOwnProperty.call(ENUM_PARA_CATEGORIA, linha.category)
+        ? ENUM_PARA_CATEGORIA[linha.category]
+        : 'Outro',
+    categoriaPersonalizadaId: idPersonalizada,
     preco: Number(linha.price) || 0,
     quantidadeEstoque: Number(linha.stock_quantity) || 0,
     descricao: linha.description || '',
@@ -45,10 +122,16 @@ function _linhaSupabaseParaProduto(linha) {
 
 /** Forma da linha `products` a partir do objeto "produto" que o formulário monta (js/produtos.js) */
 function _produtoParaLinhaSupabase(produto) {
-  return {
+  // Categoria personalizada => sempre 'other'. Senão, só chaves próprias do mapa de sistema (um nome
+  // personalizado como "constructor" nunca pode casar com uma propriedade herdada do objeto).
+  const categoriaSistema =
+    !produto.categoriaPersonalizadaId && Object.prototype.hasOwnProperty.call(CATEGORIA_PARA_ENUM, produto.categoria)
+      ? CATEGORIA_PARA_ENUM[produto.categoria]
+      : 'other';
+  const linha = {
     name: produto.nome,
     description: produto.descricao || '',
-    category: CATEGORIA_PARA_ENUM[produto.categoria] || 'other',
+    category: categoriaSistema,
     price: Number(produto.preco) || 0,
     stock_quantity: Math.max(0, Number(produto.quantidadeEstoque) || 0),
     image_url: produto.foto || '',
@@ -56,6 +139,12 @@ function _produtoParaLinhaSupabase(produto) {
     stock_mode: produto.stockMode || 'untracked',
     display_order: produto.comboConfig ? Math.max(0, Number(produto.comboConfig.ordem) || 0) : 0,
   };
+  // Só com a migration aplicada (senão a coluna não existe e o save quebraria). Categoria de sistema
+  // => null (o CHECK do banco exige isso fora de 'other').
+  if (_colunaCategoriaPersonalizadaDisponivel) {
+    linha.custom_category_id = linha.category === 'other' && produto.categoriaPersonalizadaId ? produto.categoriaPersonalizadaId : null;
+  }
+  return linha;
 }
 
 // ---------------------------------------------------------------------------
@@ -229,12 +318,19 @@ async function _salvarComboConfigNoSupabase(produtoId, comboConfig) {
 
 /** Busca todos os produtos, remontando comboConfig (combo_configs + combo_skewer_options + combo_included_products) pros combos */
 async function buscarProdutosDoSupabase() {
-  const { data: linhas, error } = await supabaseClient
-    .from('products')
-    .select('*')
-    .order('display_order', { ascending: true })
-    .order('name', { ascending: true });
+  // Categorias em paralelo e sem lançar: uma falha nelas nunca derruba a lista de produtos.
+  const [{ data: linhas, error }] = await Promise.all([
+    supabaseClient
+      .from('products')
+      .select('*')
+      .order('display_order', { ascending: true })
+      .order('name', { ascending: true }),
+    _carregarCategoriasPersonalizadasSemLancar(),
+  ]);
   if (error) throw new Error(error.message);
+  if ((linhas || []).length > 0 && Object.prototype.hasOwnProperty.call(linhas[0], 'custom_category_id')) {
+    _colunaCategoriaPersonalizadaDisponivel = true;
+  }
 
   const produtos = (linhas || []).map(_linhaSupabaseParaProduto);
   const idsCombos = produtos.filter((p) => p.categoria === 'Combos').map((p) => p.id);

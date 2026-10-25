@@ -68,7 +68,7 @@ function renderizarPedidosFinalizados() {
         .sort((a, b) => new Date(b.canceladoEm || b.criadoEm) - new Date(a.canceladoEm || a.criadoEm))
     : obterPedidosClientes()
         .filter((p) => p.status === STATUS_PEDIDO.FINALIZADO)
-        .sort((a, b) => new Date(b.finalizadoEm || b.criadoEm) - new Date(a.finalizadoEm || a.criadoEm));
+        .sort(compararPedidosFinalizadosPorCriacao);
 
   const corpo = document.getElementById('corpo-tabela-pedidos-finalizados');
   const vazio = document.getElementById('estado-vazio-pedidos-finalizados');
@@ -149,11 +149,18 @@ function renderizarCabecalhoTabelaHistorico(ehCancelados) {
 /** Linha da aba Cancelados — total é histórico/informativo (já excluído do Dashboard), sem checkbox nem botão de excluir (item 8) */
 const ROTULOS_TIPO_HISTORICO = { entrega: 'Entrega', comer_no_local: 'Comer no local', retirada: 'Retirada' };
 
+/** Número do pedido + selo do canal (só Deliveroo/Just Eat; Larica fica sem selo). */
+function celulaNumeroPedidoHistoricoHtml(pedido) {
+  const canal = canalVendaDoPedido(pedido.canal);
+  const selo = canal === 'larica' ? '' : ` <span class="selo-canal-venda selo-canal-${canal}">${escaparHtml(rotuloCanalVenda(canal))}</span>`;
+  return escaparHtml(pedido.numero) + selo;
+}
+
 function linhaPedidoCanceladoHtml(pedido, moeda) {
   const tipoRotulo = ROTULOS_TIPO_HISTORICO[pedido.fulfilment] || 'Retirada';
   return `
     <tr>
-      <td>${escaparHtml(pedido.numero)}</td>
+      <td>${celulaNumeroPedidoHistoricoHtml(pedido)}</td>
       <td>${celulaClienteHistoricoHtml(pedido)}</td>
       <td>${escaparHtml(tipoRotulo)}</td>
       <td>${formatarMoeda(pedido.total, moeda)}</td>
@@ -178,14 +185,59 @@ function celulaClienteHistoricoHtml(pedido) {
   return `<a class="link-cliente-historico" href="clientes.html?pedido=${encodeURIComponent(pedido.id)}" title="Ver ficha do cliente">${escaparHtml(nome)}</a>`;
 }
 
+// Data da aba Finalizados = criação do pedido (created_at), nunca a finalização — completed_at continua
+// no banco/objeto (finalizadoEm) para outras telas. Fuso fixo do restaurante via Intl (GMT/IST tratados
+// sozinhos), independente do fuso do navegador; formatarData/formatarHora (utils.js) não são usadas aqui
+// porque seguem o fuso do dispositivo.
+const FUSO_HISTORICO = 'Europe/Dublin';
+const FORMATADOR_DATA_HORA_HISTORICO = new Intl.DateTimeFormat('en-GB', {
+  timeZone: FUSO_HISTORICO,
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** Timestamp (ms) de um ISO, ou null se ausente/inválido — nunca inventa data. */
+function timestampHistorico(iso) {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime();
+  return isNaN(ms) ? null : ms;
+}
+
+/** "DD/MM/YYYY HH:mm" em Europe/Dublin, ou "Data indisponível". */
+function formatarDataHoraCriacaoHistorico(iso) {
+  const ms = timestampHistorico(iso);
+  if (ms === null) return 'Data indisponível';
+  const partes = Object.fromEntries(FORMATADOR_DATA_HORA_HISTORICO.formatToParts(new Date(ms)).map((p) => [p.type, p.value]));
+  return `${partes.day}/${partes.month}/${partes.year} ${partes.hour}:${partes.minute}`;
+}
+
+/**
+ * Mais recentes primeiro pela criação real (timestamp, nunca o texto formatado). Empate: número do
+ * pedido (sequencial), maior primeiro. Pedidos sem criação válida vão para o fim.
+ */
+function compararPedidosFinalizadosPorCriacao(a, b) {
+  const ta = timestampHistorico(a.criadoEm);
+  const tb = timestampHistorico(b.criadoEm);
+  if (ta !== tb) {
+    if (ta === null) return 1;
+    if (tb === null) return -1;
+    return tb - ta;
+  }
+  return String(b.numero || '').localeCompare(String(a.numero || ''), undefined, { numeric: true });
+}
+
 function linhaPedidoFinalizadoHtml(pedido, moeda) {
   const marcado = pedidosSelecionadosHistorico.has(pedido.id);
   return `
     <tr>
       <td><input type="checkbox" class="checkbox-pedido-historico" data-id="${pedido.id}" ${marcado ? 'checked' : ''} /></td>
-      <td>${escaparHtml(pedido.numero)}</td>
+      <td>${celulaNumeroPedidoHistoricoHtml(pedido)}</td>
       <td>${celulaClienteHistoricoHtml(pedido)}</td>
-      <td>${formatarData(pedido.finalizadoEm || pedido.criadoEm)}</td>
+      <td>${escaparHtml(formatarDataHoraCriacaoHistorico(pedido.criadoEm))}</td>
       <td>${formatarMoeda(pedido.total, moeda)}</td>
       <td><span class="badge badge-cinza">${escaparHtml(ROTULOS_STATUS_PEDIDO[pedido.status] || pedido.status)}</span></td>
       <td>
@@ -399,6 +451,7 @@ function abrirModalDetalhePedidoHistorico(id) {
       <div class="detalhe-pedido-titulo">Pedido</div>
       <p>Data: ${formatarData(pedido.criadoEm)} · Horário: ${formatarHora(pedido.criadoEm)}</p>
       <p>Status: <span class="badge badge-cinza">${escaparHtml(ROTULOS_STATUS_PEDIDO[pedido.status] || pedido.status)}</span></p>
+      <p>Canal: ${escaparHtml(rotuloCanalVenda(pedido.canal))}</p>
     </div>
     <div class="detalhe-pedido-secao">
       <div class="detalhe-pedido-titulo">Cliente</div>

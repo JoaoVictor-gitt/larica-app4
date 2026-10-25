@@ -230,3 +230,22 @@
   font-size: 0.85rem;
   font-weight: 600;
 }
+
+/* Selo do canal de venda ao lado do número (Deliveroo / Just Eat) — mesmo visual do Kanban */
+.selo-canal-venda {
+  display: inline-block;
+  padding: 2px var(--espaco-sm);
+  border-radius: var(--raio-pill);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.selo-canal-deliveroo {
+  background: #007a70;
+}
+
+.selo-canal-just_eat {
+  background: #c2410c;
+}

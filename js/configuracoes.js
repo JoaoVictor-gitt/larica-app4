@@ -88,6 +88,8 @@ document.addEventListener('DOMContentLoaded', () => {
   carregarMetaPreparo(); // idem — coluna própria (preparation_target_minutes), fora da lista pública de business_settings
   carregarImpressaoAutomatica(); // idem — colunas próprias (auto_print_enabled/auto_print_enabled_at)
   document.getElementById('campo-impressao-automatica-ativa').addEventListener('change', alternarImpressaoAutomatica);
+  carregarSegundaViaCliente(); // idem — coluna própria (customer_copy_enabled), consulta separada
+  document.getElementById('campo-segunda-via-cliente-ativa').addEventListener('change', alternarSegundaViaCliente);
 
   document.getElementById('botao-upload-midia-site').addEventListener('click', () => document.getElementById('campo-upload-midia-site').click());
   document.getElementById('campo-upload-midia-site').addEventListener('change', tratarUploadMidiaSite);
@@ -820,6 +822,48 @@ async function alternarImpressaoAutomatica(evento) {
   } catch (erro) {
     checkbox.checked = !ativa; // gravação falhou — reverte o toggle visualmente
     mostrarToast(erro.message || 'Não foi possível salvar a impressão automática.', 'erro');
+  } finally {
+    checkbox.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Segunda via para o cliente — business_settings.customer_copy_enabled. Gravação só pela RPC
+// admin_set_customer_copy_enabled (has_permission('settings.manage') no banco); o toggle mostra
+// sempre o valor que o banco devolveu, nunca o que foi pedido.
+// ---------------------------------------------------------------------------
+
+async function carregarSegundaViaCliente() {
+  const carregando = document.getElementById('estado-carregando-segunda-via-cliente');
+  const erroEl = document.getElementById('estado-erro-segunda-via-cliente');
+  const conteudo = document.getElementById('conteudo-segunda-via-cliente');
+
+  carregando.style.display = '';
+  erroEl.style.display = 'none';
+  conteudo.style.display = 'none';
+
+  try {
+    document.getElementById('campo-segunda-via-cliente-ativa').checked = await buscarSegundaViaClienteDoSupabase();
+    carregando.style.display = 'none';
+    conteudo.style.display = '';
+  } catch (erro) {
+    carregando.style.display = 'none';
+    erroEl.textContent = 'Não foi possível carregar a configuração da segunda via do cliente: ' + erro.message;
+    erroEl.style.display = '';
+  }
+}
+
+async function alternarSegundaViaCliente(evento) {
+  const checkbox = evento.target;
+  const pedida = checkbox.checked;
+  checkbox.disabled = true;
+  try {
+    const gravada = await atualizarSegundaViaClienteNoSupabase(pedida);
+    checkbox.checked = gravada;
+    mostrarToast(gravada ? 'Segunda via para o cliente ativada.' : 'Segunda via para o cliente desativada.', 'sucesso');
+  } catch (erro) {
+    checkbox.checked = !pedida; // gravação falhou — nunca mostra um estado que não foi salvo
+    mostrarToast(erro.message || 'Não foi possível salvar a segunda via para o cliente.', 'erro');
   } finally {
     checkbox.disabled = false;
   }

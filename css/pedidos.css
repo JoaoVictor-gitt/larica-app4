@@ -482,3 +482,33 @@
     grid-template-columns: none;
   }
 }
+
+/* Selo do canal de venda no card (Deliveroo / Just Eat) */
+.selo-canal-venda {
+  display: inline-block;
+  padding: 2px var(--espaco-sm);
+  border-radius: var(--raio-pill);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+/* No cabeçalho do card (flex space-between): colado ao número; o selo "Novo" continua à direita. */
+.card-pedido-cabecalho .selo-canal-venda {
+  margin-left: var(--espaco-sm);
+  margin-right: auto;
+}
+
+.selo-canal-deliveroo {
+  background: #007a70;
+}
+
+.selo-canal-just_eat {
+  background: #c2410c;
+}
+
+/* Rodapé do modal "Ver pedido" (4 botões com "Imprimir via do cliente") — quebra linha em telas
+   estreitas em vez de estourar a largura. */
+#modal-overlay-pedido .modal-rodape {
+  flex-wrap: wrap;
+}

@@ -35,6 +35,12 @@ let metaPreparoMinutos = null;
 let _impressaoAutomaticaAtiva = false;
 let _impressaoAutomaticaAtivadaEm = null; // ISO string — pedidos criados antes disso nunca são candidatos
 
+// Segunda via para o cliente (business_settings.customer_copy_enabled) — só decide QUAL XML vai na
+// impressão (cozinha ou cozinha + via do cliente, num único envio); nunca participa de claim, fila,
+// candidatura ou registro. false enquanto não carrega ou se a leitura falhar: a cozinha sempre imprime.
+let _segundaViaClienteAtiva = false;
+let _leituraSegundaViaClienteEmVoo = null; // Promise da leitura em andamento — nunca 2 leituras simultâneas
+
 // Fallback do Realtime — recuperação caso o canal pare/seja suspenso (ex.: aba em segundo plano
 // no iPad/Safari) ou perca um evento. Ver iniciarPollingPedidos()/reloadOrders() mais abaixo.
 let _reloadOrdersEmAndamento = false; // lock separado de _impressaoEmAndamento — nunca 2 reloadOrders() em voo ao mesmo tempo
@@ -101,6 +107,9 @@ async function init() {
   // Impressão automática — mesmo padrão defensivo da meta de preparo: falha aqui nunca derruba o
   // Kanban, só deixa _impressaoAutomaticaAtiva em false (nenhum candidato é escaneado).
   await atualizarConfiguracaoImpressaoAutomatica();
+  // Antes da 1ª varredura, pra que pedidos represados já saiam com a via do cliente se ela estiver
+  // ligada. Nunca lança; com timeout próprio.
+  await atualizarConfiguracaoSegundaViaCliente();
 
   kanban.style.display = '';
   renderizarQuadroPedidos();
@@ -207,6 +216,9 @@ async function reloadOrders(origem = 'desconhecida') {
     // Reconsulta o toggle a cada reload — uma aba de /pedidos já aberta antes de alguém ligar/
     // desligar em Configurações (em outra aba/dispositivo) precisa enxergar a mudança sem refresh.
     await atualizarConfiguracaoImpressaoAutomatica();
+    // Sem await de propósito: a leitura da segunda via nunca segura o lock de reloadOrders() nem
+    // atrasa pedido novo — só atualiza _segundaViaClienteAtiva quando responder.
+    atualizarConfiguracaoSegundaViaCliente();
     if (geracao !== _geracaoReloadPedidos) return;
     detectarPedidosNovos(origem); // nunca lança — alerta só ids nunca vistos (dedupe por order.id)
     renderizarQuadroPedidos();
@@ -325,6 +337,28 @@ async function atualizarConfiguracaoImpressaoAutomatica() {
     _impressaoAutomaticaAtiva = false;
     _impressaoAutomaticaAtivadaEm = null;
   }
+}
+
+/**
+ * Lê business_settings.customer_copy_enabled e atualiza _segundaViaClienteAtiva. Nunca lança.
+ * Fail-safe: erro, timeout ou coluna inexistente (migration ainda não aplicada) => false neste ciclo,
+ * ou seja, só a comanda da cozinha — mesmo critério de atualizarConfiguracaoImpressaoAutomatica().
+ * Se já houver uma leitura em voo, devolve a mesma Promise (o polling de 5 s nunca empilha leituras).
+ */
+function atualizarConfiguracaoSegundaViaCliente() {
+  if (_leituraSegundaViaClienteEmVoo) return _leituraSegundaViaClienteEmVoo;
+  _leituraSegundaViaClienteEmVoo = _comTimeout(buscarSegundaViaClienteDoSupabase(), 10000, 'configuração da segunda via do cliente')
+    .then((ativa) => {
+      _segundaViaClienteAtiva = ativa === true;
+    })
+    .catch((erro) => {
+      console.error('Não foi possível carregar a configuração da segunda via do cliente (imprimindo só a cozinha):', erro);
+      _segundaViaClienteAtiva = false;
+    })
+    .finally(() => {
+      _leituraSegundaViaClienteEmVoo = null;
+    });
+  return _leituraSegundaViaClienteEmVoo;
 }
 
 // ---------------------------------------------------------------------------
@@ -742,7 +776,7 @@ function renderizarColunaKanban(status, pedidosDaColuna) {
     botao.addEventListener('click', () => abrirModalDetalhesPedido(botao.dataset.id));
   });
   lista.querySelectorAll('[data-acao="imprimir"]').forEach((botao) => {
-    botao.addEventListener('click', () => iniciarImpressaoPedido(botao.dataset.id));
+    botao.addEventListener('click', () => solicitarImpressaoPedido(botao.dataset.id));
   });
   lista.querySelectorAll('[data-acao="aceitar"]').forEach((botao) => {
     botao.addEventListener('click', () => executarAcaoPedido(botao, aceitarPedido, 'Pedido aceito — em preparo.'));
@@ -896,6 +930,7 @@ function _registrarImpressaoEFinalizar(id, mensagemFalhaRpc) {
   // depois do register + recarga completa (sem timeout), e uma rede pendurada parava a fila inteira (C1).
   // O registro segue em segundo plano, sem segurar o próximo pedido.
   _idsImpressaoAutomaticaFinalizadosNestaAba.add(id);
+  _idsComFalhaImpressaoNestaAba.delete(id); // impressão confirmada: próximos cliques não mostram o aviso de falha
   finalizarImpressaoPedido();
   return _registrarImpressaoComRecuperacao(id).then((registrado) => {
     if (registrado) {
@@ -964,7 +999,7 @@ async function _registrarImpressaoComRecuperacao(id) {
 async function _iniciarTentativaEpsonDireta(id, snapshot) {
   let xml;
   try {
-    xml = gerarComandaEposPrintXml(snapshot);
+    xml = montarXmlImpressaoPedido(snapshot);
   } catch (erroBuilder) {
     mostrarToast('Não foi possível montar a comanda para a Epson: ' + (erroBuilder && erroBuilder.message ? erroBuilder.message : erroBuilder), 'erro');
     finalizarImpressaoPedido();
@@ -1007,6 +1042,7 @@ async function _iniciarTentativaEpsonDireta(id, snapshot) {
  */
 function _epsonTratarResultadoAmbiguo(id, snapshot, resultado) {
   const mensagem = 'Não foi possível confirmar se a comanda foi impressa. Verifique a impressora antes de tentar novamente.';
+  _idsComFalhaImpressaoNestaAba.add(id); // sai só quando a impressão for registrada (_registrarImpressaoEFinalizar)
 
   if (confirm(mensagem + '\n\nVocê já verificou fisicamente e a comanda SAIU impressa?')) {
     // "Já imprimiu" — registra sem imprimir de novo.
@@ -1014,11 +1050,19 @@ function _epsonTratarResultadoAmbiguo(id, snapshot, resultado) {
     return;
   }
 
-  if (confirm('Tentar imprimir novamente pela Epson agora?')) {
-    // "Tentar novamente" — encerra COMPLETAMENTE a tentativa atual (libera o lock)
-    // e só depois disso inicia uma tentativa nova e independente.
+  // "Tentar novamente" — agora com o aviso de que a cozinha pode já ter saído (e a opção de só a
+  // via do cliente). Em qualquer escolha de reimpressão: encerra COMPLETAMENTE a tentativa atual
+  // (libera o lock) e só depois inicia uma tentativa nova e independente. "Cancelar" segue para a
+  // pergunta do AirPrint, como antes.
+  const escolha = escolherReimpressaoAposFalha();
+  if (escolha === 'completa') {
     finalizarImpressaoPedido();
     iniciarImpressaoPedido(id);
+    return;
+  }
+  if (escolha === 'cliente') {
+    finalizarImpressaoPedido();
+    iniciarImpressaoViaCliente(id);
     return;
   }
 
@@ -1047,10 +1091,19 @@ function _epsonTratarResultadoErro(id, snapshot, resultado) {
   if (resultado.resposta && resultado.resposta.atributosEpson) {
     detalhe += ' Detalhes: ' + JSON.stringify(resultado.resposta.atributosEpson);
   }
+  _idsComFalhaImpressaoNestaAba.add(id); // sai só quando a impressão for registrada (_registrarImpressaoEFinalizar)
 
-  if (confirm(detalhe + '\n\nTentar imprimir novamente pela Epson?')) {
+  // Mesma decisão do resultado ambíguo (com o detalhe do erro na frente); "Cancelar" segue para a
+  // pergunta do AirPrint, como antes.
+  const escolha = escolherReimpressaoAposFalha(detalhe);
+  if (escolha === 'completa') {
     finalizarImpressaoPedido();
     iniciarImpressaoPedido(id);
+    return;
+  }
+  if (escolha === 'cliente') {
+    finalizarImpressaoPedido();
+    iniciarImpressaoViaCliente(id);
     return;
   }
 
@@ -1082,11 +1135,141 @@ function finalizarImpressaoPedido() {
 
 /** Aplica o lock atual ao botão de imprimir do modal "Ver pedido" — os botões do Kanban se resolvem sozinhos em cardPedidoHtml() a cada render. */
 function aplicarBloqueioBotoesImpressao() {
+  const botaoViaCliente = document.getElementById('botao-imprimir-via-cliente-detalhe');
+  if (botaoViaCliente) botaoViaCliente.disabled = _impressaoEmAndamento;
   const botaoModal = document.getElementById('botao-imprimir-pedido-detalhe');
   if (!botaoModal) return;
   botaoModal.disabled = _impressaoEmAndamento;
   const pedidoModal = obterPedidoClientePorId(botaoModal.dataset.id);
   if (pedidoModal) botaoModal.textContent = pedidoModal.qtdImpressoes > 0 ? '🖨️ Reimprimir' : '🖨️ Imprimir';
+}
+
+// ---------------------------------------------------------------------------
+// Segunda via para o cliente
+//
+// montarXmlImpressaoPedido() é o ÚNICO ponto que escolhe o XML da impressão do pedido (manual e
+// automática): com a configuração ligada, cozinha + via do cliente num único <epos-print> — uma só
+// requisição à Epson, um só resultado, então claim/resolve/register/fila seguem exatamente como
+// antes e nunca uma via é reenviada por causa da outra. Desligada: o XML de sempre.
+// ---------------------------------------------------------------------------
+
+function montarXmlImpressaoPedido(snapshot) {
+  if (!_segundaViaClienteAtiva) return gerarComandaEposPrintXml(snapshot);
+  try {
+    return gerarComandaComViaClienteEposPrintXml(snapshot);
+  } catch (erroViaCliente) {
+    // Um problema na via do cliente nunca pode impedir a comanda da cozinha de sair.
+    console.error('[SEGUNDA VIA] Não foi possível montar a via do cliente — imprimindo só a cozinha:', erroViaCliente);
+    return gerarComandaEposPrintXml(snapshot);
+  }
+}
+
+/**
+ * Botão "Imprimir via do cliente" (modal Ver pedido): imprime SÓ a via do cliente, com a
+ * configuração ligada ou não. Nunca chama register_order_print/claim/resolve — printed_at,
+ * print_count e auto_print_* não mudam; nunca entra em _idsImpressaoAutomaticaFinalizadosNestaAba.
+ * Usa o mesmo lock global (_impressaoEmAndamento) da impressora: clique repetido, impressão manual
+ * ou automática em andamento => recusado; ao terminar, finalizarImpressaoPedido() solta o lock e
+ * libera a fila automática. Uma tentativa só — timeout/erro nunca reenvia sozinho.
+ */
+async function iniciarImpressaoViaCliente(id) {
+  if (_impressaoEmAndamento) {
+    mostrarToast('Já existe uma impressão em andamento.', 'erro');
+    return;
+  }
+  if (!IMPRESSAO_EPSON_DIRETA_ATIVA) {
+    mostrarToast('A impressão direta na Epson está desativada.', 'erro');
+    return;
+  }
+  const pedido = obterPedidoClientePorId(id);
+  if (!pedido) return;
+  const snapshot = JSON.parse(JSON.stringify(pedido));
+
+  _impressaoEmAndamento = true;
+  aplicarBloqueioBotoesImpressao();
+  try {
+    let xml;
+    try {
+      xml = gerarViaClienteEposPrintXml(snapshot);
+    } catch (erroBuilder) {
+      mostrarToast('Não foi possível montar a via do cliente: ' + (erroBuilder && erroBuilder.message ? erroBuilder.message : erroBuilder), 'erro');
+      return;
+    }
+    const resultado = await EpsonPrinterService.imprimir(xml);
+    if (resultado.codigo === 'SUCESSO') {
+      mostrarToast('Via do cliente impressa.', 'sucesso');
+    } else if (resultado.codigo === 'TIMEOUT' || resultado.codigo === 'ERRO_REDE') {
+      mostrarToast('Não foi possível confirmar se a via do cliente saiu. Verifique a impressora antes de tentar de novo.', 'erro');
+    } else {
+      mostrarToast('A via do cliente não foi impressa: ' + (resultado.mensagem || 'erro na impressora.'), 'erro');
+    }
+  } finally {
+    finalizarImpressaoPedido();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Aviso antes de reimprimir depois de falha/resultado ambíguo
+//
+// Só uma camada de DECISÃO do operador antes de chamar iniciarImpressaoPedido() (inalterada) ou
+// iniciarImpressaoViaCliente(). Nunca imprime sozinha, nunca muda claim/resolve/register/fila.
+// "Falha" = tentativa manual nesta aba que terminou em erro/ambíguo e não foi registrada como
+// impressa (_idsComFalhaImpressaoNestaAba), ou impressão automática failed/ambiguous/claim travado
+// sem impressão registrada (mesmo critério do alerta do card, alertaImpressaoAutomaticaHtml()).
+// ---------------------------------------------------------------------------
+
+const _idsComFalhaImpressaoNestaAba = new Set();
+
+function pedidoTemFalhaDeImpressaoPendente(pedido) {
+  if (!pedido) return false;
+  if (_idsComFalhaImpressaoNestaAba.has(pedido.id)) return true;
+  if (pedido.impressoEm) return false;
+  if (pedido.autoPrintStatus === 'failed' || pedido.autoPrintStatus === 'ambiguous') return true;
+  if (pedido.autoPrintStatus === 'claimed') {
+    const minutosDesdeClaim = pedido.autoPrintClaimedAt ? (Date.now() - new Date(pedido.autoPrintClaimedAt).getTime()) / 60000 : Infinity;
+    return minutosDesdeClaim >= MINUTOS_CLAIM_IMPRESSAO_AUTOMATICA_TRAVADO;
+  }
+  return false;
+}
+
+/**
+ * Pergunta ao operador o que fazer depois de uma falha: 'completa' | 'cliente' | 'cancelar'.
+ * Reimpressão completa só com OK explícito; "só a via do cliente" só é oferecida com a segunda via
+ * ligada (é quando o envio que falhou também levava a via do cliente). `detalhe` (opcional) é o
+ * texto do erro da impressora, mostrado antes do aviso.
+ */
+function escolherReimpressaoAposFalha(detalhe) {
+  const comViaCliente = _segundaViaClienteAtiva;
+  const oQueSai = comViaCliente ? 'o pedido COMPLETO (comanda da cozinha + via do cliente)' : 'a comanda da cozinha';
+  const aviso =
+    (detalhe ? detalhe + '\n\n' : '') +
+    '⚠️ A última tentativa de impressão deste pedido falhou ou não foi confirmada.\n' +
+    'A comanda da cozinha PODE JÁ TER SIDO IMPRESSA — verifique a impressora antes de continuar.\n\n' +
+    'OK: reimprimir ' + oQueSai + '.\n' +
+    'Cancelar: ' + (comViaCliente ? 'ver outras opções.' : 'não reimprimir pela Epson agora.');
+  if (confirm(aviso)) return 'completa';
+  if (comViaCliente && confirm('Imprimir SOMENTE a via do cliente?\n\nOK: imprimir só a via do cliente.\nCancelar: não imprimir pela Epson agora.')) {
+    return 'cliente';
+  }
+  return 'cancelar';
+}
+
+/** Clique em Imprimir/Reimprimir (card e modal): sem falha pendente, exatamente o fluxo de sempre. */
+function solicitarImpressaoPedido(id) {
+  if (_impressaoEmAndamento) {
+    mostrarToast('Já existe uma impressão em andamento.', 'erro');
+    return;
+  }
+  const pedido = obterPedidoClientePorId(id);
+  if (!pedido) return;
+  if (!pedidoTemFalhaDeImpressaoPendente(pedido)) {
+    iniciarImpressaoPedido(id);
+    return;
+  }
+  const escolha = escolherReimpressaoAposFalha();
+  if (escolha === 'completa') iniciarImpressaoPedido(id);
+  else if (escolha === 'cliente') iniciarImpressaoViaCliente(id);
+  else mostrarToast('Nenhuma impressão enviada.', 'erro');
 }
 
 // ---------------------------------------------------------------------------
@@ -1159,6 +1342,11 @@ function claimImpressaoAutomaticaAbandonado(pedido) {
 function pedidoEhCandidatoImpressaoAutomatica(pedido) {
   if (!_impressaoAutomaticaAtiva || !_impressaoAutomaticaAtivadaEm) return false;
   if (!IMPRESSAO_EPSON_DIRETA_ATIVA) return false; // impressão automática só existe pelo caminho Epson direto
+  // D7: Deliveroo/Just Eat são só de impressão manual. Esta é a regra única usada pelo INSERT do
+  // Realtime, pela varredura (recarga/polling/reconexão), pela revalidação antes do claim e pela
+  // recuperação de claim abandonado — nenhum desses caminhos chega ao claim para esses pedidos.
+  // O banco recusa o claim também (claim_order_auto_print exige sales_channel = 'larica').
+  if (canalVendaDoPedido(pedido.canal) !== 'larica') return false;
   if (_idsImpressaoAutomaticaFinalizadosNestaAba.has(pedido.id)) return false; // já foi à Epson nesta aba — nunca de novo
   if (pedido.impressoEm) return false;
   // succeeded/failed/ambiguous nunca são reconsiderados; um 'claimed' só volta a ser candidato
@@ -1318,7 +1506,7 @@ async function _executarImpressaoAutomaticaClaimed(id, numero, meta) {
 
   let xml;
   try {
-    xml = gerarComandaEposPrintXml(snapshot);
+    xml = montarXmlImpressaoPedido(snapshot);
   } catch (erroBuilder) {
     console.error('[AUTO-PRINT] Não foi possível montar a comanda:', erroBuilder);
     await _resolverImpressaoAutomaticaSemLancar(id, 'failed');
@@ -1566,6 +1754,7 @@ function cardPedidoHtml(pedido) {
     <div class="card card-pedido ${novo ? 'card-pedido-novo' : ''} ${pedidoEmDestaqueNovo(pedido.id) ? 'pedido-novo-alerta' : ''} demora-${nivelDemora}" data-id="${pedido.id}">
       <div class="card-pedido-cabecalho">
         <strong>${escaparHtml(pedido.numero)}</strong>
+        ${seloCanalVendaHtml(pedido)}
         ${novo ? '<span class="badge-novo">Novo</span>' : ''}
       </div>
       <div class="card-pedido-info">
@@ -1588,6 +1777,13 @@ function cardPedidoHtml(pedido) {
       </div>
       ${pedidoPodeSerCancelado(pedido) ? `<button type="button" class="link-cancelar-pedido" data-acao="cancelar" data-id="${pedido.id}">Cancelar pedido</button>` : ''}
     </div>`;
+}
+
+/** Selo do canal no card — só Deliveroo/Just Eat (pedido Larica é o caso comum e fica sem selo). */
+function seloCanalVendaHtml(pedido) {
+  const canal = canalVendaDoPedido(pedido.canal);
+  if (canal === 'larica') return '';
+  return `<span class="selo-canal-venda selo-canal-${canal}">${escaparHtml(rotuloCanalVenda(canal))}</span>`;
 }
 
 /** Cancelável só em Solicitado/Em Preparo — nunca Pronto/Finalizado/Cancelado (mesma regra da RPC cancel_order) */
@@ -1846,7 +2042,10 @@ function ligarEventosModalPedido() {
     abrirModalCancelamento(id);
   });
   document.getElementById('botao-imprimir-pedido-detalhe').addEventListener('click', (evento) => {
-    iniciarImpressaoPedido(evento.currentTarget.dataset.id);
+    solicitarImpressaoPedido(evento.currentTarget.dataset.id);
+  });
+  document.getElementById('botao-imprimir-via-cliente-detalhe').addEventListener('click', (evento) => {
+    iniciarImpressaoViaCliente(evento.currentTarget.dataset.id);
   });
 }
 
@@ -1879,6 +2078,9 @@ function abrirModalDetalhesPedido(id) {
   botaoImprimirDetalhe.dataset.id = pedido.id;
   botaoImprimirDetalhe.textContent = pedido.qtdImpressoes > 0 ? '🖨️ Reimprimir' : '🖨️ Imprimir';
   botaoImprimirDetalhe.disabled = _impressaoEmAndamento;
+  const botaoViaClienteDetalhe = document.getElementById('botao-imprimir-via-cliente-detalhe');
+  botaoViaClienteDetalhe.dataset.id = pedido.id;
+  botaoViaClienteDetalhe.disabled = _impressaoEmAndamento;
 
   let blocoTipo;
   if (ehEntrega) {
@@ -1910,6 +2112,7 @@ function abrirModalDetalhesPedido(id) {
       <div class="detalhe-pedido-titulo">Pedido</div>
       <p>Data: ${formatarData(pedido.criadoEm)} · Horário: ${formatarHora(pedido.criadoEm)}</p>
       <p>Status: <span class="badge badge-status-${pedido.status}">${escaparHtml(ROTULOS_STATUS_PEDIDO[pedido.status] || pedido.status)}</span></p>
+      <p>Canal: ${escaparHtml(rotuloCanalVenda(pedido.canal))}</p>
     </div>
     <div class="detalhe-pedido-secao">
       <div class="detalhe-pedido-titulo">Cliente</div>

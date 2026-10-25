@@ -303,6 +303,8 @@ function _erroRpcCliente(error) {
     }
   }
   erro.falhaRede = !error.code && /fetch|network|timeout|abort/i.test(error.message || '');
+  // PGRST202 = a API não encontrou a função (migration ainda não aplicada)
+  erro.funcaoAusente = error.code === 'PGRST202';
   return erro;
 }
 
@@ -449,4 +451,57 @@ async function linkOrderToCustomer({ clienteId, pedidoId, confirmarReativacao = 
     reativado: !!d.reactivated,
     numero: d.order_number != null ? '#LARICA-' + d.order_number : '',
   };
+}
+
+const RESULTADO_VINCULO_MULTIPLO = { linked: 'vinculado', reactivated: 'reativado', already_linked: 'jaVinculado' };
+
+/**
+ * Vincula VÁRIOS pedidos ao cliente numa única operação (admin_link_orders_to_customer, M3):
+ * tudo ou nada — se qualquer pedido falhar, nenhum é vinculado e o erro (codigo 'batch_failed')
+ * traz em `detalhes.falhas` cada pedido com problema. Cada item: { pedidoId, avisosConfirmados,
+ * confirmarReativacao }. O banco reaplica, pedido a pedido, as regras da vinculação individual.
+ */
+async function linkOrdersToCustomer({ clienteId, itens, motivo = '' }) {
+  try {
+    const d = await _rpcCliente('admin_link_orders_to_customer', {
+      p_customer_id: clienteId,
+      p_items: itens.map((i) => ({
+        order_id: i.pedidoId,
+        acknowledged_warnings: i.avisosConfirmados || [],
+        confirm_reactivation: !!i.confirmarReativacao,
+      })),
+      p_reason: motivo ? motivo.trim() : null,
+    });
+    if (!d.success) throw new Error('Não foi possível vincular os pedidos.');
+    return {
+      total: _numeroOuZero(d.total),
+      vinculados: _numeroOuZero(d.linked),
+      reativados: _numeroOuZero(d.reactivated),
+      jaVinculados: _numeroOuZero(d.already_linked),
+      resultados: (d.results || []).map((r) => ({
+        pedidoId: r.order_id,
+        numero: r.order_number != null ? '#LARICA-' + r.order_number : '',
+        resultado: RESULTADO_VINCULO_MULTIPLO[r.result] || r.result,
+      })),
+    };
+  } catch (erro) {
+    if (erro.codigo === 'batch_failed' && erro.detalhes) {
+      erro.detalhes.falhas = (erro.detalhes.failures || []).map((f) => {
+        let detalhe = null;
+        try {
+          detalhe = f.detail ? JSON.parse(f.detail) : null;
+        } catch (_) {
+          detalhe = null;
+        }
+        return {
+          pedidoId: f.order_id,
+          numero: f.order_number != null ? '#LARICA-' + f.order_number : '',
+          codigo: f.code,
+          mensagem: f.message || '',
+          detalhe,
+        };
+      });
+    }
+    throw erro;
+  }
 }

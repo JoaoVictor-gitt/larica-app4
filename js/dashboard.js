@@ -273,6 +273,7 @@ async function carregarRelatorioPeriodo(tipo, inicioPersonalizado, fimPersonaliz
 
     renderizarGraficoFaturamentoPorDia(pedidos, dias);
     renderizarFormasPagamento(pedidos);
+    renderizarCanaisVenda(pedidos);
     renderizarDeliveryCollection(pedidos);
     renderizarTopProdutos(topProdutos);
     renderizarFechamento(calcularResumoFechamento(pedidos, cancelados));
@@ -340,6 +341,50 @@ function renderizarFormasPagamento(pedidos) {
       return `<div class="linha-resumo"><span>${escaparHtml(ROTULOS_FORMA_PAGAMENTO[chave])}</span><span>${dados.qtd} pedido${dados.qtd === 1 ? '' : 's'} · ${formatarMoeda(dados.valor, moeda)}</span></div>`;
     })
     .join('');
+}
+
+/**
+ * Pedidos, faturamento (orders.total) e ticket médio por canal de venda, no período selecionado.
+ * `pedidos` é o MESMO array já sem cancelados usado pelo resto do Dashboard — cada pedido tem
+ * exatamente um canal (sem coluna/valor desconhecido = Larica), então a soma dos canais sempre
+ * concilia com o faturamento total do período (linha "Total").
+ */
+function calcularResumoCanaisVenda(pedidos) {
+  const linhas = Object.keys(ROTULOS_CANAL_VENDA).map((canal) => ({ canal, pedidos: 0, faturamento: 0 }));
+  const porCanal = new Map(linhas.map((l) => [l.canal, l]));
+  pedidos.forEach((p) => {
+    const linha = porCanal.get(canalVendaDoPedido(p.canal));
+    linha.pedidos += 1;
+    linha.faturamento += p.total;
+  });
+  const total = linhas.reduce((t, l) => ({ pedidos: t.pedidos + l.pedidos, faturamento: t.faturamento + l.faturamento }), { pedidos: 0, faturamento: 0 });
+  const comTicket = (l) => ({ ...l, ticketMedio: l.pedidos > 0 ? l.faturamento / l.pedidos : 0 });
+  return { linhas: linhas.map(comTicket), total: comTicket(total) };
+}
+
+function renderizarCanaisVenda(pedidos) {
+  const moeda = obterConfiguracoes().moeda;
+  const corpo = document.getElementById('corpo-tabela-canais-venda');
+  const vazio = document.getElementById('estado-vazio-canais-venda');
+  if (!corpo || !vazio) return;
+
+  if (pedidos.length === 0) {
+    corpo.innerHTML = '';
+    vazio.style.display = 'block';
+    return;
+  }
+  vazio.style.display = 'none';
+
+  const resumo = calcularResumoCanaisVenda(pedidos);
+  const linhaHtml = (rotulo, l, classe) => `
+      <tr${classe ? ` class="${classe}"` : ''}>
+        <td>${escaparHtml(rotulo)}</td>
+        <td>${l.pedidos}</td>
+        <td>${formatarMoeda(l.faturamento, moeda)}</td>
+        <td>${formatarMoeda(l.ticketMedio, moeda)}</td>
+      </tr>`;
+  corpo.innerHTML =
+    resumo.linhas.map((l) => linhaHtml(rotuloCanalVenda(l.canal), l)).join('') + linhaHtml('Total', resumo.total, 'linha-total-canais');
 }
 
 /** Pedidos e faturamento de Delivery vs. Collection, no período selecionado */

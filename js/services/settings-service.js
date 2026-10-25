@@ -204,6 +204,36 @@ async function atualizarImpressaoAutomaticaNoSupabase(ativa) {
 }
 
 // ---------------------------------------------------------------------------
+// Segunda via para o cliente — business_settings.customer_copy_enabled (migration
+// 20261025100000_add_customer_copy_setting.sql). Consulta PRÓPRIA, nunca junto de
+// BUSINESS_SETTINGS_COLUNAS_IMPRESSAO_AUTOMATICA: se a coluna ainda não existir (migration não
+// aplicada) ou faltar o GRANT, só esta leitura falha — a impressão automática continua intacta.
+// Leitura: GRANT SELECT por coluna a authenticated (RLS de sempre, is_staff()). Gravação: nunca
+// UPDATE direto (authenticated não tem GRANT de UPDATE nesta coluna) — só pela RPC
+// admin_set_customer_copy_enabled, que exige has_permission('settings.manage') no banco.
+// ---------------------------------------------------------------------------
+
+const BUSINESS_SETTINGS_COLUNAS_SEGUNDA_VIA_CLIENTE = 'id, customer_copy_enabled';
+
+/** true/false — lido por /pedidos (decide se a impressão leva a via do cliente) e /configuracoes. */
+async function buscarSegundaViaClienteDoSupabase() {
+  const { data, error } = await supabaseClient
+    .from('business_settings')
+    .select(BUSINESS_SETTINGS_COLUNAS_SEGUNDA_VIA_CLIENTE)
+    .eq('id', 1)
+    .single();
+  if (error) throw new Error(error.message);
+  return data.customer_copy_enabled === true;
+}
+
+/** Liga/desliga via RPC; devolve o valor efetivamente gravado no banco (nunca o pedido). */
+async function atualizarSegundaViaClienteNoSupabase(ativa) {
+  const { data, error } = await supabaseClient.rpc('admin_set_customer_copy_enabled', { p_enabled: !!ativa });
+  if (error) throw new Error(error.message);
+  return data === true;
+}
+
+// ---------------------------------------------------------------------------
 // QR Code Revolut (Fase 10A) — Supabase Storage, bucket business-assets
 // ---------------------------------------------------------------------------
 
