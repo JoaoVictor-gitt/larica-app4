@@ -1,0 +1,16 @@
+
+supabase/
+tmp/
+.git/
+.github/
+node_modules/
+worker/
+wrangler.jsonc
+.assetsignore
+.gitignore
+README*
+*.md
+*.sql
+*.ts
+*-test.html
+!epson-connection-test.html
