@@ -541,15 +541,62 @@ let _cachePedidosClientes = null;
 let _seqCargaPedidos = 0;
 let _seqCargaPedidosAplicada = 0;
 
-/** Busca os pedidos no Supabase e guarda no cache em memória. Sem fallback silencioso — erro sobe pra quem chamou. */
-async function carregarPedidosClientesCache() {
+// Escopo do cache: o Kanban (pedidos.js) pede só os pedidos operacionais; o Histórico continua com todos.
+// O typeof cobre um aparelho com orders-service.js antigo em cache: volta à consulta completa, nunca quebra.
+let _cachePedidosSomenteOperacionais = false;
+
+function usarCachePedidosOperacionais() {
+  _cachePedidosSomenteOperacionais = true;
+}
+
+async function _executarCargaPedidos() {
   const seq = ++_seqCargaPedidos;
-  const pedidos = await getOrders();
+  const pedidos =
+    _cachePedidosSomenteOperacionais && typeof getOperationalOrders === 'function' ? await getOperationalOrders() : await getOrders();
   if (seq > _seqCargaPedidosAplicada) {
     _cachePedidosClientes = pedidos;
     _seqCargaPedidosAplicada = seq;
   }
   return _cachePedidosClientes;
+}
+
+// Kanban: no máximo 1 carga em voo e 1 na espera. Quem pede durante uma carga recebe a seguinte, nunca a
+// em voo, que pode ter começado antes da mudança que motivou o pedido. Uma carga pendurada não bloqueia
+// para sempre: fetch não tem timeout, então depois do limite ela é abandonada (_seqCargaPedidos descarta
+// o resultado dela, se chegar depois).
+const LIMITE_CARGA_PEDIDOS_EM_VOO_MS = 25000;
+let _cargaPedidosEmVoo = null; // { promessa, iniciadaEm }
+let _cargaPedidosSeguinte = null;
+
+function _iniciarCargaPedidosUnica() {
+  const carga = { iniciadaEm: Date.now(), promessa: null };
+  carga.promessa = _executarCargaPedidos().finally(() => {
+    if (_cargaPedidosEmVoo === carga) _cargaPedidosEmVoo = null;
+  });
+  _cargaPedidosEmVoo = carga;
+  return carga.promessa;
+}
+
+/** Busca os pedidos no Supabase e guarda no cache em memória. Sem fallback silencioso — erro sobe pra quem chamou. */
+function carregarPedidosClientesCache() {
+  if (!_cachePedidosSomenteOperacionais) return _executarCargaPedidos();
+
+  const emVoo = _cargaPedidosEmVoo;
+  if (!emVoo || Date.now() - emVoo.iniciadaEm >= LIMITE_CARGA_PEDIDOS_EM_VOO_MS) {
+    _cargaPedidosSeguinte = null;
+    return _iniciarCargaPedidosUnica();
+  }
+  if (!_cargaPedidosSeguinte) {
+    // A espera também tem limite: quem aguarda uma carga pendurada nunca fica preso (botão ou modal em "Aguarde").
+    const restanteMs = Math.max(0, LIMITE_CARGA_PEDIDOS_EM_VOO_MS - (Date.now() - emVoo.iniciadaEm));
+    const seguinte = Promise.race([emVoo.promessa.catch(() => {}), new Promise((resolver) => setTimeout(resolver, restanteMs))])
+      .then(() => {
+        if (_cargaPedidosSeguinte === seguinte) _cargaPedidosSeguinte = null;
+        return _iniciarCargaPedidosUnica();
+      });
+    _cargaPedidosSeguinte = seguinte;
+  }
+  return _cargaPedidosSeguinte;
 }
 
 function obterPedidosClientes() {

@@ -47,7 +47,25 @@ let _reloadOrdersEmAndamento = false; // lock separado de _impressaoEmAndamento 
 let _reloadPendente = false; // evento/tick que chegou durante um reload em voo — reexecuta 1x ao terminar, nunca é descartado
 let _pedidosInicializado = false; // true só depois de init() concluir com sucesso (pageshow/visibilitychange só religam recursos depois disso)
 let _intervaloPollingPedidos = null;
-const INTERVALO_POLLING_PEDIDOS_MS = 5000;
+// Realtime é o caminho principal; o polling é a rede de segurança. Sem Realtime confirmado, ou depois de
+// uma carga que falhou, ele é o único jeito de achar pedido novo, então encurta. A verificação é só local:
+// recarga nenhuma acontece antes do intervalo vigente, e qualquer outra recarga (Realtime, volta da aba)
+// reinicia a contagem.
+const INTERVALO_POLLING_PEDIDOS_MS = 30000;
+const INTERVALO_POLLING_SEM_REALTIME_MS = 10000;
+const VERIFICACAO_POLLING_PEDIDOS_MS = 2000;
+// Sentinela: com o Realtime "conectado", a cada 10 s lê só o maior número de pedido (1 linha, 1 coluna). Se
+// apareceu número novo, recarrega na hora. Cobre o Realtime que parece conectado mas não entrega eventos.
+const INTERVALO_SENTINELA_PEDIDOS_MS = 10000;
+let _maiorNumeroPedidoConhecido = 0;
+let _maiorNumeroEntreguePeloRealtime = 0;
+let _numeroAguardandoRealtime = 0;
+let _sentinelaEmVoo = false;
+let _sentinelaCalibrada = false;
+let _ultimaSentinelaEm = 0;
+// Depois de falha ao ler a configuração de impressão ou no claim: recarrega mais cedo por um tempo curto.
+const JANELA_RECUPERACAO_IMPRESSAO_MS = 60000;
+let _recuperacaoImpressaoAte = 0;
 
 // Blindagem do recebimento (Etapa 1). Toda chamada de rede de reloadOrders() tem timeout; se mesmo
 // assim um reload passar de RELOAD_PEDIDOS_WATCHDOG_MS, ele é considerado abandonado: o lock é
@@ -80,6 +98,7 @@ function _comTimeout(promessa, ms, rotulo) {
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
+  if (typeof usarCachePedidosOperacionais === 'function') usarCachePedidosOperacionais();
   _deviceIdImpressora = obterDeviceIdImpressora();
   // Pré-carrega o logo da comanda (local); se falhar, a comanda sai com o texto "LARICA".
   if (typeof prepararLogoComanda === 'function') prepararLogoComanda();
@@ -141,6 +160,7 @@ function iniciarRealtimePedidos() {
       // Caminho rápido: pedido novo vai direto pra fila de auto-print, sem esperar o reload
       // (a UI é atualizada separadamente, abaixo). O claim no banco continua sendo o portão.
       if (payload && payload.eventType === 'INSERT' && payload.new) {
+        _registrarNumeroPedido(Number(payload.new.order_number), true);
         try {
           processarInsertRealtimeAutoPrint(payload.new);
         } catch (erroInsert) {
@@ -220,6 +240,7 @@ async function reloadOrders(origem = 'desconhecida') {
     // atrasa pedido novo — só atualiza _segundaViaClienteAtiva quando responder.
     atualizarConfiguracaoSegundaViaCliente();
     if (geracao !== _geracaoReloadPedidos) return;
+    obterPedidosClientes().forEach((p) => _registrarNumeroPedido(Number(String(p.numero).replace(/\D/g, '')), false));
     detectarPedidosNovos(origem); // nunca lança — alerta só ids nunca vistos (dedupe por order.id)
     renderizarQuadroPedidos();
     escanearCandidatosImpressaoAutomatica();
@@ -306,13 +327,71 @@ function ligarIndicadorConexaoPedidos() {
  * um segundo caminho de impressão. Só age com a página visível; reloadOrders() já se protege
  * sozinho contra sobreposição com o Realtime via _reloadOrdersEmAndamento.
  */
+function realtimePedidosConfiavel() {
+  return _statusRealtimePedidos === 'SUBSCRIBED' && _falhasSeguidasSincronizacaoPedidos === 0;
+}
+
+function intervaloPollingPedidosAtualMs() {
+  if (!realtimePedidosConfiavel() || Date.now() < _recuperacaoImpressaoAte) return INTERVALO_POLLING_SEM_REALTIME_MS;
+  return INTERVALO_POLLING_PEDIDOS_MS;
+}
+
+function _registrarNumeroPedido(numero, peloRealtime) {
+  if (!numero) return;
+  if (numero > _maiorNumeroPedidoConhecido) _maiorNumeroPedidoConhecido = numero;
+  if (peloRealtime && numero > _maiorNumeroEntreguePeloRealtime) _maiorNumeroEntreguePeloRealtime = numero;
+}
+
+/** Só leitura: nunca imprime nem faz claim; quem decide continua sendo reloadOrders() + a regra de sempre. */
+async function verificarPedidoNovoPorSentinela() {
+  if (_sentinelaEmVoo || typeof getLatestOrderNumber !== 'function') return;
+  _sentinelaEmVoo = true;
+  _ultimaSentinelaEm = Date.now();
+  try {
+    const numero = await _comTimeout(getLatestOrderNumber(), 8000, 'sentinela de pedidos');
+    if (numero > _maiorNumeroPedidoConhecido) {
+      _maiorNumeroPedidoConhecido = numero;
+      reloadOrders('sentinela');
+    }
+    if (!_sentinelaCalibrada) {
+      _maiorNumeroEntreguePeloRealtime = Math.max(_maiorNumeroEntreguePeloRealtime, _maiorNumeroPedidoConhecido);
+      _sentinelaCalibrada = true;
+    } else if (_maiorNumeroPedidoConhecido <= _maiorNumeroEntreguePeloRealtime) {
+      _numeroAguardandoRealtime = 0;
+    } else if (_numeroAguardandoRealtime) {
+      // Duas verificações seguidas (10 s ou mais) e o Realtime não entregou um pedido já visto por outro caminho.
+      console.warn('[PEDIDOS] Realtime conectado, mas não entregou o pedido ' + _maiorNumeroPedidoConhecido + ' — recriando o canal.');
+      _maiorNumeroEntreguePeloRealtime = _maiorNumeroPedidoConhecido;
+      _numeroAguardandoRealtime = 0;
+      unsubscribeFromOrders(canalPedidosRealtime);
+      canalPedidosRealtime = null;
+      iniciarRealtimePedidos();
+    } else {
+      _numeroAguardandoRealtime = _maiorNumeroPedidoConhecido;
+    }
+  } catch (erro) {
+    console.warn('[PEDIDOS] Sentinela falhou — o polling de segurança continua:', erro.message);
+  } finally {
+    _sentinelaEmVoo = false;
+  }
+}
+
 function iniciarPollingPedidos() {
   if (_intervaloPollingPedidos) return;
-  console.log('[AUTO-PRINT] Polling iniciado, intervalo =', INTERVALO_POLLING_PEDIDOS_MS);
+  console.log('[AUTO-PRINT] Polling iniciado, intervalos =', INTERVALO_POLLING_PEDIDOS_MS, INTERVALO_POLLING_SEM_REALTIME_MS);
+  if (!_reloadPedidosIniciadoEm) _reloadPedidosIniciadoEm = Date.now(); // a carga inicial acabou de acontecer
+  obterPedidosClientes().forEach((p) => _registrarNumeroPedido(Number(String(p.numero).replace(/\D/g, '')), false));
   _intervaloPollingPedidos = setInterval(() => {
     if (document.visibilityState !== 'visible') return;
-    reloadOrders('polling');
-  }, INTERVALO_POLLING_PEDIDOS_MS);
+    const desdeRecarga = Date.now() - _reloadPedidosIniciadoEm;
+    if (desdeRecarga >= intervaloPollingPedidosAtualMs()) {
+      reloadOrders('polling');
+      return;
+    }
+    if (realtimePedidosConfiavel() && desdeRecarga >= INTERVALO_SENTINELA_PEDIDOS_MS && Date.now() - _ultimaSentinelaEm >= INTERVALO_SENTINELA_PEDIDOS_MS) {
+      verificarPedidoNovoPorSentinela();
+    }
+  }, VERIFICACAO_POLLING_PEDIDOS_MS);
 }
 
 /**
@@ -334,6 +413,7 @@ async function atualizarConfiguracaoImpressaoAutomatica() {
     _impressaoAutomaticaAtivadaEm = config.ativadaEm;
   } catch (erro) {
     console.error('Não foi possível carregar a configuração de impressão automática:', erro);
+    _recuperacaoImpressaoAte = Date.now() + JANELA_RECUPERACAO_IMPRESSAO_MS;
     _impressaoAutomaticaAtiva = false;
     _impressaoAutomaticaAtivadaEm = null;
   }
@@ -343,7 +423,7 @@ async function atualizarConfiguracaoImpressaoAutomatica() {
  * Lê business_settings.customer_copy_enabled e atualiza _segundaViaClienteAtiva. Nunca lança.
  * Fail-safe: erro, timeout ou coluna inexistente (migration ainda não aplicada) => false neste ciclo,
  * ou seja, só a comanda da cozinha — mesmo critério de atualizarConfiguracaoImpressaoAutomatica().
- * Se já houver uma leitura em voo, devolve a mesma Promise (o polling de 5 s nunca empilha leituras).
+ * Se já houver uma leitura em voo, devolve a mesma Promise (o polling nunca empilha leituras).
  */
 function atualizarConfiguracaoSegundaViaCliente() {
   if (_leituraSegundaViaClienteEmVoo) return _leituraSegundaViaClienteEmVoo;
@@ -1463,6 +1543,7 @@ async function _executarImpressaoAutomaticaClaimed(id, numero, meta) {
     // página e o pedido simplesmente não imprimia). O claim atômico no banco continua decidindo quem imprime.
     console.error('[AUTO-PRINT] Claim falhou — será tentado de novo na próxima varredura', { id, numero }, erroClaim);
     _idsComFalhaDeClaim.add(id);
+    _recuperacaoImpressaoAte = Date.now() + JANELA_RECUPERACAO_IMPRESSAO_MS;
     _idsImpressaoAutomaticaEmFilaOuTentados.delete(id);
     finalizarImpressaoPedido();
     return;

@@ -140,7 +140,7 @@ function _itemSupabaseParaItemPedido(item) {
  * leitura nesta base (confirmado em teste), então a composição é feita aqui
  * mesmo, em JavaScript, a partir de 3 arrays planos.
  *
- * Função central reaproveitada por pedidos.html (Kanban, sem filtro) e
+ * Função central reaproveitada por pedidos.html (Kanban, via getOperationalOrders) e
  * historico.html (`status: 'finalizado'`/`'completed'`) — ver
  * js/storage.js:carregarPedidosClientesCache().
  *
@@ -153,29 +153,62 @@ function _itemSupabaseParaItemPedido(item) {
 // consulta chegar ao banco. Busca em lotes (~4 KB de URL cada) e junta; os lotes são disjuntos, então
 // o resultado é exatamente o mesmo de uma consulta única.
 const TAMANHO_LOTE_FILTRO_IN = 100;
+const TAMANHO_PAGINA_PEDIDOS = 1000;
+
+/**
+ * Lê TODAS as linhas de uma consulta, mesmo com o Max Rows do PostgREST, que corta em silêncio (HTTP
+ * 200, sem erro). O total vem de count:'exact' e o avanço usa o número de linhas realmente recebido,
+ * então funciona com qualquer limite configurado no Supabase. montarConsulta() devolve uma consulta
+ * nova com ordenação estável (última coluna única) e select(..., { count: 'exact' }).
+ */
+async function _selecionarTodasAsPaginas(montarConsulta) {
+  const linhas = [];
+  for (;;) {
+    const { data, error, count } = await montarConsulta().range(linhas.length, linhas.length + TAMANHO_PAGINA_PEDIDOS - 1);
+    if (error) throw new Error(error.message);
+    const pagina = data || [];
+    linhas.push(...pagina);
+    const terminou = typeof count === 'number' ? linhas.length >= count : pagina.length < TAMANHO_PAGINA_PEDIDOS;
+    if (pagina.length === 0 || terminou) return linhas;
+  }
+}
+
+async function _selecionarLote(tabela, colunaFiltro, lote, colunas) {
+  const { data, error, count } = await supabaseClient.from(tabela).select(colunas, { count: 'exact' }).in(colunaFiltro, lote);
+  if (error) throw new Error(error.message);
+  const linhas = data || [];
+  if (typeof count !== 'number' || linhas.length >= count) return linhas;
+
+  // Lote cortado pelo Max Rows (raro: 100 ids com mais linhas que o limite). Sem isto, a comanda sairia
+  // sem as escolhas do combo. A ordenação por id só existe aqui, onde a paginação exige ordem estável.
+  console.warn('[PEDIDOS] Lote de ' + tabela + ' cortado pelo limite da API (' + linhas.length + ' de ' + count + ') — buscando em páginas.');
+  return _selecionarTodasAsPaginas(() =>
+    supabaseClient.from(tabela).select(colunas, { count: 'exact' }).in(colunaFiltro, lote).order('id', { ascending: true })
+  );
+}
 
 async function _selecionarEmLotes(tabela, colunaFiltro, ids, colunas = '*') {
   const lotes = [];
   for (let i = 0; i < ids.length; i += TAMANHO_LOTE_FILTRO_IN) lotes.push(ids.slice(i, i + TAMANHO_LOTE_FILTRO_IN));
-  const respostas = await Promise.all(lotes.map((lote) => supabaseClient.from(tabela).select(colunas).in(colunaFiltro, lote)));
-  const linhas = [];
-  respostas.forEach(({ data, error }) => {
-    if (error) throw new Error(error.message);
-    linhas.push(...(data || []));
-  });
-  return linhas;
+  const respostas = await Promise.all(lotes.map((lote) => _selecionarLote(tabela, colunaFiltro, lote, colunas)));
+  return respostas.flat();
 }
 
-async function getOrdersWithDetails({ status, orderIds, dateFrom, dateTo } = {}) {
-  let consulta = supabaseClient.from('orders').select('*').order('created_at', { ascending: true });
-  if (status) consulta = consulta.eq('status', STATUS_PARA_ENUM[status] || status);
-  if (orderIds && orderIds.length > 0) consulta = consulta.in('id', orderIds);
-  if (dateFrom) consulta = consulta.gte('created_at', dateFrom);
-  if (dateTo) consulta = consulta.lte('created_at', dateTo);
-
-  const { data: orders, error: erroOrders } = await consulta;
-  if (erroOrders) throw new Error(erroOrders.message);
-  if (!orders || orders.length === 0) return [];
+async function getOrdersWithDetails({ status, orderIds, dateFrom, dateTo, ouFiltro } = {}) {
+  const orders = await _selecionarTodasAsPaginas(() => {
+    let consulta = supabaseClient
+      .from('orders')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    if (status) consulta = consulta.eq('status', STATUS_PARA_ENUM[status] || status);
+    if (orderIds && orderIds.length > 0) consulta = consulta.in('id', orderIds);
+    if (dateFrom) consulta = consulta.gte('created_at', dateFrom);
+    if (dateTo) consulta = consulta.lte('created_at', dateTo);
+    if (ouFiltro) consulta = consulta.or(ouFiltro);
+    return consulta;
+  });
+  if (orders.length === 0) return [];
 
   const idsPedidos = orders.map((o) => o.id);
   const orderItems = await _selecionarEmLotes('order_items', 'order_id', idsPedidos);
@@ -205,6 +238,28 @@ async function getOrdersWithDetails({ status, orderIds, dateFrom, dateTo } = {})
 /** Busca todos os pedidos, sem filtro — usada pelo cache compartilhado em js/storage.js */
 async function getOrders() {
   return getOrdersWithDetails();
+}
+
+/** Maior número de pedido existente: 1 linha e 1 coluna, para detectar pedido novo sem recarregar o quadro. */
+async function getLatestOrderNumber() {
+  const { data, error } = await supabaseClient.from('orders').select('order_number').order('order_number', { ascending: false }).limit(1);
+  if (error) throw new Error(error.message);
+  return data && data[0] ? Number(data[0].order_number) : 0;
+}
+
+// Janela dos pedidos encerrados no Kanban. A tela só mostra "Finalizado hoje"; 48 h cobrem fuso e relógio do aparelho.
+const HORAS_JANELA_PEDIDOS_OPERACIONAIS = 48;
+
+/**
+ * Só o que o Kanban usa: todo pedido ativo, de qualquer data, mais os criados, concluídos ou cancelados
+ * dentro da janela. orders não tem updated_at, por isso a janela olha cada carimbo. O Histórico continua
+ * usando getOrders().
+ */
+async function getOperationalOrders() {
+  const desde = new Date(Date.now() - HORAS_JANELA_PEDIDOS_OPERACIONAIS * 3600000).toISOString();
+  return getOrdersWithDetails({
+    ouFiltro: `status.in.(requested,preparing,ready),created_at.gte.${desde},completed_at.gte.${desde},cancelled_at.gte.${desde}`,
+  });
 }
 
 /**
