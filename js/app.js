@@ -24,11 +24,13 @@ const MENU_ADMIN = [
   { chave: 'compras', rotulo: 'Compras', icone: '🛒', href: 'compras.html', permissao: 'purchases.view' },
   { chave: 'producao', rotulo: 'Produção', icone: '🧾', href: 'producao.html', permissao: 'production.view' },
   { chave: 'pedidos', rotulo: 'Pedidos', icone: '📋', href: 'pedidos.html', permissao: 'orders.view' },
-  { chave: 'relatorios', rotulo: 'Financeiro', icone: '💶', href: 'relatorios.html', permissao: 'reports.view' },
+  { chave: 'financeiro', rotulo: 'Financeiro', icone: '💶', href: 'financeiro.html', permissao: 'reports.view' },
   { chave: 'estoque', rotulo: 'Estoque', icone: '📦', href: 'estoque.html', permissao: 'stock.view' },
   { chave: 'configuracoes', rotulo: 'Configurações', icone: '⚙️', href: 'configuracoes.html', permissao: 'settings.manage' },
   { chave: 'historico', rotulo: 'Histórico', icone: '🕒', href: 'historico.html', permissao: 'history.view', oculto: true, dentroDe: 'pedidos' },
   { chave: 'clientes', rotulo: 'Clientes', icone: '👥', href: 'clientes.html', somenteAdmin: true, oculto: true, dentroDe: 'pedidos' },
+  // Fase E: o Relatório Diário de vendas fica dentro do Financeiro (mesma permissão de antes).
+  { chave: 'relatorios', rotulo: 'Relatórios de vendas', icone: '📈', href: 'relatorios.html', permissao: 'reports.view', oculto: true, dentroDe: 'financeiro' },
 ];
 
 // Página -> item de MENU_ADMIN (permissão/somenteAdmin), derivado de MENU_ADMIN (uma só fonte de verdade, nunca duplicado à mão)
@@ -51,7 +53,8 @@ const TITULOS_PAGINA = {
   produtos: 'Produtos',
   historico: 'Pedidos · Histórico',
   clientes: 'Pedidos · Clientes',
-  relatorios: 'Financeiro · Relatórios',
+  financeiro: 'Financeiro',
+  relatorios: 'Financeiro · Relatórios de vendas',
   configuracoes: 'Configurações',
 };
 

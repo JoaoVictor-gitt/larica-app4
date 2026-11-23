@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    (function () {
+      try {
+        var config = JSON.parse(localStorage.getItem('caju_configuracoes') || '{}');
+        document.documentElement.setAttribute('data-tema', config.tema === 'claro' ? 'claro' : 'escuro');
+      } catch (erro) {}
+    })();
+  </script>
+  <title>Financeiro | Larica Food Truck</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/financeiro.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body data-pagina="financeiro" data-area="admin">
+  <div id="layout-shell"></div>
+  <main class="conteudo-pagina">
+    <div class="pagina-titulo fin-titulo">
+      <h1>Financeiro</h1>
+      <a href="relatorios.html" class="btn btn-secundario">📈 Relatórios de vendas</a>
+    </div>
+
+    <div class="card fin-aviso-acesso" id="fin-sem-acesso" style="display:none;">
+      <p>O Financeiro (despesas, resultado e caixa) é exclusivo de administradores.</p>
+      <a href="relatorios.html" class="btn btn-primario">Abrir Relatórios de vendas</a>
+    </div>
+
+    <div id="fin-conteudo" style="display:none;">
+      <div class="fin-periodo">
+        <div class="fin-chips" role="group" aria-label="Período">
+          <button type="button" class="fin-chip" data-periodo="hoje">Hoje</button>
+          <button type="button" class="fin-chip" data-periodo="ontem">Ontem</button>
+          <button type="button" class="fin-chip" data-periodo="7d">7 dias</button>
+          <button type="button" class="fin-chip" data-periodo="30d">30 dias</button>
+          <button type="button" class="fin-chip fin-chip-ativo" data-periodo="mes">Mês atual</button>
+          <button type="button" class="fin-chip" data-periodo="mesanterior">Mês anterior</button>
+          <button type="button" class="fin-chip" data-periodo="personalizado">Personalizado</button>
+        </div>
+        <div class="fin-periodo-custom" id="fin-periodo-custom" style="display:none;">
+          <input type="date" id="fin-de" class="input" aria-label="De" />
+          <span>até</span>
+          <input type="date" id="fin-ate" class="input" aria-label="Até" />
+        </div>
+        <p class="fin-periodo-texto" id="fin-periodo-texto"></p>
+      </div>
+
+      <div class="fin-abas" role="tablist">
+        <button type="button" class="fin-aba fin-aba-ativa" data-fin-aba="resumo">Resumo</button>
+        <button type="button" class="fin-aba" data-fin-aba="lancamentos">Despesas e receitas</button>
+        <button type="button" class="fin-aba" data-fin-aba="contas">Contas a pagar e receber</button>
+        <button type="button" class="fin-aba" data-fin-aba="produtos">Custos dos produtos</button>
+        <button type="button" class="fin-aba" data-fin-aba="recorrencias">Recorrências</button>
+      </div>
+
+      <!-- Resumo: indicadores, DRE e caixa -->
+      <section class="fin-painel fin-painel-ativo" data-fin-painel="resumo">
+        <div class="fin-cartoes" id="fin-cartoes"></div>
+        <div class="fin-duas-colunas">
+          <div class="card fin-bloco">
+            <h2>Resultado (DRE gerencial)</h2>
+            <table class="fin-dre" id="fin-dre"></table>
+          </div>
+          <div class="card fin-bloco">
+            <h2>Fluxo de caixa</h2>
+            <table class="fin-dre" id="fin-caixa"></table>
+            <p class="dica-campo">Dinheiro que entrou e saiu no período — diferente de faturamento e de lucro.</p>
+          </div>
+        </div>
+        <div class="card fin-bloco">
+          <h2>Despesas por categoria</h2>
+          <div id="fin-despesas-categorias"></div>
+        </div>
+        <div class="fin-notas" id="fin-notas"></div>
+      </section>
+
+      <!-- Lançamentos -->
+      <section class="fin-painel" data-fin-painel="lancamentos">
+        <div class="fin-barra">
+          <div class="fin-filtros">
+            <select id="fin-filtro-tipo" class="input" aria-label="Tipo">
+              <option value="">Todos os tipos</option>
+              <option value="expense">Despesas</option>
+              <option value="revenue">Receitas</option>
+              <option value="owner_contribution">Aportes</option>
+              <option value="owner_withdrawal">Retiradas</option>
+            </select>
+            <select id="fin-filtro-status" class="input" aria-label="Situação">
+              <option value="">Todas as situações</option>
+              <option value="pending">Pendentes</option>
+              <option value="overdue">Vencidos</option>
+              <option value="paid">Pagos</option>
+              <option value="cancelled">Cancelados</option>
+            </select>
+            <input type="search" id="fin-filtro-busca" class="input" placeholder="Buscar descrição" aria-label="Buscar" />
+          </div>
+          <button type="button" class="btn btn-primario" id="fin-novo-lancamento">+ Novo lançamento</button>
+        </div>
+        <p class="dica-campo">Mostra os lançamentos com competência no período escolhido. As compras ficam em Compras (as linhas de despesa delas já entram no resultado).</p>
+        <div class="card fin-tabela-wrap">
+          <table class="tabela">
+            <thead><tr><th>Competência</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Vencimento</th><th>Situação</th><th></th></tr></thead>
+            <tbody id="fin-corpo-lancamentos"></tbody>
+          </table>
+          <div class="estado-vazio" id="fin-vazio-lancamentos" style="display:none;">Nenhum lançamento no período.</div>
+        </div>
+      </section>
+
+      <!-- Contas -->
+      <section class="fin-painel" data-fin-painel="contas">
+        <div class="fin-cartoes" id="fin-cartoes-contas"></div>
+        <div class="fin-duas-colunas">
+          <div class="card fin-bloco">
+            <h2>A pagar</h2>
+            <div id="fin-lista-pagar"></div>
+          </div>
+          <div class="card fin-bloco">
+            <h2>A receber</h2>
+            <div id="fin-lista-receber"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Custos dos produtos -->
+      <section class="fin-painel" data-fin-painel="produtos">
+        <div class="fin-barra">
+          <div class="fin-filtros">
+            <select id="fin-filtro-produtos" class="input" aria-label="Filtro">
+              <option value="">Todos os produtos</option>
+              <option value="alertas">Só com alerta</option>
+              <option value="vendidos">Vendidos no período</option>
+            </select>
+            <label class="fin-margem-min">Margem mínima <input type="number" id="fin-margem-min" class="input" value="30" min="0" max="100" step="1" /> %</label>
+          </div>
+        </div>
+        <p class="dica-campo">Custo = custo médio atual do produto (compras e produção). Margem = (preço − custo) ÷ preço. CMV e resultado usam as vendas do período.</p>
+        <div class="card fin-tabela-wrap">
+          <table class="tabela">
+            <thead><tr><th>Produto</th><th>Preço</th><th>Custo</th><th>Margem</th><th>Vendidos</th><th>Receita</th><th>CMV</th><th>Contribuição</th><th>Alertas</th></tr></thead>
+            <tbody id="fin-corpo-produtos"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Recorrências -->
+      <section class="fin-painel" data-fin-painel="recorrencias">
+        <div class="fin-barra">
+          <p class="dica-campo" style="margin:0;">Despesas e receitas que se repetem. Os lançamentos previstos dos próximos 60 dias são gerados sozinhos — sem duplicar.</p>
+          <button type="button" class="btn btn-primario" id="fin-nova-recorrencia">+ Nova recorrência</button>
+        </div>
+        <div class="card fin-tabela-wrap">
+          <table class="tabela">
+            <thead><tr><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Frequência</th><th>Próxima</th><th>Situação</th><th></th></tr></thead>
+            <tbody id="fin-corpo-recorrencias"></tbody>
+          </table>
+          <div class="estado-vazio" id="fin-vazio-recorrencias" style="display:none;">Nenhuma recorrência cadastrada.</div>
+        </div>
+      </section>
+    </div>
+    <div class="estado-vazio" id="fin-carregando">Carregando...</div>
+    <div class="estado-vazio" id="fin-erro" style="display:none;"></div>
+  </main>
+
+  <!-- Modal: lançamento / recorrência -->
+  <div class="modal-overlay" id="fin-modal-lancamento">
+    <div class="modal fin-modal" style="max-width:560px;">
+      <div class="modal-cabecalho">
+        <h2 id="fin-lanc-titulo">Novo lançamento</h2>
+        <button class="btn-icone" id="fin-lanc-fechar-x" aria-label="Fechar">✕</button>
+      </div>
+      <form id="fin-form-lancamento" novalidate>
+        <div class="modal-corpo">
+          <div class="fin-tipos" role="radiogroup" aria-label="Tipo">
+            <button type="button" class="fin-tipo" data-tipo="expense">Despesa</button>
+            <button type="button" class="fin-tipo" data-tipo="revenue">Receita</button>
+            <button type="button" class="fin-tipo" data-tipo="owner_contribution">Aporte</button>
+            <button type="button" class="fin-tipo" data-tipo="owner_withdrawal">Retirada</button>
+          </div>
+          <div class="form-grupo">
+            <label for="fin-lanc-descricao">Descrição</label>
+            <input type="text" id="fin-lanc-descricao" class="input" maxlength="200" required />
+          </div>
+          <div class="fin-grade">
+            <div class="form-grupo">
+              <label for="fin-lanc-categoria">Categoria</label>
+              <select id="fin-lanc-categoria" class="input" required></select>
+            </div>
+            <div class="form-grupo">
+              <label for="fin-lanc-valor">Valor (€)</label>
+              <input type="number" id="fin-lanc-valor" class="input fin-input-grande" min="0.01" step="0.01" inputmode="decimal" required />
+            </div>
+          </div>
+          <div class="fin-grade" id="fin-grupo-classificacao">
+            <div class="form-grupo">
+              <label for="fin-lanc-tipo-despesa">Fixa ou variável</label>
+              <select id="fin-lanc-tipo-despesa" class="input"><option value="">—</option><option value="fixed">Fixa</option><option value="variable">Variável</option></select>
+            </div>
+            <div class="form-grupo">
+              <label for="fin-lanc-natureza">Direta ou indireta</label>
+              <select id="fin-lanc-natureza" class="input"><option value="">—</option><option value="direct">Direta (ligada à produção)</option><option value="indirect">Indireta</option></select>
+            </div>
+          </div>
+          <label class="fin-check" id="fin-grupo-repetir"><input type="checkbox" id="fin-lanc-repetir" /> Repete (criar recorrência)</label>
+          <div class="fin-grade" id="fin-grupo-recorrencia" style="display:none;">
+            <div class="form-grupo">
+              <label for="fin-rec-frequencia">Frequência</label>
+              <select id="fin-rec-frequencia" class="input">
+                <option value="monthly">Mensal</option><option value="weekly">Semanal</option><option value="biweekly">Quinzenal</option>
+                <option value="quarterly">Trimestral</option><option value="yearly">Anual</option>
+              </select>
+            </div>
+            <div class="form-grupo">
+              <label for="fin-rec-prazo">Vence quantos dias depois</label>
+              <input type="number" id="fin-rec-prazo" class="input" min="0" max="120" value="0" />
+            </div>
+            <div class="form-grupo">
+              <label for="fin-rec-fim">Até (opcional)</label>
+              <input type="date" id="fin-rec-fim" class="input" />
+            </div>
+            <label class="fin-check" id="fin-grupo-ativa" style="display:none;"><input type="checkbox" id="fin-rec-ativa" checked /> Ativa</label>
+          </div>
+          <div class="fin-grade">
+            <div class="form-grupo">
+              <label for="fin-lanc-competencia" id="fin-rotulo-competencia">Competência</label>
+              <input type="date" id="fin-lanc-competencia" class="input" required />
+            </div>
+            <div class="form-grupo" id="fin-grupo-vencimento">
+              <label for="fin-lanc-vencimento">Vencimento</label>
+              <input type="date" id="fin-lanc-vencimento" class="input" />
+            </div>
+          </div>
+          <label class="fin-check" id="fin-grupo-pago"><input type="checkbox" id="fin-lanc-pago" /> Já está pago</label>
+          <div class="fin-grade" id="fin-grupo-pagamento" style="display:none;">
+            <div class="form-grupo">
+              <label for="fin-lanc-pago-em">Pago em</label>
+              <input type="date" id="fin-lanc-pago-em" class="input" />
+            </div>
+            <div class="form-grupo">
+              <label for="fin-lanc-forma">Forma</label>
+              <select id="fin-lanc-forma" class="input">
+                <option value="">—</option><option value="bank_transfer">Transferência</option><option value="direct_debit">Débito direto</option>
+                <option value="card">Cartão</option><option value="cash">Dinheiro</option><option value="revolut">Revolut</option><option value="other">Outro</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-grupo">
+            <label for="fin-lanc-obs">Observações</label>
+            <textarea id="fin-lanc-obs" class="input" rows="2" maxlength="1000"></textarea>
+          </div>
+          <div class="form-grupo" id="fin-grupo-documento">
+            <label>Documento (opcional)</label>
+            <div class="fin-linha">
+              <label class="btn btn-secundario fin-botao-arquivo">📎 Anexar foto ou PDF <input type="file" id="fin-lanc-arquivo" accept="image/*,application/pdf" /></label>
+              <span class="dica-campo" id="fin-lanc-arquivo-nome" style="margin:0;"></span>
+            </div>
+          </div>
+          <p class="fin-erro" id="fin-lanc-erro" style="display:none;"></p>
+        </div>
+        <div class="modal-rodape">
+          <button type="button" class="btn btn-secundario" id="fin-lanc-cancelar">Cancelar</button>
+          <button type="submit" class="btn btn-primario" id="fin-lanc-salvar">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: pagar -->
+  <div class="modal-overlay" id="fin-modal-pagar">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-cabecalho"><h2 id="fin-pagar-titulo">Registrar pagamento</h2><button class="btn-icone" id="fin-pagar-fechar-x" aria-label="Fechar">✕</button></div>
+      <div class="modal-corpo">
+        <p id="fin-pagar-resumo"></p>
+        <div class="fin-grade">
+          <div class="form-grupo"><label for="fin-pagar-data">Data</label><input type="date" id="fin-pagar-data" class="input" /></div>
+          <div class="form-grupo"><label for="fin-pagar-forma">Forma</label>
+            <select id="fin-pagar-forma" class="input">
+              <option value="">—</option><option value="bank_transfer">Transferência</option><option value="direct_debit">Débito direto</option>
+              <option value="card">Cartão</option><option value="cash">Dinheiro</option><option value="revolut">Revolut</option><option value="other">Outro</option>
+            </select></div>
+        </div>
+        <p class="fin-erro" id="fin-pagar-erro" style="display:none;"></p>
+      </div>
+      <div class="modal-rodape"><button type="button" class="btn btn-secundario" id="fin-pagar-cancelar">Cancelar</button><button type="button" class="btn btn-primario" id="fin-pagar-confirmar">Confirmar</button></div>
+    </div>
+  </div>
+
+  <!-- Modal: motivo (cancelar / desfazer pagamento) -->
+  <div class="modal-overlay" id="fin-modal-motivo">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-cabecalho"><h2 id="fin-motivo-titulo">Motivo</h2><button class="btn-icone" id="fin-motivo-fechar-x" aria-label="Fechar">✕</button></div>
+      <div class="modal-corpo">
+        <p id="fin-motivo-texto"></p>
+        <div class="form-grupo"><label for="fin-motivo-campo">Motivo</label><textarea id="fin-motivo-campo" class="input" rows="2" maxlength="500"></textarea></div>
+        <p class="fin-erro" id="fin-motivo-erro" style="display:none;"></p>
+      </div>
+      <div class="modal-rodape"><button type="button" class="btn btn-secundario" id="fin-motivo-voltar">Voltar</button><button type="button" class="btn btn-perigo" id="fin-motivo-confirmar">Confirmar</button></div>
+    </div>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/services/permissions-service.js"></script>
+  <script src="js/services/purchases-service.js"></script>
+  <script src="js/services/finance-service.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/financeiro.js"></script>
+</body>
+</html>
