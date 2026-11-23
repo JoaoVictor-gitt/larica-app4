@@ -834,45 +834,29 @@ function renderizarQuadroPedidos() {
     lista.querySelectorAll('[data-acao="cancelar"]').forEach((botao) => {
       botao.addEventListener('click', () => abrirModalCancelamento(botao.dataset.id));
     });
-    lista.querySelectorAll('[data-acao="confirmar-pagamento"]').forEach((botao) => {
-      botao.addEventListener('click', () => executarAcaoPedido(botao, confirmarPagamentoPedido, 'Pagamento confirmado.'));
-    });
   }
 
   if (typeof atualizarContadorPedidosNovos === 'function') atualizarContadorPedidosNovos();
 }
 
-/** Linha de resumo do dia: quantidade e total dos válidos (cancelado nunca soma), cancelados e pendências de pagamento. */
+/** Linha de resumo do dia: quantidade e total dos válidos (cancelado nunca soma) e cancelados. */
 function renderizarResumoPedidosHoje() {
   const alvo = document.getElementById('resumo-pedidos-hoje');
   if (!alvo) return;
   const doDia = obterPedidosClientes().filter((p) => ehDoDiaOperacional(p.criadoEm));
   const validos = doDia.filter((p) => p.status !== STATUS_PEDIDO.CANCELADO);
   const cancelados = doDia.length - validos.length;
-  const aguardando = validos.filter(pedidoAguardandoPagamento).length;
   const total = validos.reduce((soma, p) => soma + (Number(p.total) || 0), 0);
   const moeda = obterConfiguracoes().moeda;
   alvo.innerHTML = [
     `<span><strong>${validos.length}</strong> ${validos.length === 1 ? 'pedido' : 'pedidos'}</span>`,
     `<span>Total <strong>${formatarMoeda(total, moeda)}</strong></span>`,
-    aguardando ? `<span><strong>${aguardando}</strong> aguardando pagamento</span>` : '',
     cancelados ? `<span>${cancelados} ${cancelados === 1 ? 'cancelado' : 'cancelados'}</span>` : '',
   ].join('');
 }
 
-/**
- * Pedido Revolut ou Transferência Bancária ainda não confirmado pela equipe — sai das colunas
- * operacionais normais e vai pra área própria "Aguardando pagamento" (Fase 9, estendida pra
- * transferência). Pedidos 'legado' nunca batem aqui (statusPagamento nunca é 'pendente' pra eles),
- * então seguem só pela regra operacional antiga, sem exceção especial.
- */
-function pedidoAguardandoPagamento(pedido) {
-  return (
-    (pedido.formaPagamento === 'revolut' || pedido.formaPagamento === 'transferencia') &&
-    pedido.statusPagamento === STATUS_PAGAMENTO.PENDENTE &&
-    pedido.status === STATUS_PEDIDO.SOLICITADO
-  );
-}
+// Sem confirmação manual de pagamento: todo pedido já nasce finalizado e pago no banco
+// (migration 20261124150000_orders_born_finalized).
 
 /**
  * Chama a transição de status (storage.js), mostra toast e redesenha o quadro — trata erro de
@@ -1801,7 +1785,6 @@ function resumoFinanceiroComandaHtml(pedido, moeda) {
 
 function cardPedidoHtml(pedido) {
   const cancelado = pedido.status === STATUS_PEDIDO.CANCELADO;
-  const aguardandoPagamento = !cancelado && pedidoAguardandoPagamento(pedido);
   const totalItens = (pedido.itens || []).reduce((soma, item) => soma + item.quantidade, 0);
   const tipoRotulo =
     pedido.fulfilment === 'entrega'
@@ -1822,7 +1805,7 @@ function cardPedidoHtml(pedido) {
       <div class="card-pedido-cabecalho">
         <strong>${escaparHtml(pedido.numero)}</strong>
         ${seloCanalVendaHtml(pedido)}
-        ${cancelado ? '<span class="badge-cancelado">Cancelado</span>' : aguardandoPagamento ? '<span class="badge-aguardando-pagamento">Aguardando pagamento</span>' : ''}
+        ${cancelado ? '<span class="badge-cancelado">Cancelado</span>' : ''}
       </div>
       <div class="card-pedido-info">
         <span>${formatarHora(pedido.criadoEm)} · ${escaparHtml(formatarTempoDecorrido(pedido.criadoEm))}</span>
@@ -1840,7 +1823,6 @@ function cardPedidoHtml(pedido) {
       <div class="card-pedido-acoes">
         <button type="button" class="btn btn-secundario" data-acao="ver" data-id="${pedido.id}">Ver pedido</button>
         ${cancelado ? '' : `<button type="button" class="btn btn-secundario" data-acao="imprimir" data-id="${pedido.id}" ${_impressaoEmAndamento ? 'disabled' : ''}>${pedido.qtdImpressoes > 0 ? '🖨️ Reimprimir' : '🖨️ Imprimir'}</button>`}
-        ${aguardandoPagamento ? `<button type="button" class="btn btn-primario" data-acao="confirmar-pagamento" data-id="${pedido.id}">Confirmar pagamento</button>` : ''}
       </div>
       ${pedidoPodeSerCancelado(pedido) ? `<button type="button" class="link-cancelar-pedido" data-acao="cancelar" data-id="${pedido.id}">Cancelar pedido</button>` : ''}
     </div>`;
@@ -1862,12 +1844,11 @@ function seloCanalVendaHtml(pedido) {
 }
 
 /**
- * Cancelável enquanto o status no banco for requested/preparing — mesma regra da RPC cancel_order. Sem
- * etapas, todo pedido novo fica em requested, então segue cancelável. Pedidos antigos já marcados como
- * pronto/finalizado continuam não canceláveis, porque o banco recusaria.
+ * Cancelável se não estiver cancelado e for do dia operacional atual — mesma regra da RPC cancel_order
+ * (migration 20261124150000): todo pedido nasce finalizado, então o limite é o dia, não o status.
  */
 function pedidoPodeSerCancelado(pedido) {
-  return pedido.status === STATUS_PEDIDO.SOLICITADO || pedido.status === STATUS_PEDIDO.EM_PREPARO;
+  return pedido.status !== STATUS_PEDIDO.CANCELADO && ehDoDiaOperacional(pedido.criadoEm);
 }
 
 /** true quando o pedido é pago em Dinheiro e precisa de troco — checagem única, reaproveitada no card e no bloco "Pronto para..." */

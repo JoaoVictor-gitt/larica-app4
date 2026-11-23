@@ -2458,10 +2458,10 @@ async function confirmarPedido() {
     // create_customer_order) mas ainda não está "confirmado" — nunca mostrar a mensagem genérica aqui.
     if (ultimoPedidoConfirmado.formaPagamento === 'revolut') {
       renderizarConfirmacaoRevolut(ultimoPedidoConfirmado, config.moeda);
-      mostrarToast('Order placed! Awaiting payment confirmation.', 'info');
+      mostrarToast('Order placed!', 'sucesso');
     } else if (ultimoPedidoConfirmado.formaPagamento === 'transferencia') {
       renderizarConfirmacaoTransferencia(ultimoPedidoConfirmado, config.moeda);
-      mostrarToast('Order placed! Awaiting payment confirmation.', 'info');
+      mostrarToast('Order placed!', 'sucesso');
     } else {
       renderizarConfirmacao(ultimoPedidoConfirmado, config.moeda);
       mostrarToast('Order confirmed!', 'sucesso');
@@ -2539,28 +2539,21 @@ function renderizarConfirmacaoRevolut(pedido, moeda) {
   document.getElementById('tela-confirmacao-transferencia').style.display = 'none';
   document.getElementById('tela-confirmacao-revolut').style.display = '';
 
-  // Reseta pro estado "aguardando" — importante se o cliente fizer mais de um pedido Revolut na mesma sessão
-  document.getElementById('revolut-icone').textContent = '⏳';
-  document.getElementById('revolut-titulo').textContent = 'Awaiting Payment Confirmation';
+  // Sem confirmação manual de pagamento (migration 20261124150000): o pedido já entra recebido e vai
+  // direto pra cozinha. A tela só mostra como pagar (QR/código), sem estado "aguardando".
+  document.getElementById('revolut-icone').textContent = '✅';
+  document.getElementById('revolut-titulo').textContent = 'Order Received';
   document.getElementById('revolut-instrucao-transferencia').style.display = '';
   document.getElementById('revolut-qr-wrap').style.display = '';
   document.getElementById('status-pagamento-revolut').textContent =
-    "Once we receive your payment, we'll confirm your order and send it to the kitchen.";
+    'Your order has been received and sent to the kitchen. Please complete the payment using the details above.';
 
   document.getElementById('numero-pedido-confirmado-revolut').textContent = pedido.numero;
   document.getElementById('revolut-valor-total').textContent = formatarMoedaCliente(pedido.total, moeda);
 
   renderizarQrRevolut();
   atualizarBotaoCopiarCodigoRevolut();
-
-  // Realtime é só visual — nunca confirma pagamento nem chama a RPC. Se o pedido criado não tiver id
-  // (não deveria acontecer) ou a assinatura falhar, o cliente simplesmente continua vendo "Aguardando
-  // confirmação" (nunca finge sucesso por fallback).
-  if (pedido.id) {
-    assinarConfirmacaoRevolut(pedido.id);
-  } else {
-    cancelarAssinaturaConfirmacaoRevolut();
-  }
+  cancelarAssinaturaConfirmacaoRevolut();
 }
 
 /**
@@ -2575,13 +2568,13 @@ function renderizarConfirmacaoTransferencia(pedido, moeda) {
   document.getElementById('tela-confirmacao-revolut').style.display = 'none';
   document.getElementById('tela-confirmacao-transferencia').style.display = '';
 
-  // Reseta pro estado "aguardando" — importante se o cliente fizer mais de um pedido por transferência na mesma sessão
-  document.getElementById('transferencia-icone').textContent = '⏳';
-  document.getElementById('transferencia-titulo').textContent = 'Awaiting Payment Confirmation';
+  // Sem confirmação manual de pagamento: pedido já recebido; a tela só mostra os dados para pagar.
+  document.getElementById('transferencia-icone').textContent = '✅';
+  document.getElementById('transferencia-titulo').textContent = 'Order Received';
   document.getElementById('transferencia-instrucao').style.display = '';
   document.getElementById('transferencia-dados-wrap').style.display = '';
   document.getElementById('status-pagamento-transferencia').textContent =
-    "Once we receive your payment, we'll confirm your order and send it to the kitchen.";
+    'Your order has been received and sent to the kitchen. Please complete the payment using the details above.';
 
   document.getElementById('numero-pedido-confirmado-transferencia').textContent = pedido.numero;
   document.getElementById('transferencia-valor-total').textContent = formatarMoedaCliente(pedido.total, moeda);
@@ -2590,12 +2583,7 @@ function renderizarConfirmacaoTransferencia(pedido, moeda) {
   document.getElementById('transferencia-iban-confirmacao').textContent = (configuracoesNegocio && configuracoesNegocio.transferenciaIban) || '—';
   document.getElementById('transferencia-bic-confirmacao').textContent = (configuracoesNegocio && configuracoesNegocio.transferenciaBic) || '—';
 
-  // Realtime é só visual — nunca confirma pagamento nem chama a RPC. Mesmo comportamento defensivo de renderizarConfirmacaoRevolut().
-  if (pedido.id) {
-    assinarConfirmacaoTransferencia(pedido.id);
-  } else {
-    cancelarAssinaturaConfirmacaoTransferencia();
-  }
+  cancelarAssinaturaConfirmacaoTransferencia();
 }
 
 /**
