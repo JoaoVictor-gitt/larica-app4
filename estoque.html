@@ -20,124 +20,133 @@
   <div id="layout-shell"></div>
   <main class="conteudo-pagina">
     <div class="pagina-titulo">
-      <h1>Controle de Estoque</h1>
+      <h1>Estoque</h1>
     </div>
 
-    <div class="cartoes-resumo-estoque">
-      <div class="card cartao-resumo">
-        <span class="cartao-resumo-rotulo">Valor total em estoque</span>
-        <span class="cartao-resumo-valor" id="resumo-valor-total">—</span>
-      </div>
-      <div class="card cartao-resumo">
-        <span class="cartao-resumo-rotulo">Produtos com estoque baixo</span>
-        <span class="cartao-resumo-valor" id="resumo-estoque-baixo">—</span>
-      </div>
-      <div class="card cartao-resumo">
-        <span class="cartao-resumo-rotulo">Produtos sem estoque</span>
-        <span class="cartao-resumo-valor" id="resumo-sem-estoque">—</span>
-      </div>
+    <div class="est-resumo" id="est-resumo"></div>
+
+    <div class="est-abas" role="tablist">
+      <button type="button" class="est-aba est-aba-ativa" role="tab" data-est-aba="produtos">Produtos de venda</button>
+      <button type="button" class="est-aba" role="tab" data-est-aba="insumos">Insumos</button>
+      <button type="button" class="est-aba" role="tab" data-est-aba="movimentos">Movimentações</button>
     </div>
 
-    <div class="card filtros-estoque">
-      <div class="form-grupo" style="margin-bottom:0;">
-        <label for="campo-pesquisa-estoque">Pesquisar</label>
-        <input type="text" id="campo-pesquisa-estoque" class="input" placeholder="Nome do produto..." />
+    <!-- Produtos -->
+    <section class="est-painel est-painel-ativo" data-est-painel="produtos">
+      <div class="est-filtros">
+        <div class="form-grupo est-campo-largo"><label for="est-busca-produtos">Buscar</label><input type="search" id="est-busca-produtos" class="input" placeholder="Nome do produto" /></div>
+        <div class="form-grupo"><label for="est-situacao-produtos">Situação</label>
+          <select id="est-situacao-produtos" class="input">
+            <option value="">Todas</option><option value="baixo">Abaixo do mínimo</option><option value="zerado">Zerado ou negativo</option>
+          </select></div>
       </div>
-      <div class="form-grupo" style="margin-bottom:0;">
-        <label for="filtro-alerta-estoque">Alerta</label>
-        <select id="filtro-alerta-estoque" class="input">
-          <option value="">Todos</option>
-          <option value="verde">Verde (&gt;10)</option>
-          <option value="amarelo">Amarelo (5-10)</option>
-          <option value="vermelho">Vermelho (&lt;5)</option>
-          <option value="cinza">Cinza (sem estoque)</option>
-        </select>
+      <div class="card est-tabela-wrap">
+        <table class="tabela">
+          <thead><tr><th>Produto</th><th>Origem</th><th>Saldo</th><th>Mínimo</th><th>Custo unit.</th><th>Valor em estoque</th><th>Situação</th><th></th></tr></thead>
+          <tbody id="est-corpo-produtos"></tbody>
+        </table>
+        <div class="estado-vazio" id="est-carregando">Carregando estoque...</div>
+        <div class="estado-vazio" id="est-erro" style="display:none;"></div>
+        <div class="estado-vazio" id="est-vazio-produtos" style="display:none;">Nenhum produto encontrado.</div>
       </div>
-    </div>
+    </section>
 
-    <div class="card tabela-estoque-wrap">
-      <table class="tabela">
-        <thead>
-          <tr>
-            <th></th>
-            <th>Produto</th>
-            <th>Categoria</th>
-            <th>Preço</th>
-            <th>Qtd. atual</th>
-            <th>Alerta</th>
-            <th>Valor em estoque</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="corpo-tabela-estoque"></tbody>
-      </table>
-      <div class="estado-vazio" id="estado-carregando-estoque">Carregando produtos...</div>
-      <div class="estado-vazio" id="estado-erro-estoque" style="display:none;"></div>
-      <div class="estado-vazio" id="estado-vazio-estoque" style="display:none;">
-        Nenhum produto encontrado. Cadastre produtos na tela Produtos.
+    <!-- Insumos -->
+    <section class="est-painel" data-est-painel="insumos">
+      <div class="est-filtros">
+        <div class="form-grupo est-campo-largo"><label for="est-busca-insumos">Buscar</label><input type="search" id="est-busca-insumos" class="input" placeholder="Nome do insumo" /></div>
+        <div class="form-grupo"><label for="est-situacao-insumos">Situação</label>
+          <select id="est-situacao-insumos" class="input">
+            <option value="">Todas</option><option value="baixo">Abaixo do mínimo</option><option value="zerado">Zerado ou negativo</option><option value="semcusto">Sem custo</option>
+          </select></div>
       </div>
-    </div>
-
-    <div class="pagina-titulo" style="margin-top:32px;">
-      <h2 style="margin:0;">Movimentações recentes</h2>
-    </div>
-
-    <div class="card tabela-estoque-wrap">
-      <table class="tabela">
-        <thead>
-          <tr>
-            <th>Data</th>
-            <th>Produto</th>
-            <th>Tipo</th>
-            <th>Quantidade</th>
-            <th>Estoque resultante</th>
-            <th>Observação</th>
-          </tr>
-        </thead>
-        <tbody id="corpo-tabela-movimentacoes"></tbody>
-      </table>
-      <div class="estado-vazio" id="estado-carregando-movimentacoes">Carregando movimentações...</div>
-      <div class="estado-vazio" id="estado-erro-movimentacoes" style="display:none;"></div>
-      <div class="estado-vazio" id="estado-vazio-movimentacoes" style="display:none;">
-        Nenhuma movimentação registrada ainda.
+      <p class="dica-campo">Matéria-prima, ingredientes, insumos e embalagens. Entram pelas Compras e saem pela Produção. Use <strong>Contagem</strong> para lançar o estoque que já existe hoje.</p>
+      <div class="card est-tabela-wrap">
+        <table class="tabela">
+          <thead><tr><th>Insumo</th><th>Categoria</th><th>Saldo</th><th>Mínimo</th><th>Custo médio</th><th>Valor em estoque</th><th>Situação</th><th></th></tr></thead>
+          <tbody id="est-corpo-insumos"></tbody>
+        </table>
+        <div class="estado-vazio" id="est-vazio-insumos" style="display:none;">Nenhum insumo com controle de estoque. Cadastre em Compras → Itens e Estoque.</div>
       </div>
-    </div>
+    </section>
+
+    <!-- Movimentações -->
+    <section class="est-painel" data-est-painel="movimentos">
+      <div class="est-filtros">
+        <div class="form-grupo"><label for="est-mov-livro">Estoque</label>
+          <select id="est-mov-livro" class="input"><option value="">Produtos e insumos</option><option value="product">Produtos de venda</option><option value="item">Insumos</option></select></div>
+        <div class="form-grupo est-campo-largo"><label for="est-mov-alvo">Item</label><select id="est-mov-alvo" class="input"></select></div>
+        <div class="form-grupo"><label for="est-mov-tipo">Movimento</label>
+          <select id="est-mov-tipo" class="input">
+            <option value="">Todos</option>
+            <option value="compra">Compras</option>
+            <option value="producao">Produção</option>
+            <option value="venda">Vendas e cancelamentos</option>
+            <option value="ajuste">Ajustes manuais</option>
+            <option value="perda">Perdas</option>
+          </select></div>
+        <div class="form-grupo"><label for="est-mov-de">De</label><input type="date" id="est-mov-de" class="input" /></div>
+        <div class="form-grupo"><label for="est-mov-ate">Até</label><input type="date" id="est-mov-ate" class="input" /></div>
+      </div>
+      <div class="card est-tabela-wrap">
+        <table class="tabela">
+          <thead><tr><th>Quando</th><th>Item</th><th>Movimento</th><th>Qtd.</th><th>Saldo</th><th>Valor</th><th>Origem</th><th>Responsável</th></tr></thead>
+          <tbody id="est-corpo-movimentos"></tbody>
+        </table>
+        <div class="estado-vazio" id="est-mov-carregando" style="display:none;">Carregando movimentações...</div>
+        <div class="estado-vazio" id="est-mov-erro" style="display:none;"></div>
+        <div class="estado-vazio" id="est-mov-vazio" style="display:none;">Nenhuma movimentação encontrada.</div>
+      </div>
+    </section>
   </main>
 
-  <!-- Modal de ajuste de estoque -->
-  <div class="modal-overlay" id="modal-overlay-estoque">
-    <div class="modal" style="max-width:460px;">
+  <!-- Modal: ajuste -->
+  <div class="modal-overlay" id="est-modal-ajuste">
+    <div class="modal est-modal" style="max-width:480px;">
       <div class="modal-cabecalho">
-        <h2 id="titulo-modal-estoque">Ajustar Estoque</h2>
-        <button class="btn-icone" id="botao-fechar-modal-estoque" aria-label="Fechar">✕</button>
+        <h2 id="est-ajuste-titulo">Ajustar estoque</h2>
+        <button class="btn-icone" id="est-ajuste-fechar-x" aria-label="Fechar">✕</button>
       </div>
-      <form id="form-ajuste-estoque">
-        <input type="hidden" id="campo-produto-id-estoque" />
+      <form id="est-form-ajuste" novalidate>
         <div class="modal-corpo">
-          <p id="produto-selecionado-nome" style="margin-top:0; font-weight:700;"></p>
-          <p id="produto-selecionado-atual" style="color:var(--cor-texto-secundario); margin-top:-8px;"></p>
-
-          <div class="opcoes-tipo-ajuste" id="opcoes-tipo-ajuste">
-            <button type="button" class="opcao-tipo-ajuste" data-tipo="entrada">➕ Adicionar</button>
-            <button type="button" class="opcao-tipo-ajuste" data-tipo="saida">➖ Retirar</button>
-            <button type="button" class="opcao-tipo-ajuste" data-tipo="ajuste">✏️ Definir total</button>
+          <p class="est-saldo-atual" id="est-ajuste-saldo"></p>
+          <div class="est-modos" role="radiogroup" aria-label="Tipo de ajuste">
+            <button type="button" class="est-modo" data-modo="count">📋 Contagem</button>
+            <button type="button" class="est-modo" data-modo="in">➕ Entrada</button>
+            <button type="button" class="est-modo" data-modo="out">➖ Saída</button>
+            <button type="button" class="est-modo" data-modo="waste">🗑️ Perda</button>
           </div>
-
           <div class="form-grupo">
-            <label for="campo-quantidade-ajuste" id="rotulo-quantidade-ajuste">Quantidade</label>
-            <input type="number" id="campo-quantidade-ajuste" class="input" min="0" step="1" required />
+            <label for="est-ajuste-qtd" id="est-ajuste-qtd-rotulo">Quantidade</label>
+            <div class="est-linha"><input type="number" id="est-ajuste-qtd" class="input est-input-grande" min="0" step="any" inputmode="decimal" required /><span class="est-unidade" id="est-ajuste-unidade">un</span></div>
           </div>
-
+          <div class="form-grupo" id="est-ajuste-custo-grupo" style="display:none;">
+            <label for="est-ajuste-custo" id="est-ajuste-custo-rotulo">Custo por kg (€)</label>
+            <input type="number" id="est-ajuste-custo" class="input" min="0" step="0.0001" inputmode="decimal" />
+            <p class="dica-campo" id="est-ajuste-custo-dica"></p>
+          </div>
           <div class="form-grupo">
-            <label for="campo-observacao-ajuste">Observação (opcional)</label>
-            <input type="text" id="campo-observacao-ajuste" class="input" placeholder="Ex: Reposição do fornecedor X" />
+            <label for="est-ajuste-motivo">Motivo</label>
+            <input type="text" id="est-ajuste-motivo" class="input" maxlength="480" list="est-motivos" placeholder="Obrigatório" required />
+            <datalist id="est-motivos">
+              <option value="Inventário inicial"></option>
+              <option value="Contagem semanal"></option>
+              <option value="Produto vencido"></option>
+              <option value="Avaria / quebra"></option>
+              <option value="Consumo da equipe"></option>
+              <option value="Correção de lançamento"></option>
+            </datalist>
           </div>
-
-          <p id="preview-novo-estoque" class="preview-novo-estoque"></p>
+          <div class="form-grupo" id="est-ajuste-minimo-grupo">
+            <label for="est-ajuste-minimo">Estoque mínimo <span class="est-opcional">alerta de estoque baixo</span></label>
+            <div class="est-linha"><input type="number" id="est-ajuste-minimo" class="input" min="0" step="any" inputmode="decimal" placeholder="Sem mínimo" /><span class="est-unidade" id="est-ajuste-minimo-unidade">un</span></div>
+          </div>
+          <p class="est-previa" id="est-ajuste-previa"></p>
+          <p class="est-erro" id="est-ajuste-erro" style="display:none;"></p>
         </div>
         <div class="modal-rodape">
-          <button type="button" class="btn btn-secundario" id="botao-cancelar-ajuste-estoque">Cancelar</button>
-          <button type="submit" class="btn btn-primario">Salvar Ajuste</button>
+          <button type="button" class="btn btn-secundario" id="est-ajuste-cancelar">Cancelar</button>
+          <button type="submit" class="btn btn-primario" id="est-ajuste-salvar">Salvar ajuste</button>
         </div>
       </form>
     </div>
@@ -149,6 +158,8 @@
   <script src="js/supabase.js"></script>
   <script src="js/services/permissions-service.js"></script>
   <script src="js/services/products-service.js"></script>
+  <script src="js/services/purchases-service.js"></script>
+  <script src="js/services/stock-service.js"></script>
   <script src="js/app.js"></script>
   <script src="js/estoque.js"></script>
 </body>

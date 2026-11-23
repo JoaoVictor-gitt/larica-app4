@@ -118,6 +118,7 @@ function _linhaSupabaseParaProduto(linha) {
     porcaoGramas: linha.portion_grams === null || linha.portion_grams === undefined ? null : Number(linha.portion_grams),
     producaoItemId: linha.production_raw_item_id || null,
     producaoReceitaId: linha.production_recipe_id || null,
+    estoqueMinimo: linha.min_stock === null || linha.min_stock === undefined ? null : Number(linha.min_stock), // Fase D
     comboConfig: null, // preenchido por buscarProdutosDoSupabase() quando for combo
     criadoEm: linha.created_at || '',
     atualizadoEm: linha.updated_at || '',
@@ -391,11 +392,29 @@ async function buscarProdutosDoSupabase() {
 /** Cria um produto novo (e, se for combo, sua configuração). Retorna o produto já no formato do app. */
 async function criarProdutoNoSupabase(produto) {
   const linha = _produtoParaLinhaSupabase(produto);
+  // Fase D: o produto nasce com saldo 0 e a quantidade inicial entra como movimento
+  // registrado (adjust_product_stock) — estoque só muda pelo histórico.
+  const estoqueInicial = linha.stock_quantity;
+  linha.stock_quantity = 0;
   const { data, error } = await supabaseClient.from('products').insert(linha).select().single();
   if (error) throw new Error(error.message);
 
   if (produto.categoria === 'Combos' && produto.comboConfig) {
     await _salvarComboConfigNoSupabase(data.id, produto.comboConfig);
+  }
+
+  if (estoqueInicial > 0 && produto.categoria !== 'Combos') {
+    const { error: erroEstoque } = await supabaseClient.rpc('adjust_product_stock', {
+      p_payload: {
+        client_request_id: crypto.randomUUID(),
+        product_id: data.id,
+        mode: 'in',
+        quantity: estoqueInicial,
+        reason: 'Estoque inicial no cadastro',
+      },
+    });
+    if (erroEstoque) throw new Error('Produto criado, mas o estoque inicial não foi lançado: ' + erroEstoque.message);
+    return _linhaSupabaseParaProduto({ ...data, stock_quantity: estoqueInicial });
   }
 
   return _linhaSupabaseParaProduto(data);
@@ -404,6 +423,9 @@ async function criarProdutoNoSupabase(produto) {
 /** Atualiza um produto existente (e, se for combo, sua configuração). Retorna o produto já no formato do app. */
 async function atualizarProdutoNoSupabase(id, produto) {
   const linha = _produtoParaLinhaSupabase(produto);
+  // Fase D: nunca regrava o saldo a partir do formulário (sobrescreveria vendas feitas
+  // enquanto o modal estava aberto, sem movimento). Saldo só muda pelo Estoque.
+  delete linha.stock_quantity;
   linha.updated_at = new Date().toISOString();
   const { data, error } = await supabaseClient.from('products').update(linha).eq('id', id).select().single();
   if (error) throw new Error(error.message);

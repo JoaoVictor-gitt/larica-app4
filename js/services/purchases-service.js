@@ -56,6 +56,7 @@ function _linhaSupabaseParaItemCompra(linha) {
     custoMedio: _numeroOuNull(linha.avg_cost),
     custoMedioAtualizadoEm: linha.avg_cost_updated_at || null,
     categoriaFinanceiraId: linha.finance_category_id || null,
+    estoqueMinimo: linha.min_stock === null || linha.min_stock === undefined ? null : Number(linha.min_stock), // Fase D
     criadoEm: linha.created_at,
     atualizadoEm: linha.updated_at,
   };

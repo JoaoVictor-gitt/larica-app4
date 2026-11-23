@@ -510,6 +510,8 @@ function abrirModalCriacao() {
   _valorCategoriaAnterior = document.getElementById('campo-categoria').value;
   document.getElementById('campo-id').value = '';
   document.getElementById('campo-estoque').value = 0;
+  document.getElementById('campo-estoque').readOnly = false;
+  document.getElementById('dica-estoque-pelo-estoque').style.display = 'none';
   document.getElementById('campo-status').value = 'ativo';
   document.getElementById('campo-origem-estoque').value = 'untracked';
   document.getElementById('campo-porcao').value = '';
@@ -535,6 +537,9 @@ function abrirModalEdicao(id) {
   _valorCategoriaAnterior = document.getElementById('campo-categoria').value;
   document.getElementById('campo-preco').value = produto.preco;
   document.getElementById('campo-estoque').value = produto.quantidadeEstoque;
+  // Fase D: saldo só muda pelo Estoque (movimento registrado), nunca pela edição do produto.
+  document.getElementById('campo-estoque').readOnly = true;
+  document.getElementById('dica-estoque-pelo-estoque').style.display = '';
   document.getElementById('campo-descricao').value = produto.descricao || '';
   document.getElementById('campo-status').value = produto.status;
   document.getElementById('campo-origem-estoque').value = produto.stockMode || 'untracked';

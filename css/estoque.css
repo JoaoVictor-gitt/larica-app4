@@ -1,127 +1,61 @@
 /*
- * estoque.css
- * Estilos específicos da tela de Estoque: cartões-resumo, filtros, tabela
- * e o seletor de tipo de ajuste dentro do modal.
+ * estoque.css — Fase D: estoque único (produtos + insumos + movimentações).
+ * Mesmos tokens do sistema; prefixo est-. Versão anterior em
+ * backup-pre-reestruturacao-20261123\fase-d\estoque.css.local-antes.
  */
 
-.cartoes-resumo-estoque {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--espaco-md);
-  margin-bottom: var(--espaco-lg);
+.est-resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--espaco-md); margin-bottom: var(--espaco-lg); }
+.est-cartao { display: flex; flex-direction: column; gap: 4px; }
+.est-cartao span { font-size: 0.8rem; color: var(--cor-texto-secundario); }
+.est-cartao strong { font-size: 1.5rem; }
+.est-cartao small { font-size: 0.72rem; color: var(--cor-texto-secundario); }
+.est-cartao-alerta { border-left: 3px solid var(--cor-status-amarelo); }
+.est-cartao-erro { border-left: 3px solid var(--cor-status-vermelho); }
+
+.est-abas { display: flex; gap: 4px; border-bottom: 1px solid var(--cor-borda); margin-bottom: var(--espaco-md); overflow-x: auto; }
+.est-aba {
+  background: none; border: none; border-bottom: 3px solid transparent; padding: var(--espaco-sm) var(--espaco-md);
+  font-weight: 600; color: var(--cor-texto-secundario); cursor: pointer; white-space: nowrap; font-size: 0.92rem;
 }
+.est-aba:hover { color: var(--cor-texto); }
+.est-aba:focus-visible { outline: 2px solid var(--cor-terracota); outline-offset: -2px; }
+.est-aba-ativa { color: var(--cor-terracota); border-bottom-color: var(--cor-terracota); }
+.est-painel { display: none; }
+.est-painel-ativo { display: block; }
 
-.cartao-resumo {
-  display: flex;
-  flex-direction: column;
-  gap: var(--espaco-xs);
-  border-top: 3px solid var(--cor-terracota);
+.est-filtros { display: flex; gap: var(--espaco-md); flex-wrap: wrap; margin-bottom: var(--espaco-md); }
+.est-filtros .form-grupo { margin-bottom: 0; min-width: 150px; }
+.est-campo-largo { flex: 2 1 220px; }
+
+.est-tabela-wrap { padding: 0; overflow-x: auto; }
+.est-tabela-wrap .tabela { min-width: 760px; }
+.est-num { text-align: right; white-space: nowrap; }
+.est-acoes { white-space: nowrap; text-align: right; }
+.est-negativo { color: var(--cor-status-vermelho); font-weight: 700; }
+.est-entrada { color: var(--cor-status-verde); font-weight: 600; }
+.est-saida { color: var(--cor-status-vermelho); font-weight: 600; }
+.est-sem { color: var(--cor-texto-secundario); font-style: italic; }
+.est-btn-pequeno { padding: 6px 12px; font-size: 0.82rem; min-height: 34px; }
+
+.est-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
+.est-badge-ok { background: var(--cor-acento-sutil); color: var(--cor-status-verde); }
+.est-badge-alerta { background: var(--cor-cinza-claro); color: var(--cor-status-amarelo); }
+.est-badge-erro { background: var(--cor-cinza-claro); color: var(--cor-status-vermelho); }
+.est-badge-cinza { background: var(--cor-cinza-claro); color: var(--cor-status-cinza); }
+
+.est-saldo-atual { margin: 0 0 var(--espaco-md); font-size: 0.95rem; }
+.est-modos { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: var(--espaco-md); }
+@media (max-width: 420px) { .est-modos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.est-modo {
+  padding: 10px 6px; border: 1px solid var(--cor-borda); border-radius: var(--raio-md); background: var(--cor-cinza-claro);
+  color: var(--cor-texto); font-weight: 600; font-size: 0.85rem; cursor: pointer;
 }
-
-.cartao-resumo-rotulo { font-size: 0.82rem; color: var(--cor-texto-secundario); font-weight: 600; }
-.cartao-resumo-valor { font-size: 1.7rem; font-weight: 700; color: var(--cor-texto); }
-
-.filtros-estoque {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--espaco-md);
-  margin-bottom: var(--espaco-lg);
-}
-
-.tabela-estoque-wrap { padding: 0; overflow-x: auto; }
-.tabela-estoque-wrap .tabela { min-width: 720px; }
-
-/*
- * Colunas da tabela de estoque — alinhamento aplicado só nas células do <tbody> (via #corpo-tabela-estoque,
- * id único desta tabela). A tabela de Movimentações reaproveita a mesma classe .tabela-estoque-wrap no
- * card em volta, então evitamos seletor por essa classe no <thead> pra não vazar estilo entre as duas.
- */
-#corpo-tabela-estoque td:nth-child(2) { font-weight: 600; }
-
-#corpo-tabela-estoque td:nth-child(4),
-#corpo-tabela-estoque td:nth-child(7) {
-  text-align: right;
-}
-
-#corpo-tabela-estoque td:nth-child(6) {
-  text-align: center;
-}
-
-/* Quantidade atual — precisa ser fácil de localizar mas sem parecer ação: mais peso/tamanho, sem cor de destaque */
-#corpo-tabela-estoque td:nth-child(5) {
-  text-align: right;
-}
-
-#corpo-tabela-estoque td:nth-child(5) strong {
-  font-size: 1.05rem;
-  color: var(--cor-texto);
-}
-
-.miniatura-estoque {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--raio-sm);
-  object-fit: cover;
-  background: var(--cor-cinza-claro);
-}
-
-.miniatura-estoque-vazia {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--raio-sm);
-  background: var(--cor-cinza-claro);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.1rem;
-}
-
-.acoes-linha-estoque { display: flex; gap: var(--espaco-xs); justify-content: flex-end; }
-
-.acoes-linha-estoque .btn-icone:focus-visible {
-  outline: 2px solid var(--cor-terracota);
-  outline-offset: 2px;
-}
-
-/* Movimentações recentes (mesma ordem do <thead> estático e do <tr> gerado por linhaMovimentacaoEstoqueHtml()) */
-#corpo-tabela-movimentacoes td:nth-child(2) { font-weight: 600; }
-
-#corpo-tabela-movimentacoes td:nth-child(4),
-#corpo-tabela-movimentacoes td:nth-child(5) {
-  text-align: right;
-}
-
-/* Seletor de tipo de ajuste dentro do modal */
-.opcoes-tipo-ajuste {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--espaco-sm);
-  margin-bottom: var(--espaco-md);
-}
-
-.opcao-tipo-ajuste {
-  padding: var(--espaco-sm);
-  border: 2px solid var(--cor-borda);
-  border-radius: var(--raio-md);
-  background: var(--cor-branco);
-  font-size: 0.82rem;
-  font-weight: 600;
-  text-align: center;
-  transition: border-color var(--transicao-rapida), background var(--transicao-rapida);
-}
-
-.opcao-tipo-ajuste:hover { border-color: var(--cor-terracota); }
-
-.opcao-tipo-ajuste.selecionada {
-  border-color: var(--cor-terracota);
-  background: var(--cor-acento-sutil);
-}
-
-.preview-novo-estoque {
-  font-size: 0.85rem;
-  color: var(--cor-texto-secundario);
-  background: var(--cor-cinza-claro);
-  border-left: 3px solid var(--cor-terracota);
-  padding: var(--espaco-sm) var(--espaco-md);
-  border-radius: var(--raio-sm);
-}
+.est-modo-ativo { border-color: var(--cor-terracota); background: var(--cor-acento-sutil); color: var(--cor-terracota); }
+.est-modo:focus-visible { outline: 2px solid var(--cor-terracota); outline-offset: 2px; }
+.est-linha { display: flex; gap: var(--espaco-sm); align-items: center; }
+.est-linha .input { flex: 1; min-width: 0; }
+.est-unidade { font-weight: 700; color: var(--cor-texto-secundario); min-width: 24px; }
+.est-input-grande { font-size: 1.15rem; font-weight: 700; min-height: 48px; }
+.est-opcional { font-weight: 400; font-size: 0.75rem; color: var(--cor-texto-secundario); }
+.est-previa { min-height: 1.2em; margin: var(--espaco-sm) 0 0; font-size: 0.9rem; }
+.est-erro { color: var(--cor-status-vermelho); font-size: 0.85rem; font-weight: 600; margin: var(--espaco-sm) 0 0; }
