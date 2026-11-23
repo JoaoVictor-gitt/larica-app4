@@ -91,7 +91,7 @@ async function carregarDadosCompras() {
     buscarCategoriasFinanceirasDoSupabase(),
     buscarApelidosItensCompraDoSupabase(),
     buscarProdutosDoSupabase(),
-    buscarCustosProdutosDoSupabase(),
+    buscarMapaCustosProdutosParaCompras(),
     buscarIngredientesDoSupabase(),
     buscarInsumosProducaoDoSupabase(),
     usuarioEhAdminNoSupabase(),

@@ -253,7 +253,7 @@ async function buscarDocumentosCompraDoSupabase(compraId) {
 }
 
 /** Custo médio atual dos produtos de revenda: Map(productId -> custo). */
-async function buscarCustosProdutosDoSupabase() {
+async function buscarMapaCustosProdutosParaCompras() {
   const { data, error } = await supabaseClient.from('product_costs').select('product_id, unit_cost, updated_at');
   if (error) throw new Error(error.message);
   return new Map((data || []).map((c) => [c.product_id, _numeroOuNull(c.unit_cost)]));
