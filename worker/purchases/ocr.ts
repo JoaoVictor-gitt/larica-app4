@@ -127,16 +127,24 @@ export async function chamarGeminiNota(env: PurchaseOcrEnv, mime: string, base64
   // Histórico curto das tentativas (modelo, esquema, código HTTP) para o erro gravado.
   const historico: string[] = [];
   let ultimo: { status: number; corpoErro: string; modelo: string } | null = null;
+  // Erro que explica a falha: um 404 de modelo reserva não deve esconder um 503 anterior.
+  let relevante: { status: number; corpoErro: string; modelo: string } | null = null;
+  let detalheAnterior = '';
 
   // Uma tentativa. Devolve 'ok' (resposta boa), 'parar' (erro que insistir não resolve)
   // ou 'seguir' (5xx, rede, esquema recusado ou modelo inexistente → tenta a próxima).
   const tentar = async (m: string, comEsquema: boolean): Promise<{ fim: 'ok'; r: Response } | { fim: 'parar' | 'seguir' | 'sem-modelo' }> => {
     const r = await postarComPrazo(urlDo(m), headers, montar(comEsquema));
     if (!r) { historico.push(`${m}${comEsquema ? '' : ' s/esq'}: sem resposta`); return { fim: 'seguir' }; }
-    historico.push(`${m}${comEsquema ? '' : ' s/esq'}: ${r.status}`);
-    if (r.ok) return { fim: 'ok', r };
+    if (r.ok) { historico.push(`${m}${comEsquema ? '' : ' s/esq'}: ${r.status}`); return { fim: 'ok', r }; }
     const corpoErro = await r.text().catch(() => '');
+    // Resumo curto do erro do Google (status + começo da mensagem), só quando muda,
+    // para diagnóstico. Qualquer coisa parecida com chave é apagada.
+    const detalhe = resumoErroGoogle(corpoErro);
+    historico.push(`${m}${comEsquema ? '' : ' s/esq'}: ${r.status}${detalhe && detalhe !== detalheAnterior ? ` (${detalhe})` : ''}`);
+    if (detalhe) detalheAnterior = detalhe;
     ultimo = { status: r.status, corpoErro, modelo: m };
+    if (r.status !== 404 || !relevante) relevante = ultimo;
     if (r.status === 404) return { fim: 'sem-modelo' };
     const erroDeEsquema = r.status === 400 && /schema/i.test(corpoErro) && !/api.?key/i.test(corpoErro);
     return { fim: erroDeEsquema || r.status >= 500 ? 'seguir' : 'parar' };
@@ -147,9 +155,9 @@ export async function chamarGeminiNota(env: PurchaseOcrEnv, mime: string, base64
     return leitura.ok ? { ...leitura, modelo: m } : leitura;
   };
   const falhar = (): Leitura => {
-    const u = ultimo as { status: number; corpoErro: string; modelo: string } | null;
+    const u = (relevante || ultimo) as { status: number; corpoErro: string; modelo: string } | null;
     const motivo = u ? classificarErroGemini(u.status, u.corpoErro, u.modelo) : 'A leitura demorou demais ou o Gemini está indisponível.';
-    return { ok: false, motivo: `${motivo} [${historico.join('; ')}]` };
+    return { ok: false, motivo: `${motivo} [${historico.join('; ')}]`.slice(0, 900) };
   };
 
   // 1) modelo configurado, com esquema; 2) o mesmo sem esquema (o Gemini às vezes
@@ -164,10 +172,10 @@ export async function chamarGeminiNota(env: PurchaseOcrEnv, mime: string, base64
     if (t.fim === 'parar') return falhar();
   }
 
-  // 3) pergunta ao Google quais modelos esta chave pode usar e tenta até dois deles.
+  // 3) pergunta ao Google quais modelos esta chave pode usar e tenta até três deles.
   const disponiveis = await listarModelosGemini(headers);
   if (!disponiveis) { historico.push('lista de modelos: falhou'); return falhar(); }
-  const candidatos = ordenarModelosGemini(disponiveis).filter((m) => m !== modelo).slice(0, 2);
+  const candidatos = ordenarModelosGemini(disponiveis).filter((m) => m !== modelo).slice(0, 3);
   if (!candidatos.length) {
     historico.push(`lista de modelos: ${disponiveis.length} sem flash`);
     return falhar();
@@ -180,7 +188,29 @@ export async function chamarGeminiNota(env: PurchaseOcrEnv, mime: string, base64
   return falhar();
 }
 
-// Só a classificação do erro é usada; o corpo devolvido pelo Google nunca é repassado.
+// Resumo de diagnóstico do erro do Google: "STATUS: começo da mensagem" (máx. 120
+// caracteres), com qualquer coisa parecida com chave de API apagada.
+export function resumoErroGoogle(corpoErro: string): string {
+  let status = '';
+  let mensagem = '';
+  try {
+    const e = (JSON.parse(corpoErro) as { error?: { status?: unknown; code?: unknown; message?: unknown } })?.error;
+    if (typeof e?.status === 'string') status = e.status;
+    else if (typeof e?.code === 'string') status = e.code;
+    if (typeof e?.message === 'string') mensagem = e.message;
+  } catch {
+    return '';
+  }
+  const limpo = `${status}${status && mensagem ? ': ' : ''}${mensagem}`
+    .replace(/AIza[0-9A-Za-z_-]{10,}/g, '***')
+    .replace(/(key|token)=[^\s&]+/gi, '$1=***')
+    .replace(/[\r\n\[\];]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return limpo.slice(0, 120);
+}
+
+// O usuário vê só a classificação do erro + o resumo curto acima (sem chave).
 function classificarErroGemini(status: number, corpoErro: string, modelo: string): string {
   if (status === 401 || (status === 400 && /api.?key/i.test(corpoErro))) {
     return 'A chave do Gemini (GEMINI_API_KEY no Worker) foi recusada. Confira o valor no Cloudflare.';
