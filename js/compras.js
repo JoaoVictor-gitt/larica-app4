@@ -1137,12 +1137,34 @@ function renderizarTabelaItensCompra() {
     }
     return true;
   });
-  if (!lista.length) {
+  // Produtos já cadastrados no estoque (mesmo critério da página Estoque) que ainda não
+  // têm item de compra: aparecem junto, para a lista mostrar tudo o que tem estoque.
+  const produtosSoltos = (categoria || (tipo && tipo !== 'estoque')) ? [] : produtosCache
+    .filter((p) => p.status === 'ativo' && p.categoria !== 'Combos')
+    .filter((p) => !itensCompraCache.some((i) => i.produtoId === p.id))
+    .filter((p) => !busca || (normalizarTextoCompra(p.nome) || '').includes(busca))
+    .sort((a, b) => a.nome.localeCompare(b.nome));
+  if (!lista.length && !produtosSoltos.length) {
     corpo.innerHTML = '';
     vazio.style.display = 'block';
     return;
   }
   vazio.style.display = 'none';
+  const linhasProdutos = produtosSoltos.map((p) => {
+    const custo = custosProdutosCache.get(p.id);
+    return `
+      <tr class="compras-linha-produto">
+        <td>${esc(p.nome)}<br><small>Produto do estoque · ainda sem item de compra</small></td>
+        <td>${esc(p.categoria)}</td>
+        <td class="${p.quantidadeEstoque < 0 ? 'compras-negativo' : ''}">${numeroTexto(p.quantidadeEstoque, 0)} un</td>
+        <td>${custo !== null && custo !== undefined ? `${euroPreciso(custo)}/un` : '—'}</td>
+        <td>Produto: ${esc(p.nome)}</td>
+        <td>Ativo</td>
+        <td class="compras-acoes-linha">
+          <button class="btn-icone" data-item-do-produto="${p.id}" title="Criar item de compra para este produto" aria-label="Criar item de compra para ${esc(p.nome)}" ${souAdminCompras ? '' : 'disabled'}>➕</button>
+        </td>
+      </tr>`;
+  }).join('');
   corpo.innerHTML = lista.map((item) => {
     const ec = estoqueECustoDoItem(item);
     const negativo = item.controlaEstoque && !estoqueFicaNoProduto(item) && item.estoque < 0;
@@ -1162,10 +1184,24 @@ function renderizarTabelaItensCompra() {
           <button class="btn-icone" data-excluir-item="${item.id}" title="Excluir" aria-label="Excluir ${esc(item.nome)}" ${souAdminCompras ? '' : 'disabled'}>🗑️</button>
         </td>
       </tr>`;
-  }).join('');
+  }).join('') + linhasProdutos;
+  corpo.querySelectorAll('[data-item-do-produto]').forEach((b) => b.addEventListener('click', () => criarItemCompraDoProduto(b.dataset.itemDoProduto)));
   corpo.querySelectorAll('[data-editar-item]').forEach((b) => b.addEventListener('click', () => abrirModalItemCompra(b.dataset.editarItem)));
   corpo.querySelectorAll('[data-excluir-item]').forEach((b) => b.addEventListener('click', () => excluirItemCompra(b.dataset.excluirItem, b)));
   corpo.querySelectorAll('[data-historico-item]').forEach((b) => b.addEventListener('click', () => abrirHistoricoItem(b.dataset.historicoItem)));
+}
+
+/** Abre o cadastro de item já ligado a um produto do estoque (revenda), em unidades. */
+function criarItemCompraDoProduto(produtoId) {
+  const produto = produtosCache.find((p) => p.id === produtoId);
+  if (!produto || !souAdminCompras) return;
+  uidLinhaAguardandoNovoItem = null;
+  abrirModalNovoItemCompra(produto.nome);
+  document.getElementById('campo-categoria-item-compra').value = /bebida/i.test(produto.categoria) ? 'beverage' : 'other';
+  document.getElementById('campo-unidade-base-item-compra').value = 'un';
+  document.getElementById('campo-tipo-vinculo-item-compra').value = 'product';
+  popularOpcoesVinculoItemCompra(produto.id);
+  atualizarVisibilidadeTipoItemCompra();
 }
 
 async function excluirItemCompra(itemId, botao) {
