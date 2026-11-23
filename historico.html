@@ -20,30 +20,59 @@
   <div id="layout-shell"></div>
   <main class="conteudo-pagina">
     <div class="pagina-titulo">
-      <h1>Histórico</h1>
+      <h1>Histórico de pedidos</h1>
+      <nav class="abas-area-pedidos" aria-label="Área de pedidos">
+        <a class="aba-area-pedidos" href="pedidos.html">📋 Hoje</a>
+        <a class="aba-area-pedidos ativa" href="historico.html" aria-current="page">🕒 Histórico</a>
+        <a class="aba-area-pedidos" href="clientes.html" data-somente-admin>👥 Clientes</a>
+      </nav>
     </div>
 
-    <!-- Pedidos finalizados/cancelados (área Fazer Pedido) — separado da tabela de vendas/estoque abaixo -->
     <section class="secao-pedidos-finalizados">
-      <div class="pagina-titulo">
-        <h2 id="titulo-secao-historico-pedidos">Pedidos finalizados</h2>
-        <div class="acoes-pedidos-finalizados" id="acoes-pedidos-finalizados-wrap">
-          <button class="btn btn-secundario" id="botao-excluir-selecionados-historico" style="display:none;">Excluir selecionados</button>
-          <button class="btn btn-secundario" id="botao-limpar-historico">Limpar histórico</button>
+      <div class="card filtros-historico">
+        <div class="form-grupo">
+          <label for="filtro-periodo-historico">Período</label>
+          <select id="filtro-periodo-historico" class="input"></select>
+        </div>
+        <div class="form-grupo filtro-periodo-personalizado" id="grupo-periodo-personalizado" style="display:none;">
+          <label for="filtro-historico-de">De</label>
+          <input type="date" id="filtro-historico-de" class="input" />
+        </div>
+        <div class="form-grupo filtro-periodo-personalizado" id="grupo-periodo-personalizado-ate" style="display:none;">
+          <label for="filtro-historico-ate">Até</label>
+          <input type="date" id="filtro-historico-ate" class="input" />
+        </div>
+        <div class="form-grupo filtro-historico-busca">
+          <label for="busca-historico">Buscar</label>
+          <input type="search" id="busca-historico" class="input" placeholder="Número, nome ou telefone do cliente" />
+        </div>
+        <div class="form-grupo">
+          <label for="filtro-situacao-historico">Situação</label>
+          <select id="filtro-situacao-historico" class="input">
+            <option value="">Todos</option>
+            <option value="validos">Válidos</option>
+            <option value="cancelados">Cancelados</option>
+          </select>
         </div>
       </div>
 
-      <div class="filtro-categorias" id="abas-historico-pedidos">
-        <button type="button" class="filtro-categoria-botao ativo" data-aba-historico="finalizado">Finalizados</button>
-        <button type="button" class="filtro-categoria-botao" data-aba-historico="cancelado">Cancelados</button>
-      </div>
-      <p class="aviso-info" id="aviso-historico-cancelados" style="display:none;">
-        Pedidos cancelados aparecem aqui só para consulta/auditoria — o valor não é contado como faturamento (já excluído do Dashboard) e não podem ser excluídos por aqui.
-      </p>
+      <div class="resumo-historico" id="resumo-historico" aria-live="polite"></div>
+      <p class="aviso-info">Pedidos cancelados ficam registrados para consulta e auditoria e nunca entram no faturamento.</p>
 
       <div class="card tabela-pedidos-finalizados-wrap">
-        <table class="tabela">
-          <thead id="cabecalho-tabela-historico"></thead>
+        <table class="tabela tabela-historico">
+          <thead>
+            <tr>
+              <th>Pedido</th>
+              <th>Data</th>
+              <th>Cliente</th>
+              <th>Tipo</th>
+              <th>Pagamento</th>
+              <th>Total</th>
+              <th>Situação</th>
+              <th></th>
+            </tr>
+          </thead>
           <tbody id="corpo-tabela-pedidos-finalizados"></tbody>
         </table>
         <div class="estado-vazio" id="estado-carregando-pedidos-finalizados">Carregando pedidos...</div>
@@ -53,24 +82,7 @@
     </section>
   </main>
 
-  <!-- Modal de confirmação de exclusão (reaproveitado pros 3 casos: individual, selecionados, limpar tudo) -->
-  <div class="modal-overlay" id="modal-overlay-confirmar-exclusao">
-    <div class="modal" style="max-width:420px;">
-      <div class="modal-cabecalho">
-        <h2 id="confirmar-exclusao-titulo">Excluir pedido?</h2>
-        <button class="btn-icone" id="botao-fechar-modal-confirmar-exclusao" aria-label="Fechar">✕</button>
-      </div>
-      <div class="modal-corpo">
-        <p id="confirmar-exclusao-mensagem"></p>
-      </div>
-      <div class="modal-rodape">
-        <button type="button" class="btn btn-secundario" id="botao-cancelar-exclusao">Cancelar</button>
-        <button type="button" class="btn btn-perigo" id="botao-confirmar-exclusao">Excluir pedido</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal "Ver detalhes" de um pedido finalizado -->
+  <!-- Modal "Ver detalhes" do pedido -->
   <div class="modal-overlay" id="modal-overlay-detalhe-pedido-historico">
     <div class="modal modal-pedido">
       <div class="modal-cabecalho">
@@ -80,19 +92,17 @@
       <div class="modal-corpo" id="detalhe-pedido-historico-corpo"></div>
       <div class="modal-rodape">
         <button type="button" class="btn btn-secundario" id="botao-fechar-modal-detalhe-historico-rodape">Fechar</button>
-        <button type="button" class="btn btn-perigo" id="botao-excluir-pedido-detalhe-historico">Excluir pedido</button>
       </div>
-      <!-- botao-excluir-pedido-detalhe-historico fica display:none via JS quando o pedido exibido é cancelado (não pode ser excluído) -->
     </div>
   </div>
 
-  <script src="js/utils.js"></script>
-  <script src="js/storage.js"></script>
+  <script src="js/utils.js?v=20261123"></script>
+  <script src="js/storage.js?v=20261123"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="js/supabase.js"></script>
   <script src="js/services/permissions-service.js"></script>
-  <script src="js/services/orders-service.js"></script>
-  <script src="js/app.js"></script>
-  <script src="js/historico.js"></script>
+  <script src="js/services/orders-service.js?v=20261123"></script>
+  <script src="js/app.js?v=20261123"></script>
+  <script src="js/historico.js?v=20261123"></script>
 </body>
 </html>

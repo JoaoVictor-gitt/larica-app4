@@ -24,19 +24,27 @@
     </div>
 
     <div class="compras-central" id="compras-central">
-      <button type="button" class="compras-card" data-compras-abrir="registrar">
+      <button type="button" class="compras-card compras-card-destaque" data-compras-abrir="registrar">
         <span class="compras-card-icone">🧾</span>
         <span class="compras-card-texto">
-          <strong>Registrar Compra</strong>
-          <span>Lance uma compra real e gere lotes de estoque automaticamente</span>
+          <strong>Nova Compra</strong>
+          <span>Fotografe a nota, confira os dados e dê entrada no estoque</span>
+        </span>
+        <span class="compras-card-seta">→</span>
+      </button>
+      <button type="button" class="compras-card" data-compras-abrir="historico">
+        <span class="compras-card-icone">🕒</span>
+        <span class="compras-card-texto">
+          <strong>Histórico de Compras</strong>
+          <span>Notas registradas, VAT, documentos e cancelamentos</span>
         </span>
         <span class="compras-card-seta">→</span>
       </button>
       <button type="button" class="compras-card" data-compras-abrir="itens">
-        <span class="compras-card-icone">📇</span>
+        <span class="compras-card-icone">📦</span>
         <span class="compras-card-texto">
-          <strong>Itens de Compra</strong>
-          <span>Catálogo mestre de tudo que pode ser comprado</span>
+          <strong>Itens e Estoque</strong>
+          <span>Saldo, custo médio, histórico de preços e nomes alternativos</span>
         </span>
         <span class="compras-card-seta">→</span>
       </button>
@@ -48,35 +56,164 @@
         </span>
         <span class="compras-card-seta">→</span>
       </button>
-      <button type="button" class="compras-card" data-compras-abrir="lotes">
-        <span class="compras-card-icone">📦</span>
-        <span class="compras-card-texto">
-          <strong>Lotes em Estoque</strong>
-          <span>Saldo, custo e validade de cada lote comprado</span>
-        </span>
-        <span class="compras-card-seta">→</span>
-      </button>
-      <button type="button" class="compras-card" data-compras-abrir="historico">
-        <span class="compras-card-icone">🕒</span>
-        <span class="compras-card-texto">
-          <strong>Histórico de Compras</strong>
-          <span>Todas as compras já registradas, nunca apagadas</span>
-        </span>
-        <span class="compras-card-seta">→</span>
-      </button>
     </div>
+    <div class="estado-vazio" id="estado-erro-geral-compras" style="display:none;"></div>
 
-    <!-- Itens de Compra -->
+    <!-- ===================================================== Nova Compra -->
+    <section class="compras-secao" data-compras-secao="registrar">
+      <button type="button" class="compras-botao-voltar" data-compras-voltar>← Voltar para Compras</button>
+      <div class="compras-secao-cabecalho">
+        <h2>Nova Compra</h2>
+        <button type="button" class="btn btn-secundario" id="botao-limpar-compra">Limpar</button>
+      </div>
+      <p class="dica-campo" id="dica-compras-somente-admin" style="display:none;">Somente administradores podem registrar compras.</p>
+
+      <!-- 1. Documento -->
+      <div class="card compras-etapa">
+        <div class="compras-etapa-titulo"><span class="compras-etapa-numero">1</span> Nota fiscal <span class="compras-etapa-opcional">opcional</span></div>
+        <div class="compras-acoes-documento">
+          <label class="btn btn-primario compras-botao-arquivo">📷 Fotografar
+            <input type="file" id="campo-foto-camera" accept="image/*" capture="environment" />
+          </label>
+          <label class="btn btn-secundario compras-botao-arquivo">🖼️ Galeria
+            <input type="file" id="campo-foto-galeria" accept="image/*" multiple />
+          </label>
+          <label class="btn btn-secundario compras-botao-arquivo">📄 PDF
+            <input type="file" id="campo-pdf" accept="application/pdf,.pdf" />
+          </label>
+        </div>
+        <div class="compras-documentos" id="lista-documentos-compra"></div>
+        <p class="dica-campo" id="dica-documentos-compra">Fotografe ou anexe a nota para a IA preencher os dados. Você confere tudo antes de confirmar.</p>
+      </div>
+
+      <!-- 2. Dados da compra -->
+      <div class="card compras-etapa">
+        <div class="compras-etapa-titulo"><span class="compras-etapa-numero">2</span> Dados da compra</div>
+        <div class="compras-grade-campos">
+          <div class="form-grupo compras-campo-largo">
+            <label for="campo-fornecedor-compra">Fornecedor</label>
+            <input type="text" id="campo-fornecedor-compra" class="input" list="lista-fornecedores-datalist" autocomplete="off" placeholder="Escolha ou digite um novo" />
+          </div>
+          <div class="form-grupo">
+            <label for="campo-data-compra">Data</label>
+            <input type="date" id="campo-data-compra" class="input" required />
+          </div>
+          <div class="form-grupo">
+            <label for="campo-referencia-compra">Nº da nota</label>
+            <input type="text" id="campo-referencia-compra" class="input" maxlength="80" placeholder="Ex.: INV-12345" />
+          </div>
+          <div class="form-grupo">
+            <label for="campo-vat-recuperavel-compra">VAT desta compra</label>
+            <select id="campo-vat-recuperavel-compra" class="input">
+              <option value="true">Recuperável (fora do custo)</option>
+              <option value="false">Não recuperável (entra no custo)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grupo" style="margin-bottom:0;">
+          <label for="campo-observacoes-compra">Observações</label>
+          <textarea id="campo-observacoes-compra" class="input" rows="2" maxlength="1000"></textarea>
+        </div>
+      </div>
+
+      <!-- 3. Itens -->
+      <div class="compras-etapa-titulo compras-etapa-titulo-solto"><span class="compras-etapa-numero">3</span> Itens da nota</div>
+      <div class="compras-lista-linhas" id="lista-linhas-compra"></div>
+      <button type="button" class="btn btn-secundario compras-botao-adicionar" id="botao-adicionar-linha-compra">+ Adicionar linha</button>
+
+      <!-- 4. Conferência -->
+      <div class="card compras-etapa">
+        <div class="compras-etapa-titulo"><span class="compras-etapa-numero">4</span> Conferência</div>
+        <div class="compras-grade-campos">
+          <div class="form-grupo">
+            <label for="campo-desconto-geral-compra">Desconto geral (€)</label>
+            <input type="number" id="campo-desconto-geral-compra" class="input" min="0" step="0.01" inputmode="decimal" placeholder="0,00" />
+          </div>
+          <div class="form-grupo">
+            <label for="campo-total-pago-compra">Total pago (€)</label>
+            <input type="number" id="campo-total-pago-compra" class="input" min="0" step="0.01" inputmode="decimal" placeholder="igual ao calculado" />
+          </div>
+        </div>
+        <dl class="compras-resumo-grade" id="resumo-compra"></dl>
+        <p class="compras-aviso" id="aviso-diferenca-compra" style="display:none;"></p>
+      </div>
+
+      <p class="compras-erro" id="dica-registrar-compra-erro" style="display:none;"></p>
+      <div class="compras-rodape-secao compras-rodape-fixo">
+        <button type="button" class="btn btn-primario" id="botao-confirmar-compra">Confirmar compra</button>
+      </div>
+    </section>
+
+    <!-- ===================================================== Histórico -->
+    <section class="compras-secao" data-compras-secao="historico">
+      <button type="button" class="compras-botao-voltar" data-compras-voltar>← Voltar para Compras</button>
+      <div class="compras-secao-cabecalho">
+        <h2>Histórico de Compras</h2>
+      </div>
+      <div class="compras-filtros">
+        <div class="form-grupo compras-campo-largo" style="margin-bottom:0;">
+          <label for="filtro-historico-busca">Buscar</label>
+          <input type="search" id="filtro-historico-busca" class="input" placeholder="Fornecedor, nº da nota ou item" />
+        </div>
+        <div class="form-grupo" style="margin-bottom:0;">
+          <label for="filtro-historico-de">De</label>
+          <input type="date" id="filtro-historico-de" class="input" />
+        </div>
+        <div class="form-grupo" style="margin-bottom:0;">
+          <label for="filtro-historico-ate">Até</label>
+          <input type="date" id="filtro-historico-ate" class="input" />
+        </div>
+        <div class="form-grupo" style="margin-bottom:0;">
+          <label for="filtro-historico-status">Situação</label>
+          <select id="filtro-historico-status" class="input">
+            <option value="">Todas</option>
+            <option value="confirmed">Confirmadas</option>
+            <option value="cancelled">Canceladas</option>
+          </select>
+        </div>
+      </div>
+      <dl class="compras-resumo-grade compras-resumo-periodo" id="resumo-historico-compras"></dl>
+      <div class="card compras-tabela-wrap">
+        <table class="tabela">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Fornecedor</th>
+              <th>Nº nota</th>
+              <th>Itens</th>
+              <th>VAT</th>
+              <th>Total pago</th>
+              <th>Situação</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="corpo-tabela-historico-compras"></tbody>
+        </table>
+        <div class="estado-vazio" id="estado-carregando-historico-compras">Carregando compras...</div>
+        <div class="estado-vazio" id="estado-erro-historico-compras" style="display:none;"></div>
+        <div class="estado-vazio" id="estado-vazio-historico-compras" style="display:none;">Nenhuma compra encontrada.</div>
+      </div>
+    </section>
+
+    <!-- ===================================================== Itens e Estoque -->
     <section class="compras-secao" data-compras-secao="itens">
       <button type="button" class="compras-botao-voltar" data-compras-voltar>← Voltar para Compras</button>
-
       <div class="compras-secao-cabecalho">
-        <h2>Itens de Compra</h2>
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <h2>Itens e Estoque</h2>
+        <div class="compras-cabecalho-acoes">
           <span class="compras-badge-pendente" id="texto-itens-compra-pendentes-contador" style="display:none;"></span>
-          <select id="filtro-itens-compra-categoria" class="input" style="width:auto;">
-            <option value="">Todas as categorias</option>
-            <option value="insumos_embalagens">Insumos e Embalagens</option>
+          <button type="button" class="btn btn-primario" id="botao-novo-item-compra">+ Novo Item</button>
+        </div>
+      </div>
+      <div class="compras-filtros">
+        <div class="form-grupo compras-campo-largo" style="margin-bottom:0;">
+          <label for="filtro-itens-compra-busca">Buscar</label>
+          <input type="search" id="filtro-itens-compra-busca" class="input" placeholder="Nome ou nome alternativo" />
+        </div>
+        <div class="form-grupo" style="margin-bottom:0;">
+          <label for="filtro-itens-compra-categoria">Categoria</label>
+          <select id="filtro-itens-compra-categoria" class="input">
+            <option value="">Todas</option>
             <option value="ingredient">Ingrediente</option>
             <option value="meat">Carne</option>
             <option value="beverage">Bebida</option>
@@ -85,24 +222,26 @@
             <option value="cleaning">Limpeza</option>
             <option value="other">Outros</option>
           </select>
-          <select id="filtro-itens-compra-pendentes" class="input" style="width:auto;">
-            <option value="todos">Todos</option>
-            <option value="pendentes">Pendentes</option>
+        </div>
+        <div class="form-grupo" style="margin-bottom:0;">
+          <label for="filtro-itens-compra-tipo">Tipo</label>
+          <select id="filtro-itens-compra-tipo" class="input">
+            <option value="">Todos</option>
+            <option value="estoque">Com estoque</option>
+            <option value="despesa">Despesa (sem estoque)</option>
+            <option value="pendentes">Pendentes de revisão</option>
           </select>
-          <button type="button" class="btn btn-primario" id="botao-novo-item-compra">+ Novo Item</button>
         </div>
       </div>
-      <p class="dica-campo" id="dica-itens-compra-somente-admin" style="display:none;">Somente administradores podem cadastrar ou editar itens de compra.</p>
-      <p class="dica-campo">Insumos e embalagens cadastrados aqui ficam disponíveis automaticamente na Produção.</p>
-
+      <p class="dica-campo" id="dica-itens-compra-somente-admin" style="display:none;">Somente administradores podem cadastrar ou editar itens.</p>
       <div class="card compras-tabela-wrap">
         <table class="tabela">
           <thead>
             <tr>
               <th>Item</th>
               <th>Categoria</th>
-              <th>Controla estoque</th>
-              <th>Unidade-base</th>
+              <th>Estoque</th>
+              <th>Custo médio</th>
               <th>Vínculo</th>
               <th>Status</th>
               <th></th>
@@ -110,24 +249,20 @@
           </thead>
           <tbody id="corpo-tabela-itens-compra"></tbody>
         </table>
-        <div class="estado-vazio" id="estado-carregando-itens-compra">Carregando itens de compra...</div>
+        <div class="estado-vazio" id="estado-carregando-itens-compra">Carregando itens...</div>
         <div class="estado-vazio" id="estado-erro-itens-compra" style="display:none;"></div>
-        <div class="estado-vazio" id="estado-vazio-itens-compra" style="display:none;">
-          Nenhum item de compra cadastrado ainda.
-        </div>
+        <div class="estado-vazio" id="estado-vazio-itens-compra" style="display:none;">Nenhum item encontrado.</div>
       </div>
     </section>
 
-    <!-- Fornecedores -->
+    <!-- ===================================================== Fornecedores -->
     <section class="compras-secao" data-compras-secao="fornecedores">
       <button type="button" class="compras-botao-voltar" data-compras-voltar>← Voltar para Compras</button>
-
       <div class="compras-secao-cabecalho">
         <h2>Fornecedores</h2>
         <button type="button" class="btn btn-primario" id="botao-novo-fornecedor">+ Novo Fornecedor</button>
       </div>
       <p class="dica-campo" id="dica-fornecedores-somente-admin" style="display:none;">Somente administradores podem cadastrar ou editar fornecedores.</p>
-
       <div class="card compras-tabela-wrap">
         <table class="tabela">
           <thead>
@@ -144,210 +279,87 @@
         </table>
         <div class="estado-vazio" id="estado-carregando-fornecedores">Carregando fornecedores...</div>
         <div class="estado-vazio" id="estado-erro-fornecedores" style="display:none;"></div>
-        <div class="estado-vazio" id="estado-vazio-fornecedores" style="display:none;">
-          Nenhum fornecedor cadastrado ainda.
-        </div>
-      </div>
-    </section>
-
-    <!-- Lotes em Estoque -->
-    <section class="compras-secao" data-compras-secao="lotes">
-      <button type="button" class="compras-botao-voltar" data-compras-voltar>← Voltar para Compras</button>
-
-      <div class="compras-secao-cabecalho">
-        <h2>Lotes em Estoque</h2>
-        <button type="button" class="btn btn-secundario" id="botao-lotes-ver-historico-completo">Ver histórico completo</button>
-      </div>
-
-      <div class="compras-filtros">
-        <div class="form-grupo" style="margin-bottom:0;">
-          <label for="filtro-lotes-categoria">Categoria</label>
-          <select id="filtro-lotes-categoria" class="input">
-            <option value="">Todas</option>
-          </select>
-        </div>
-        <div class="form-grupo" style="margin-bottom:0;">
-          <label for="filtro-lotes-status">Status</label>
-          <select id="filtro-lotes-status" class="input">
-            <option value="">Todos</option>
-            <option value="available">Disponível</option>
-            <option value="depleted">Esgotado</option>
-            <option value="archived">Arquivado</option>
-          </select>
-        </div>
-        <div class="form-grupo" style="margin-bottom:0;">
-          <label for="filtro-lotes-item">Item</label>
-          <select id="filtro-lotes-item" class="input">
-            <option value="">Todos</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="card compras-tabela-wrap">
-        <table class="tabela">
-          <thead>
-            <tr>
-              <th>Item</th>
-              <th>Data da compra</th>
-              <th>Validade</th>
-              <th>Qtd. inicial</th>
-              <th>Saldo atual</th>
-              <th>Unidade</th>
-              <th>Custo unitário</th>
-              <th>Valor restante</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="corpo-tabela-lotes"></tbody>
-        </table>
-        <div class="estado-vazio" id="estado-carregando-lotes">Carregando lotes...</div>
-        <div class="estado-vazio" id="estado-erro-lotes" style="display:none;"></div>
-        <div class="estado-vazio" id="estado-vazio-lotes" style="display:none;">
-          Nenhum lote de estoque registrado ainda.
-        </div>
-      </div>
-    </section>
-
-    <!-- Histórico de Compras -->
-    <section class="compras-secao" data-compras-secao="historico">
-      <button type="button" class="compras-botao-voltar" data-compras-voltar>← Voltar para Compras</button>
-
-      <div class="compras-secao-cabecalho">
-        <h2>Histórico de Compras</h2>
-      </div>
-
-      <div class="card compras-tabela-wrap">
-        <table class="tabela">
-          <thead>
-            <tr>
-              <th>Data</th>
-              <th>Fornecedor</th>
-              <th>Itens</th>
-              <th>Total</th>
-              <th>Lotes gerados</th>
-              <th>Referência</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="corpo-tabela-historico-compras"></tbody>
-        </table>
-        <div class="estado-vazio" id="estado-carregando-historico-compras">Carregando compras...</div>
-        <div class="estado-vazio" id="estado-erro-historico-compras" style="display:none;"></div>
-        <div class="estado-vazio" id="estado-vazio-historico-compras" style="display:none;">
-          Nenhuma compra registrada ainda.
-        </div>
-      </div>
-    </section>
-
-    <!-- Registrar Compra -->
-    <section class="compras-secao" data-compras-secao="registrar">
-      <button type="button" class="compras-botao-voltar" data-compras-voltar>← Voltar para Compras</button>
-
-      <div class="compras-secao-cabecalho">
-        <h2 id="titulo-secao-registrar-compra">Registrar Compra</h2>
-      </div>
-      <p class="dica-campo" id="dica-compras-somente-admin" style="display:none;">Somente administradores podem registrar ou editar compras.</p>
-      <p class="dica-campo" id="dica-compra-com-consumo" style="display:none; color:var(--cor-status-vermelho);">Esta compra já possui itens consumidos. Quantidades, preços, data e linhas não podem mais ser alterados.</p>
-
-      <div class="card">
-        <div style="display:flex; gap:12px; flex-wrap:wrap;">
-          <div class="form-grupo" style="flex:2; min-width:200px;">
-            <label for="campo-fornecedor-compra">Fornecedor</label>
-            <select id="campo-fornecedor-compra" class="input">
-              <option value="">— Nenhum —</option>
-            </select>
-          </div>
-          <div class="form-grupo" style="flex:1; min-width:160px;">
-            <label for="campo-data-compra">Data da compra</label>
-            <input type="date" id="campo-data-compra" class="input" required />
-          </div>
-        </div>
-        <div class="form-grupo">
-          <label for="campo-referencia-compra">Referência/nota (opcional)</label>
-          <input type="text" id="campo-referencia-compra" class="input" placeholder="Ex: Nota 12345" />
-        </div>
-        <div class="form-grupo">
-          <label for="campo-observacoes-compra">Observações</label>
-          <textarea id="campo-observacoes-compra" class="input" rows="2"></textarea>
-        </div>
-      </div>
-
-      <h3 class="compras-subtitulo">Linhas da Compra</h3>
-      <div class="compras-lista-linhas-compra" id="lista-linhas-compra"></div>
-      <div class="estado-vazio" id="estado-vazio-linhas-compra" style="display:none;">Nenhum item adicionado a esta compra.</div>
-
-      <div class="compras-adicionar-linha">
-        <div class="form-grupo compras-autocomplete" style="flex:2; min-width:200px;">
-          <label for="campo-item-linha-compra-texto">Item</label>
-          <input
-            type="text"
-            id="campo-item-linha-compra-texto"
-            class="input"
-            autocomplete="off"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded="false"
-            aria-controls="lista-sugestoes-item-linha-compra"
-            placeholder="Digite para buscar ou digite um item novo"
-          />
-          <ul class="compras-autocomplete-lista" id="lista-sugestoes-item-linha-compra" role="listbox" style="display:none;"></ul>
-        </div>
-        <div class="form-grupo" style="flex:1; min-width:100px;">
-          <label for="campo-quantidade-linha-compra">Quantidade</label>
-          <input type="number" id="campo-quantidade-linha-compra" class="input" min="0" step="0.001" />
-        </div>
-        <div class="form-grupo" style="flex:1; min-width:90px;">
-          <label for="campo-unidade-linha-compra">Unidade</label>
-          <select id="campo-unidade-linha-compra" class="input"></select>
-        </div>
-        <div class="form-grupo" style="flex:1; min-width:110px;">
-          <label for="campo-preco-linha-compra">Preço total (€)</label>
-          <input type="number" id="campo-preco-linha-compra" class="input" min="0" step="0.0001" />
-        </div>
-        <div class="form-grupo" style="flex:1; min-width:140px;">
-          <label for="campo-validade-linha-compra">Validade (opcional)</label>
-          <input type="date" id="campo-validade-linha-compra" class="input" />
-        </div>
-        <div class="compras-botao-adicionar-linha">
-          <button type="button" class="btn btn-secundario" id="botao-adicionar-linha-compra">+ Adicionar item</button>
-          <button type="button" class="btn btn-secundario" id="botao-cancelar-edicao-linha-compra" style="display:none;">Cancelar edição</button>
-        </div>
-      </div>
-      <p class="dica-campo" id="dica-validade-linha-compra" style="display:none;">Este item não tem unidade-base definida — quantidade tratada como unidade simples.</p>
-      <p class="dica-campo" id="dica-item-linha-compra-novo" style="display:none;">
-        <span class="compras-badge-novo-item">Novo item</span>
-        — cadastro será concluído depois. Defina a unidade-base e controle de estoque em Itens de Compra para gerar o lote.
-      </p>
-      <p class="compras-preview-custo" id="preview-linha-compra"></p>
-      <p class="dica-campo" id="dica-linha-compra-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
-
-      <div class="compras-resumo">
-        <div class="compras-resumo-destaque"><span>Total da compra</span><strong id="texto-total-compra">€0,00</strong></div>
-      </div>
-
-      <p class="dica-campo" id="dica-registrar-compra-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
-
-      <div class="compras-rodape-secao">
-        <button type="button" class="btn btn-secundario" id="botao-cancelar-registrar-compra">Cancelar</button>
-        <button type="button" class="btn btn-primario" id="botao-salvar-compra">Salvar Compra</button>
+        <div class="estado-vazio" id="estado-vazio-fornecedores" style="display:none;">Nenhum fornecedor cadastrado ainda.</div>
       </div>
     </section>
   </main>
+
+  <datalist id="lista-itens-compra-datalist"></datalist>
+  <datalist id="lista-fornecedores-datalist"></datalist>
+
+  <!-- Modal: detalhe da compra -->
+  <div class="modal-overlay" id="modal-overlay-detalhe-compra">
+    <div class="modal compras-modal-rolavel compras-modal-largo">
+      <div class="modal-cabecalho">
+        <h2 id="titulo-modal-detalhe-compra">Compra</h2>
+        <button class="btn-icone" id="botao-fechar-modal-detalhe-compra" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-corpo" id="corpo-modal-detalhe-compra"></div>
+      <div class="modal-rodape">
+        <button type="button" class="btn btn-perigo" id="botao-cancelar-compra" style="display:none;">Cancelar compra (estorno)</button>
+        <button type="button" class="btn btn-secundario" id="botao-fechar-detalhe-compra">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: motivo do cancelamento -->
+  <div class="modal-overlay" id="modal-overlay-cancelar-compra">
+    <div class="modal" style="max-width:460px;">
+      <div class="modal-cabecalho">
+        <h2>Cancelar compra</h2>
+        <button class="btn-icone" id="botao-fechar-modal-cancelar-compra" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-corpo">
+        <p>A compra continua no histórico como <strong>cancelada</strong> e o estoque/custo médio de cada item é estornado. Esta ação não pode ser desfeita.</p>
+        <div class="form-grupo">
+          <label for="campo-motivo-cancelamento-compra">Motivo</label>
+          <textarea id="campo-motivo-cancelamento-compra" class="input" rows="2" maxlength="500" placeholder="Ex.: nota lançada em duplicidade"></textarea>
+        </div>
+        <p class="compras-erro" id="dica-cancelar-compra-erro" style="display:none;"></p>
+      </div>
+      <div class="modal-rodape">
+        <button type="button" class="btn btn-secundario" id="botao-desistir-cancelar-compra">Voltar</button>
+        <button type="button" class="btn btn-perigo" id="botao-confirmar-cancelar-compra">Cancelar compra</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: histórico do item (preços, custo médio, apelidos) -->
+  <div class="modal-overlay" id="modal-overlay-historico-item">
+    <div class="modal compras-modal-rolavel compras-modal-largo">
+      <div class="modal-cabecalho">
+        <h2 id="titulo-modal-historico-item">Item</h2>
+        <button class="btn-icone" id="botao-fechar-modal-historico-item" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-corpo" id="corpo-modal-historico-item"></div>
+      <div class="modal-rodape">
+        <button type="button" class="btn btn-secundario" id="botao-fechar-historico-item">Fechar</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Modal: novo/editar item de compra -->
   <div class="modal-overlay" id="modal-overlay-item-compra">
     <div class="modal compras-modal-rolavel" style="max-width:520px;">
       <div class="modal-cabecalho">
-        <h2 id="titulo-modal-item-compra">Novo Item de Compra</h2>
+        <h2 id="titulo-modal-item-compra">Novo Item</h2>
         <button class="btn-icone" id="botao-fechar-modal-item-compra" aria-label="Fechar">✕</button>
       </div>
       <form id="form-item-compra">
         <input type="hidden" id="campo-id-item-compra" />
         <div class="modal-corpo">
-          <p class="dica-campo" id="dica-item-compra-pendente" style="display:none;">⚠ Este item foi criado automaticamente a partir de uma compra. Complete o cadastro abaixo.</p>
+          <p class="dica-campo" id="dica-item-compra-pendente" style="display:none;">⚠ Este item foi criado automaticamente. Revise o cadastro abaixo.</p>
           <div class="form-grupo">
             <label for="campo-nome-item-compra">Nome</label>
             <input type="text" id="campo-nome-item-compra" class="input" required />
+          </div>
+
+          <div class="form-grupo">
+            <label for="campo-controla-estoque-item-compra">Tipo</label>
+            <select id="campo-controla-estoque-item-compra" class="input">
+              <option value="true">Insumo ou produto de estoque</option>
+              <option value="false">Despesa ou serviço (sem estoque)</option>
+            </select>
           </div>
 
           <div class="form-grupo">
@@ -363,31 +375,28 @@
             </select>
           </div>
 
-          <div class="form-grupo">
-            <label for="campo-controla-estoque-item-compra">Controla estoque</label>
-            <select id="campo-controla-estoque-item-compra" class="input">
-              <option value="true">Sim</option>
-              <option value="false">Não</option>
+          <div class="form-grupo" id="grupo-unidade-base-item-compra">
+            <label for="campo-unidade-base-item-compra">Unidade de estoque</label>
+            <select id="campo-unidade-base-item-compra" class="input">
+              <option value="">— Selecione —</option>
+              <option value="g">Peso (g / kg)</option>
+              <option value="ml">Volume (ml / l)</option>
+              <option value="un">Unidade</option>
             </select>
-            <p class="dica-campo">Quando ativado, cada compra deste item gera um lote com saldo.</p>
           </div>
 
-          <div class="form-grupo" id="grupo-unidade-base-item-compra">
-            <label for="campo-unidade-base-item-compra">Unidade-base</label>
-            <select id="campo-unidade-base-item-compra" class="input">
-              <option value="">— Nenhuma —</option>
-              <option value="g">g</option>
-              <option value="ml">ml</option>
-              <option value="un">un</option>
-            </select>
+          <div class="form-grupo" id="grupo-categoria-financeira-item-compra" style="display:none;">
+            <label for="campo-categoria-financeira-item-compra">Categoria financeira</label>
+            <select id="campo-categoria-financeira-item-compra" class="input"></select>
+            <p class="dica-campo">Usada no Financeiro quando este item aparecer numa nota.</p>
           </div>
 
           <div class="form-grupo" id="grupo-tipo-vinculo-item-compra">
             <label for="campo-tipo-vinculo-item-compra">Vínculo (opcional)</label>
             <select id="campo-tipo-vinculo-item-compra" class="input">
               <option value="">Nenhum</option>
-              <option value="product">Produto</option>
-              <option value="ingredient">Ingrediente</option>
+              <option value="product">Produto de revenda</option>
+              <option value="ingredient">Ingrediente (ficha técnica)</option>
               <option value="supply">Insumo de Produção</option>
             </select>
           </div>
@@ -395,34 +404,12 @@
             <label for="campo-referencia-vinculo-item-compra">Referência</label>
             <select id="campo-referencia-vinculo-item-compra" class="input"></select>
           </div>
-          <!-- Etapa I2: categorias Insumo/Embalagem criam/vinculam um
-               Insumo de Produção automaticamente ao salvar. Etapa J3:
-               categoria Ingrediente ganha o mesmo tratamento (cria/vincula
-               um public.ingredients). Em ambos os casos, sem exigir escolha
-               manual — o seletor de Vínculo acima continua disponível pra
-               quem quiser apontar pra um Insumo/Ingrediente JÁ EXISTENTE
-               (evita duplicar cadastro legado). Uma vez vinculado (auto ou
-               manual), o bloco abaixo some e este vira somente-leitura, pra
-               não desvincular por acidente. Texto de dica-vinculo-supply-auto
-               é trocado dinamicamente conforme a categoria (ver
-               atualizarVisibilidadeVinculoItemCompra em js/compras.js). -->
           <p class="dica-campo" id="dica-vinculo-supply-auto" style="display:none;"></p>
           <div class="form-grupo" id="grupo-vinculo-supply-existente" style="display:none;">
             <label>Vínculo</label>
             <span class="compras-vinculo-travado" id="texto-vinculo-supply-existente">—</span>
           </div>
 
-          <!-- Etapa J4: só para category='ingredient' — visível independente
-               do sub-estado do vínculo acima (auto-criação pendente OU já
-               vinculado a um Ingredient existente), porque o usuário precisa
-               poder editar a categoria mesmo depois de vinculado (ex. um
-               Ingredient auto-criado antes da J4, com category=NULL).
-               Taxonomia reaproveitada literalmente do datalist já existente
-               em producao.html (#lista-categorias-ingrediente) — mesmos 8
-               valores, validados também no backend (save_purchase_item/
-               finalize_purchase_item). Este campo grava em
-               ingredients.category, nunca em purchase_items.category (são
-               taxonomias diferentes). -->
           <div class="form-grupo" id="grupo-categoria-ingrediente-item-compra" style="display:none;">
             <label for="campo-categoria-ingrediente-item-compra">Categoria do ingrediente</label>
             <select id="campo-categoria-ingrediente-item-compra" class="input">
@@ -446,7 +433,7 @@
             </select>
           </div>
 
-          <p class="dica-campo" id="dica-item-compra-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
+          <p class="compras-erro" id="dica-item-compra-erro" style="display:none;"></p>
         </div>
         <div class="modal-rodape">
           <button type="button" class="btn btn-secundario" id="botao-cancelar-item-compra">Cancelar</button>
@@ -493,7 +480,7 @@
               <option value="inativo">Inativo</option>
             </select>
           </div>
-          <p class="dica-campo" id="dica-fornecedor-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
+          <p class="compras-erro" id="dica-fornecedor-erro" style="display:none;"></p>
         </div>
         <div class="modal-rodape">
           <button type="button" class="btn btn-secundario" id="botao-cancelar-fornecedor">Cancelar</button>
@@ -513,6 +500,7 @@
   <script src="js/services/production-supplies-service.js"></script>
   <script src="js/services/purchases-service.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/compras-calculo.js"></script>
   <script src="js/compras.js"></script>
 </body>
 </html>

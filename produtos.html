@@ -21,19 +21,26 @@
   <main class="conteudo-pagina">
     <div class="pagina-titulo">
       <h1>Produtos</h1>
-      <button class="btn btn-primario" id="botao-novo-produto">+ Novo Produto</button>
+      <div class="acoes-titulo-produtos">
+        <button type="button" class="btn btn-secundario botao-lupa-produtos" id="botao-pesquisa-produtos" aria-expanded="false" aria-controls="painel-pesquisa-produtos" title="Pesquisar e filtrar">
+          <span aria-hidden="true">🔍</span><span class="rotulo-lupa">Pesquisar</span>
+          <span class="badge-filtros-ativos" id="badge-filtros-ativos" style="display:none;"></span>
+        </button>
+        <button class="btn btn-primario" id="botao-novo-produto">+ Novo Produto</button>
+      </div>
     </div>
 
-    <div class="card filtros-produtos">
-      <div class="form-grupo" style="margin-bottom:0;">
-        <label for="campo-pesquisa">Pesquisar</label>
-        <input type="text" id="campo-pesquisa" class="input" placeholder="Nome ou descrição..." />
+    <!-- Painel de pesquisa: fechado por padrão; abre pela lupa. Os IDs dos campos são os mesmos de antes. -->
+    <div class="card painel-pesquisa-produtos" id="painel-pesquisa-produtos" role="search" hidden>
+      <div class="form-grupo filtro-produtos-nome">
+        <label for="campo-pesquisa">Nome</label>
+        <input type="search" id="campo-pesquisa" class="input" placeholder="Nome ou descrição..." autocomplete="off" />
       </div>
-      <div class="form-grupo" style="margin-bottom:0;">
+      <div class="form-grupo">
         <label for="filtro-categoria">Categoria</label>
         <select id="filtro-categoria" class="input"></select>
       </div>
-      <div class="form-grupo" style="margin-bottom:0;">
+      <div class="form-grupo">
         <label for="filtro-status">Status</label>
         <select id="filtro-status" class="input">
           <option value="">Todos</option>
@@ -41,18 +48,27 @@
           <option value="inativo">Inativo</option>
         </select>
       </div>
-      <div class="form-grupo" style="margin-bottom:0;">
+      <div class="form-grupo">
         <label for="campo-ordenar">Ordenar por</label>
         <select id="campo-ordenar" class="input">
           <option value="nome-asc">Nome (A-Z)</option>
           <option value="nome-desc">Nome (Z-A)</option>
-          <option value="preco-asc">Preço (menor primeiro)</option>
-          <option value="preco-desc">Preço (maior primeiro)</option>
+          <option value="preco-asc">Preço de venda (menor primeiro)</option>
+          <option value="preco-desc">Preço de venda (maior primeiro)</option>
+          <option value="custo-asc">Custo (menor primeiro)</option>
+          <option value="custo-desc">Custo (maior primeiro)</option>
           <option value="estoque-asc">Estoque (menor primeiro)</option>
           <option value="estoque-desc">Estoque (maior primeiro)</option>
+          <option value="cadastro-desc">Cadastro (mais recente)</option>
+          <option value="cadastro-asc">Cadastro (mais antigo)</option>
         </select>
       </div>
+      <div class="acoes-painel-pesquisa">
+        <button type="button" class="btn btn-secundario" id="botao-limpar-filtros-produtos">Limpar filtros</button>
+        <button type="button" class="btn btn-secundario" id="botao-fechar-pesquisa-produtos">Fechar</button>
+      </div>
     </div>
+    <div class="resumo-filtros-produtos" id="resumo-filtros-produtos" aria-live="polite"></div>
 
     <div class="card tabela-produtos-wrap">
       <table class="tabela">
@@ -229,6 +245,6 @@
   <script src="js/services/products-service.js"></script>
   <script src="js/services/product-costs-service.js"></script>
   <script src="js/app.js"></script>
-  <script src="js/produtos.js"></script>
+  <script src="js/produtos.js?v=20261123"></script>
 </body>
 </html>

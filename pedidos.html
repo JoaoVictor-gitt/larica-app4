@@ -21,7 +21,12 @@
   <div id="layout-shell"></div>
   <main class="conteudo-pagina">
     <div class="pagina-titulo">
-      <h1>Pedidos</h1>
+      <h1>Pedidos de hoje</h1>
+      <nav class="abas-area-pedidos" aria-label="Área de pedidos">
+        <a class="aba-area-pedidos ativa" href="pedidos.html" aria-current="page">📋 Hoje</a>
+        <a class="aba-area-pedidos" href="historico.html">🕒 Histórico</a>
+        <a class="aba-area-pedidos" href="clientes.html" data-somente-admin>👥 Clientes</a>
+      </nav>
       <div class="indicador-conexao-pedidos" id="indicador-conexao-pedidos" data-estado="amarelo" role="status" aria-live="polite">
         <span class="indicador-conexao-ponto" aria-hidden="true"></span>
         <span id="indicador-conexao-texto">Conectando...</span>
@@ -57,52 +62,11 @@
     <div class="estado-vazio" id="estado-carregando-pedidos">Carregando pedidos...</div>
     <div class="estado-vazio" id="estado-erro-pedidos" style="display:none;"></div>
 
-    <div class="kanban-pedidos" id="kanban-pedidos" style="display:none;">
-      <section class="coluna-kanban" data-status="aguardando_pagamento">
-        <div class="coluna-kanban-cabecalho">
-          <h2>Aguardando pagamento</h2>
-          <span class="badge-coluna-kanban" id="contador-coluna-aguardando_pagamento">0</span>
-        </div>
-        <div class="coluna-kanban-lista" id="lista-pedidos-aguardando_pagamento"></div>
-        <p class="estado-vazio-coluna" id="vazio-coluna-aguardando_pagamento" style="display:none;">Nenhum pedido aqui.</p>
-      </section>
-
-      <section class="coluna-kanban" data-status="solicitado">
-        <div class="coluna-kanban-cabecalho">
-          <h2>Solicitado</h2>
-          <span class="badge-coluna-kanban" id="contador-coluna-solicitado">0</span>
-        </div>
-        <div class="coluna-kanban-lista" id="lista-pedidos-solicitado"></div>
-        <p class="estado-vazio-coluna" id="vazio-coluna-solicitado" style="display:none;">Nenhum pedido aqui.</p>
-      </section>
-
-      <section class="coluna-kanban" data-status="em_preparo">
-        <div class="coluna-kanban-cabecalho">
-          <h2>Em Preparo</h2>
-          <span class="badge-coluna-kanban" id="contador-coluna-em_preparo">0</span>
-        </div>
-        <div class="coluna-kanban-lista" id="lista-pedidos-em_preparo"></div>
-        <p class="estado-vazio-coluna" id="vazio-coluna-em_preparo" style="display:none;">Nenhum pedido aqui.</p>
-      </section>
-
-      <section class="coluna-kanban" data-status="pronto">
-        <div class="coluna-kanban-cabecalho">
-          <h2>Pronto</h2>
-          <span class="badge-coluna-kanban" id="contador-coluna-pronto">0</span>
-        </div>
-        <div class="coluna-kanban-lista" id="lista-pedidos-pronto"></div>
-        <p class="estado-vazio-coluna" id="vazio-coluna-pronto" style="display:none;">Nenhum pedido aqui.</p>
-      </section>
-
-      <section class="coluna-kanban" data-status="finalizado">
-        <div class="coluna-kanban-cabecalho">
-          <h2>Finalizado</h2>
-          <span class="badge-coluna-kanban" id="contador-coluna-finalizado">0</span>
-        </div>
-        <div class="coluna-kanban-lista" id="lista-pedidos-finalizado"></div>
-        <p class="estado-vazio-coluna" id="vazio-coluna-finalizado" style="display:none;">Nenhum pedido finalizado hoje.</p>
-      </section>
-    </div>
+    <section class="pedidos-hoje" id="kanban-pedidos" style="display:none;">
+      <div class="resumo-pedidos-hoje" id="resumo-pedidos-hoje" aria-live="polite"></div>
+      <div class="lista-pedidos-hoje" id="lista-pedidos-hoje"></div>
+      <p class="estado-vazio" id="vazio-pedidos-hoje" style="display:none;">Nenhum pedido hoje até agora.</p>
+    </section>
   </main>
 
   <!-- Modal de detalhes do pedido -->
@@ -146,20 +110,20 @@
 
   <div id="comanda-impressao" class="comanda-impressao" aria-hidden="true"></div>
 
-  <script src="js/utils.js"></script>
-  <script src="js/storage.js"></script>
+  <script src="js/utils.js?v=20261123"></script>
+  <script src="js/storage.js?v=20261123"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="js/supabase.js"></script>
   <script src="js/services/permissions-service.js"></script>
   <script src="js/services/settings-service.js"></script>
-  <script src="js/services/orders-service.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/services/orders-service.js?v=20261123"></script>
+  <script src="js/app.js?v=20261123"></script>
   <!-- Impressão direta Epson (ePOS-Print) — IMPRESSAO_EPSON_DIRETA_ATIVA em js/pedidos.js está
        true: clique em Imprimir/Reimprimir e a impressão automática de novos pedidos usam este
        caminho (gerarComandaEposPrintXml -> EpsonPrinterService.imprimir -> HTTPS/443). -->
   <script src="vendor/epson/epos-2.27.0.js"></script>
   <script src="js/services/epson-print-builder.js"></script>
   <script src="js/services/epson-printer-service.js"></script>
-  <script src="js/pedidos.js"></script>
+  <script src="js/pedidos.js?v=20261123"></script>
 </body>
 </html>

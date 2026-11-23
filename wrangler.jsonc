@@ -11,6 +11,7 @@
   "ratelimits": [
     { "name": "RATE_LIMIT_DELIVERY", "namespace_id": "1001", "simple": { "limit": 6, "period": 60 } },
     { "name": "RATE_LIMIT_COUPON", "namespace_id": "1002", "simple": { "limit": 10, "period": 60 } },
-    { "name": "RATE_LIMIT_ORDER", "namespace_id": "1003", "simple": { "limit": 3, "period": 60 } }
+    { "name": "RATE_LIMIT_ORDER", "namespace_id": "1003", "simple": { "limit": 3, "period": 60 } },
+    { "name": "RATE_LIMIT_OCR", "namespace_id": "1004", "simple": { "limit": 10, "period": 60 } }
   ]
 }

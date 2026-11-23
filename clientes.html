@@ -20,6 +20,11 @@
 <body data-pagina="clientes" data-area="admin">
   <div id="layout-shell"></div>
   <main class="conteudo-pagina">
+    <nav class="abas-area-pedidos" aria-label="Área de pedidos" style="margin-bottom:var(--espaco-md);">
+      <a class="aba-area-pedidos" href="pedidos.html">📋 Hoje</a>
+      <a class="aba-area-pedidos" href="historico.html">🕒 Histórico</a>
+      <a class="aba-area-pedidos ativa" href="clientes.html" aria-current="page">👥 Clientes</a>
+    </nav>
     <div class="pagina-titulo">
       <h1>Clientes</h1>
       <div class="barra-atualizacao-clientes">
@@ -259,7 +264,18 @@
                    placeholder="Nº do pedido, nome ou telefone" aria-label="Nº do pedido, nome ou telefone" />
             <button type="submit" class="btn btn-secundario" id="botao-buscar-vincular-pedido">Buscar</button>
           </form>
-          <p class="texto-secundario-ficha">Pedidos já vinculados a outro cliente não podem ser transferidos por aqui. Nenhum pedido é alterado.</p>
+          <p class="texto-secundario-ficha">Marque um ou vários pedidos — a seleção é mantida entre pesquisas enquanto esta janela estiver aberta. Pedidos já vinculados a outro cliente não podem ser transferidos por aqui. Nenhum pedido é alterado.</p>
+          <div class="selecao-vincular-pedido" id="selecao-vincular-pedido" style="display:none;">
+            <div class="titulo-com-acao-ficha">
+              <strong id="titulo-selecao-vincular-pedido"></strong>
+              <button type="button" class="btn btn-secundario btn-compacto-cliente" id="botao-limpar-selecao-vincular-pedido">Limpar seleção</button>
+            </div>
+            <ul class="lista-selecao-vincular-pedido" id="lista-selecao-vincular-pedido"></ul>
+          </div>
+          <label class="confirmacao-cliente selecionar-todos-vincular-pedido" id="barra-selecionar-todos-vincular-pedido" style="display:none;">
+            <input type="checkbox" id="selecionar-todos-vincular-pedido" />
+            <span>Selecionar todos os pedidos disponíveis desta página</span>
+          </label>
           <div id="resultados-vincular-pedido"></div>
           <div class="paginacao-clientes" id="paginacao-vincular-pedido" style="display:none;">
             <button type="button" class="btn btn-secundario" id="botao-anterior-vincular-pedido">Anterior</button>
@@ -270,9 +286,11 @@
         <div id="etapa-confirmar-vincular-pedido" style="display:none;"></div>
         <p class="aviso-erro-cliente" id="erro-vincular-pedido" role="alert" style="display:none;"></p>
       </div>
-      <div class="modal-rodape">
+      <div class="modal-rodape rodape-vincular-pedido">
+        <span class="contador-selecao-vincular-pedido" id="contador-selecao-vincular-pedido" aria-live="polite">Nenhum pedido selecionado</span>
         <button type="button" class="btn btn-secundario" id="botao-cancelar-vincular-pedido">Fechar</button>
         <button type="button" class="btn btn-secundario" id="botao-voltar-vincular-pedido" style="display:none;">Voltar</button>
+        <button type="button" class="btn btn-primario" id="botao-vincular-selecionados" disabled>Vincular pedidos</button>
         <button type="button" class="btn btn-primario" id="botao-confirmar-vincular-pedido" style="display:none;">Confirmar vinculação</button>
       </div>
     </div>

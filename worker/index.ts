@@ -15,6 +15,7 @@ import type { WhatsAppIntent, WhatsAppLanguage, WhatsAppSessionState } from './w
 import { parseDeterministicIntent } from './whatsapp/parser';
 import { chamarRpcWhatsapp, dispatchWhatsAppActions } from './whatsapp/dispatcher';
 import { interpretWhatsAppMessageWithAI } from './whatsapp/ai';
+import { tratarOcrCompra } from './purchases/ocr';
 
 interface RateLimitBinding {
   limit(opts: { key: string }): Promise<{ success: boolean }>;
@@ -29,6 +30,8 @@ interface Env {
   SUPABASE_SERVICE_ROLE_KEY: string;
   OPENAI_API_KEY: string;
   OPENAI_MODEL: string;
+  // Fase B — modelo com visão para ler notas fiscais (opcional; sem ele usa OPENAI_MODEL).
+  OPENAI_OCR_MODEL?: string;
   // W6.7D — endpoint temporário de diagnóstico (remover junto com a rota
   // /internal/whatsapp/ai-preview quando a Meta for desbloqueada e o W6.8 existir).
   AI_TEST_TOKEN: string;
@@ -36,6 +39,7 @@ interface Env {
   RATE_LIMIT_DELIVERY: RateLimitBinding;
   RATE_LIMIT_COUPON: RateLimitBinding;
   RATE_LIMIT_ORDER: RateLimitBinding;
+  RATE_LIMIT_OCR?: RateLimitBinding;
 }
 
 const LIMITE_BYTES: Record<string, number> = {
@@ -43,6 +47,7 @@ const LIMITE_BYTES: Record<string, number> = {
   '/api/coupon': 2 * 1024,
   '/api/order': 64 * 1024,
   '/api/track-order': 256,
+  '/api/admin/purchase-ocr': 1024,
 };
 
 function jsonResponse(body: unknown, status: number): Response {
@@ -208,7 +213,7 @@ async function processarRotaProtegida(opts: {
   return montarChamada(leitura.body, config);
 }
 
-const ROTAS_VALIDAS = new Set(['/api/delivery', '/api/coupon', '/api/order', '/api/track-order']);
+const ROTAS_VALIDAS = new Set(['/api/delivery', '/api/coupon', '/api/order', '/api/track-order', '/api/admin/purchase-ocr']);
 
 // L2.4B — headers básicos de segurança, aplicados a TODA resposta (assets e /api/*), num único
 // lugar. Preserva todos os headers já existentes na resposta (Content-Type, Allow, etc.) — só
@@ -320,6 +325,19 @@ async function tratarRotaApi(request: Request, env: Env, path: string): Promise<
         });
       },
     });
+  }
+
+  if (path === '/api/admin/purchase-ocr') {
+    // Fase B — leitura de nota fiscal. Sem Turnstile (só admin logado, conferido pelo JWT
+    // dentro de tratarOcrCompra); rate limit próprio porque cada chamada custa IA.
+    const limitador = env.RATE_LIMIT_OCR ?? env.RATE_LIMIT_COUPON;
+    const { success } = await limitador.limit({ key: obterIpCliente(request) });
+    if (!success) {
+      return jsonResponse({ error: 'Muitas leituras seguidas. Aguarde um minuto.' }, 429);
+    }
+    const leitura = await lerCorpoComLimite(request, LIMITE_BYTES[path]);
+    if (!leitura.ok) return leitura.response;
+    return tratarOcrCompra(request, env, leitura.body);
   }
 
   // path === '/api/order'
