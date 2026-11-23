@@ -356,6 +356,13 @@ async function marcarItemCompraRevisadoNoSupabase(itemId) {
   return _linhaSupabaseParaItemCompra(data);
 }
 
+/** Exclui o item se não tiver histórico; com histórico ele só fica inativo. Devolve { apagado, desativado }. */
+async function excluirItemCompraNoSupabase(itemId) {
+  const { data, error } = await supabaseClient.rpc('delete_purchase_item', { p_purchase_item_id: itemId });
+  if (error) throw new Error(error.message);
+  return { apagado: data.deleted === true, desativado: data.deactivated === true };
+}
+
 async function salvarApelidoItemCompraNoSupabase(itemId, apelido) {
   const { data, error } = await supabaseClient.rpc('save_purchase_item_alias', {
     p_purchase_item_id: itemId,

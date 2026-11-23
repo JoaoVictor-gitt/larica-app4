@@ -1159,11 +1159,39 @@ function renderizarTabelaItensCompra() {
         <td class="compras-acoes-linha">
           <button class="btn-icone" data-historico-item="${item.id}" title="Histórico de preços">📈</button>
           <button class="btn-icone" data-editar-item="${item.id}" title="Editar" ${souAdminCompras ? '' : 'disabled'}>✏️</button>
+          <button class="btn-icone" data-excluir-item="${item.id}" title="Excluir" aria-label="Excluir ${esc(item.nome)}" ${souAdminCompras ? '' : 'disabled'}>🗑️</button>
         </td>
       </tr>`;
   }).join('');
   corpo.querySelectorAll('[data-editar-item]').forEach((b) => b.addEventListener('click', () => abrirModalItemCompra(b.dataset.editarItem)));
+  corpo.querySelectorAll('[data-excluir-item]').forEach((b) => b.addEventListener('click', () => excluirItemCompra(b.dataset.excluirItem, b)));
   corpo.querySelectorAll('[data-historico-item]').forEach((b) => b.addEventListener('click', () => abrirHistoricoItem(b.dataset.historicoItem)));
+}
+
+async function excluirItemCompra(itemId, botao) {
+  const item = itemCompraPorId(itemId);
+  if (!item || !souAdminCompras) return;
+  const temHistorico = linhasComprasCache.some((l) => l.itemCompraId === item.id);
+  const aviso = temHistorico
+    ? `"${item.nome}" já aparece em compras. Para não perder o histórico, ele será DESATIVADO (some das sugestões e do lançamento), não apagado. Continuar?`
+    : `Excluir "${item.nome}"? Os nomes alternativos dele também serão removidos. O ingrediente/insumo/produto ligado não é apagado.`;
+  if (!window.confirm(aviso)) return;
+  botao.disabled = true;
+  try {
+    const resultado = await excluirItemCompraNoSupabase(item.id);
+    if (resultado.apagado) {
+      itensCompraCache = itensCompraCache.filter((i) => i.id !== item.id);
+      apelidosCache = apelidosCache.filter((a) => a.itemCompraId !== item.id);
+      mostrarToast(`"${item.nome}" excluído.`, 'sucesso');
+    } else {
+      itensCompraCache = itensCompraCache.map((i) => (i.id === item.id ? { ...i, ativo: false } : i));
+      mostrarToast(`"${item.nome}" tem histórico e foi desativado (não apagado).`, 'sucesso');
+    }
+    renderizarTabelaItensCompra();
+  } catch (erro) {
+    botao.disabled = false;
+    mostrarToast(erro.message, 'erro');
+  }
 }
 
 function historicoDePrecosDoItem(item) {
