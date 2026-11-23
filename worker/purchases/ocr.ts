@@ -66,14 +66,50 @@ async function postarComPrazo(url: string, headers: Record<string, string>, body
   }
 }
 
-// Modelo reserva: segundo a documentação do Google, continua sendo servido "até novo aviso".
-export const GEMINI_MODELO_RESERVA = 'gemini-2.5-flash-lite';
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+// Ordena os modelos que a própria chave pode usar: os mais baratos ("flash-lite") primeiro,
+// depois "flash"; ignora prévias, variantes de imagem/áudio/embedding e modelos "pro".
+export function ordenarModelosGemini(nomes: string[]): string[] {
+  const ok = nomes.filter((n) => MODELO_RE.test(n) && /^gemini-/i.test(n) && /flash/i.test(n)
+    && !/preview|exp|image|tts|audio|live|embedding|thinking|pro/i.test(n));
+  const versao = (n: string) => { const m = /^gemini-(\d+(?:\.\d+)?)/i.exec(n); return m ? Number(m[1]) : 0; };
+  const peso = (n: string) => (/flash-lite/i.test(n) ? 0 : 1);
+  return [...new Set(ok)].sort((a, b) => peso(a) - peso(b) || versao(b) - versao(a) || a.length - b.length);
+}
+
+async function listarModelosGemini(headers: Record<string, string>): Promise<string[] | null> {
+  const controlador = new AbortController();
+  const timeout = setTimeout(() => controlador.abort(), 15000);
+  try {
+    const nomes: string[] = [];
+    let pagina = '';
+    for (let i = 0; i < 5; i++) {
+      const r = await fetch(`${GEMINI_BASE}/models?pageSize=200${pagina ? `&pageToken=${encodeURIComponent(pagina)}` : ''}`, {
+        headers: { 'x-goog-api-key': headers['x-goog-api-key'] }, signal: controlador.signal,
+      });
+      if (!r.ok) { await r.text().catch(() => undefined); return null; }
+      const corpo = await r.json().catch(() => null) as { models?: Array<{ name?: unknown; supportedGenerationMethods?: unknown }>; nextPageToken?: unknown } | null;
+      for (const m of corpo?.models || []) {
+        const metodos = Array.isArray(m.supportedGenerationMethods) ? m.supportedGenerationMethods : ['generateContent'];
+        if (typeof m.name === 'string' && metodos.includes('generateContent')) nomes.push(m.name.replace(/^models\//, ''));
+      }
+      if (typeof corpo?.nextPageToken !== 'string' || !corpo.nextPageToken) break;
+      pagina = corpo.nextPageToken;
+    }
+    return nomes;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 export async function chamarGeminiNota(env: PurchaseOcrEnv, mime: string, base64: string, modelo: string): Promise<Leitura> {
   if (!MODELO_RE.test(modelo)) return { ok: false, motivo: 'Nome de modelo do Gemini inválido em GEMINI_OCR_MODEL.' };
   // A chave vai no cabeçalho (nunca na URL, para não aparecer em logs).
   const headers = { 'x-goog-api-key': env.GEMINI_API_KEY || '', 'Content-Type': 'application/json' };
-  const urlDo = (m: string) => `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`;
+  const urlDo = (m: string) => `${GEMINI_BASE}/models/${encodeURIComponent(m)}:generateContent`;
   const montar = (comEsquema: boolean) => JSON.stringify({
     systemInstruction: { parts: [{ text: PROMPT_SISTEMA }] },
     contents: [{
@@ -88,36 +124,60 @@ export async function chamarGeminiNota(env: PurchaseOcrEnv, mime: string, base64
       : { responseMimeType: 'application/json' },
   });
 
-  // Tentativas, em ordem: modelo configurado com esquema → mesmo modelo sem esquema
-  // (o Gemini às vezes responde 400/500 a esquemas) → modelo reserva sem esquema.
-  // Só se passa à seguinte em erro de esquema, 5xx/sobrecarga, falha de rede ou
-  // modelo inexistente (que pula direto para o reserva). Chave/cota não insistem.
-  const tentativas: Array<{ modelo: string; comEsquema: boolean }> = [
-    { modelo, comEsquema: true },
-    { modelo, comEsquema: false },
-  ];
-  if (modelo !== GEMINI_MODELO_RESERVA) tentativas.push({ modelo: GEMINI_MODELO_RESERVA, comEsquema: false });
+  // Histórico curto das tentativas (modelo, esquema, código HTTP) para o erro gravado.
+  const historico: string[] = [];
+  let ultimo: { status: number; corpoErro: string; modelo: string } | null = null;
 
-  let r: Response | null = null;
-  let corpoErro = '';
-  let usado = modelo;
-  for (let i = 0; i < tentativas.length; i++) {
-    const t = tentativas[i];
-    if (i > 0) await new Promise((ok) => setTimeout(ok, 800));
-    usado = t.modelo;
-    corpoErro = '';
-    r = await postarComPrazo(urlDo(t.modelo), headers, montar(t.comEsquema));
-    if (!r) continue;
-    if (r.ok) break;
-    corpoErro = await r.text().catch(() => '');
+  // Uma tentativa. Devolve 'ok' (resposta boa), 'parar' (erro que insistir não resolve)
+  // ou 'seguir' (5xx, rede, esquema recusado ou modelo inexistente → tenta a próxima).
+  const tentar = async (m: string, comEsquema: boolean): Promise<{ fim: 'ok'; r: Response } | { fim: 'parar' | 'seguir' | 'sem-modelo' }> => {
+    const r = await postarComPrazo(urlDo(m), headers, montar(comEsquema));
+    if (!r) { historico.push(`${m}${comEsquema ? '' : ' s/esq'}: sem resposta`); return { fim: 'seguir' }; }
+    historico.push(`${m}${comEsquema ? '' : ' s/esq'}: ${r.status}`);
+    if (r.ok) return { fim: 'ok', r };
+    const corpoErro = await r.text().catch(() => '');
+    ultimo = { status: r.status, corpoErro, modelo: m };
+    if (r.status === 404) return { fim: 'sem-modelo' };
     const erroDeEsquema = r.status === 400 && /schema/i.test(corpoErro) && !/api.?key/i.test(corpoErro);
-    if (r.status === 404 && t.modelo !== GEMINI_MODELO_RESERVA) { i = tentativas.length - 2; continue; }
-    if (!(erroDeEsquema || r.status >= 500)) break;
+    return { fim: erroDeEsquema || r.status >= 500 ? 'seguir' : 'parar' };
+  };
+
+  const finalizar = async (r: Response, m: string): Promise<Leitura> => {
+    const leitura = await lerRespostaGemini(r);
+    return leitura.ok ? { ...leitura, modelo: m } : leitura;
+  };
+  const falhar = (): Leitura => {
+    const u = ultimo as { status: number; corpoErro: string; modelo: string } | null;
+    const motivo = u ? classificarErroGemini(u.status, u.corpoErro, u.modelo) : 'A leitura demorou demais ou o Gemini está indisponível.';
+    return { ok: false, motivo: `${motivo} [${historico.join('; ')}]` };
+  };
+
+  // 1) modelo configurado, com esquema; 2) o mesmo sem esquema (o Gemini às vezes
+  // recusa ou falha com esquemas).
+  let t = await tentar(modelo, true);
+  if (t.fim === 'ok') return finalizar(t.r, modelo);
+  if (t.fim === 'parar') return falhar();
+  if (t.fim === 'seguir') {
+    await new Promise((ok) => setTimeout(ok, 800));
+    t = await tentar(modelo, false);
+    if (t.fim === 'ok') return finalizar(t.r, modelo);
+    if (t.fim === 'parar') return falhar();
   }
-  if (!r) return { ok: false, motivo: 'A leitura demorou demais ou o Gemini está indisponível.' };
-  if (!r.ok) return { ok: false, motivo: `${classificarErroGemini(r.status, corpoErro, usado)} [${usado}, HTTP ${r.status}]` };
-  const leitura = await lerRespostaGemini(r);
-  return leitura.ok ? { ...leitura, modelo: usado } : leitura;
+
+  // 3) pergunta ao Google quais modelos esta chave pode usar e tenta até dois deles.
+  const disponiveis = await listarModelosGemini(headers);
+  if (!disponiveis) { historico.push('lista de modelos: falhou'); return falhar(); }
+  const candidatos = ordenarModelosGemini(disponiveis).filter((m) => m !== modelo).slice(0, 2);
+  if (!candidatos.length) {
+    historico.push(`lista de modelos: ${disponiveis.length} sem flash`);
+    return falhar();
+  }
+  for (const m of candidatos) {
+    t = await tentar(m, false);
+    if (t.fim === 'ok') return finalizar(t.r, m);
+    if (t.fim === 'parar') return falhar();
+  }
+  return falhar();
 }
 
 // Só a classificação do erro é usada; o corpo devolvido pelo Google nunca é repassado.
@@ -129,7 +189,7 @@ function classificarErroGemini(status: number, corpoErro: string, modelo: string
     return 'O Google recusou a chave do Gemini (chave inválida, bloqueada ou projeto precisando de verificação em aistudio.google.com).';
   }
   if (status === 404) {
-    return `O modelo "${modelo}" não existe ou não está disponível para esta chave. Configure GEMINI_OCR_MODEL no Cloudflare.`;
+    return `Nenhum modelo do Gemini disponível para esta chave aceitou a leitura (último tentado: "${modelo}").`;
   }
   if (status === 429) return 'Limite gratuito do Gemini atingido (por minuto ou por dia). Aguarde um pouco e tente de novo.';
   if (status === 400 && /mime|unsupported|inline/i.test(corpoErro)) return 'O Gemini não aceitou este tipo de arquivo. Tente uma foto JPG/PNG.';
