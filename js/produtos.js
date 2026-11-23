@@ -512,6 +512,7 @@ function abrirModalCriacao() {
   document.getElementById('campo-estoque').value = 0;
   document.getElementById('campo-status').value = 'ativo';
   document.getElementById('campo-origem-estoque').value = 'untracked';
+  document.getElementById('campo-porcao').value = '';
   document.getElementById('campo-ordem').value = 0;
   document.getElementById('campo-qtd-espetos').value = 1;
   document.getElementById('campo-qtd-acompanhamentos').value = 1;
@@ -537,6 +538,7 @@ function abrirModalEdicao(id) {
   document.getElementById('campo-descricao').value = produto.descricao || '';
   document.getElementById('campo-status').value = produto.status;
   document.getElementById('campo-origem-estoque').value = produto.stockMode || 'untracked';
+  document.getElementById('campo-porcao').value = produto.porcaoGramas === null || produto.porcaoGramas === undefined ? '' : produto.porcaoGramas;
   // Custo (Etapa 2): combo nunca mostra valor aqui (ver custoUnitarioDoProduto) —
   // atualizarVisibilidadeCamposPorCategoria(), chamada mais abaixo, cuida de
   // desabilitar/limpar o campo pra combo e pra quem não é admin.
@@ -598,6 +600,7 @@ function atualizarVisibilidadeCamposPorCategoria() {
   const ehEspetinho = categoria === 'Espetinhos';
   document.getElementById('secao-campos-combo').style.display = ehCombo ? '' : 'none';
   document.getElementById('grupo-estoque').style.display = ehCombo ? 'none' : '';
+  document.getElementById('grupo-porcao').style.display = categoria === 'Acompanhamentos' ? '' : 'none';
   document.getElementById('campo-estoque').required = !ehCombo;
   document.getElementById('campo-qtd-espetos').required = ehCombo;
   document.getElementById('campo-qtd-acompanhamentos').required = ehCombo;
@@ -946,6 +949,21 @@ async function salvarFormularioProduto(evento) {
       await excluirFotoProdutoSeForStorage(fotoAtualUrl);
     } catch (erroLimpezaAntiga) {
       console.warn('Produto salvo, mas não foi possível excluir a foto antiga (pode ter ficado órfã):', erroLimpezaAntiga);
+    }
+  }
+
+  // Fase C — porção (g) dos acompanhamentos: RPC própria (set_product_portion). Falha aqui
+  // não desfaz o produto já salvo; só avisa.
+  if (categoria === 'Acompanhamentos' && salvo && salvo.id) {
+    const porcaoDigitada = document.getElementById('campo-porcao').value;
+    const anterior = id ? (obterProdutoPorId(id) || {}).porcaoGramas : null;
+    if (String(porcaoDigitada || '') !== String(anterior ?? '')) {
+      try {
+        await definirPorcaoProdutoNoSupabase(salvo.id, porcaoDigitada || null);
+        await carregarProdutosCache();
+      } catch (erroPorcao) {
+        mostrarToast('Produto salvo, mas a porção não foi gravada. ' + erroPorcao.message, 'erro');
+      }
     }
   }
 

@@ -457,3 +457,66 @@
   color: var(--cor-texto-secundario);
   font-weight: 400;
 }
+
+/* =====================================================================
+ * Fase C — produção simplificada (js/producao-lotes.js). Prefixo pl-.
+ * ===================================================================== */
+.producao-card-destaque { border-color: var(--cor-terracota); }
+.producao-card-destaque .producao-card-icone { background: var(--cor-acento-sutil); }
+
+.pl-form { margin-bottom: var(--espaco-md); }
+.pl-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 var(--espaco-md); }
+.pl-campo-largo { grid-column: 1 / -1; }
+@media (min-width: 760px) { .pl-grade .pl-campo-largo { grid-column: span 2; } }
+.pl-input-grande { font-size: 1.15rem; font-weight: 700; min-height: 48px; }
+.pl-opcional { font-weight: 400; font-size: 0.75rem; color: var(--cor-texto-secundario); }
+.pl-linha { display: flex; gap: var(--espaco-sm); align-items: center; }
+.pl-linha > select { flex: 1; min-width: 0; }
+.pl-vezes { display: flex; align-items: center; gap: 6px; font-weight: 700; white-space: nowrap; }
+.pl-vezes .input { width: 80px; }
+
+.pl-previa { margin: var(--espaco-sm) 0; min-height: 40px; }
+.pl-previa-vazia { color: var(--cor-texto-secundario); font-size: 0.88rem; margin: 0; padding: var(--espaco-sm) 0; }
+.pl-resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--espaco-sm); margin: var(--espaco-sm) 0; }
+.pl-resumo > div { background: var(--cor-cinza-claro); border-radius: var(--raio-sm); padding: var(--espaco-sm) var(--espaco-md); }
+.pl-resumo dt { font-size: 0.72rem; color: var(--cor-texto-secundario); margin: 0; }
+.pl-resumo dd { margin: 2px 0 0; font-weight: 700; font-size: 1rem; }
+.pl-resumo > .pl-destaque { background: var(--cor-acento-sutil); }
+.pl-resumo > .pl-destaque dd { color: var(--cor-terracota); font-size: 1.2rem; }
+.pl-tabela-compacta { min-width: 480px; }
+.pl-tabela-compacta td, .pl-tabela-compacta th { font-size: 0.82rem; }
+
+.pl-avisos { margin: var(--espaco-sm) 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.pl-avisos li, .pl-aviso-bloco {
+  font-size: 0.84rem;
+  padding: var(--espaco-sm) var(--espaco-md);
+  border-radius: var(--raio-sm);
+  background: var(--cor-cinza-claro);
+  border-left: 3px solid var(--cor-status-amarelo);
+  margin: 0;
+}
+.pl-aviso-bloco { margin-bottom: var(--espaco-sm); }
+.pl-avisos li.pl-aviso-erro, .pl-aviso-bloco.pl-aviso-erro { border-left-color: var(--cor-status-vermelho); }
+.pl-texto-erro { color: var(--cor-status-vermelho); }
+.pl-erro { color: var(--cor-status-vermelho); font-size: 0.85rem; font-weight: 600; margin: var(--espaco-sm) 0; }
+.pl-rodape { display: flex; justify-content: flex-end; margin-top: var(--espaco-sm); }
+.pl-rodape .btn { min-width: 220px; min-height: 48px; font-size: 1rem; }
+@media (max-width: 600px) { .pl-rodape .btn { width: 100%; } }
+
+.pl-ultimas { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--espaco-sm); margin-bottom: var(--espaco-lg); }
+.pl-ultima {
+  display: flex; flex-direction: column; gap: 2px; text-align: left; cursor: pointer;
+  padding: var(--espaco-sm) var(--espaco-md); border: 1px solid var(--cor-borda); border-radius: var(--raio-md);
+  background: var(--cor-branco); color: var(--cor-texto);
+}
+.pl-ultima span { font-size: 0.8rem; color: var(--cor-texto-secundario); }
+.pl-ultima:hover { border-color: var(--cor-terracota); }
+
+.pl-filtros { display: flex; gap: var(--espaco-md); flex-wrap: wrap; margin-bottom: var(--espaco-md); }
+.pl-filtros .form-grupo { margin-bottom: 0; min-width: 140px; }
+.pl-status { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
+.pl-status-ok { background: var(--cor-acento-sutil); color: var(--cor-status-verde); }
+.pl-status-cancelada { background: var(--cor-cinza-claro); color: var(--cor-status-vermelho); }
+.pl-cancelada td, .pl-cancelada { color: var(--cor-texto-secundario); }
+.pl-sem-dados { color: var(--cor-texto-secundario); font-style: italic; }
+.pl-btn-pequeno { padding: 6px 12px; font-size: 0.82rem; min-height: 34px; }

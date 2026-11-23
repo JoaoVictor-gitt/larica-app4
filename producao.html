@@ -24,27 +24,35 @@
     </div>
 
     <div class="producao-central" id="producao-central">
+      <button type="button" class="producao-card producao-card-destaque" data-producao-abrir="espetos">
+        <span class="producao-card-icone">🍢</span>
+        <span class="producao-card-texto">
+          <strong>Produzir Espetos</strong>
+          <span>Peso bruto da carne e quantidade de espetos — o resto é calculado</span>
+        </span>
+        <span class="producao-card-seta">→</span>
+      </button>
+      <button type="button" class="producao-card producao-card-destaque" data-producao-abrir="acompanhamentos">
+        <span class="producao-card-icone">🥗</span>
+        <span class="producao-card-texto">
+          <strong>Produzir Acompanhamentos</strong>
+          <span>Peso final produzido — porções e custo calculados</span>
+        </span>
+        <span class="producao-card-seta">→</span>
+      </button>
+      <button type="button" class="producao-card" data-producao-abrir="historico">
+        <span class="producao-card-icone">🕒</span>
+        <span class="producao-card-texto">
+          <strong>Histórico de Produção</strong>
+          <span>Produções registradas, custos e cancelamentos</span>
+        </span>
+        <span class="producao-card-seta">→</span>
+      </button>
       <button type="button" class="producao-card" data-producao-abrir="fichas">
         <span class="producao-card-icone">📖</span>
         <span class="producao-card-texto">
           <strong>Fichas Técnicas</strong>
           <span>Monte preparos a partir dos ingredientes cadastrados</span>
-        </span>
-        <span class="producao-card-seta">→</span>
-      </button>
-      <button type="button" class="producao-card" data-producao-abrir="espetos">
-        <span class="producao-card-icone">🍢</span>
-        <span class="producao-card-texto">
-          <strong>Produção de Espetos</strong>
-          <span>Registre lotes reais e calcule perda, rendimento e custo por espeto</span>
-        </span>
-        <span class="producao-card-seta">→</span>
-      </button>
-      <button type="button" class="producao-card" data-producao-abrir="acompanhamentos">
-        <span class="producao-card-icone">🥗</span>
-        <span class="producao-card-texto">
-          <strong>Produção de Acompanhamentos</strong>
-          <span>Registre lotes de acompanhamentos e calcule rendimento, porção e custo real</span>
         </span>
         <span class="producao-card-seta">→</span>
       </button>
@@ -82,73 +90,103 @@
       </div>
     </section>
 
-    <!-- Produção de Espetos -->
+
+    <!-- Produzir Espetos -->
     <section class="producao-secao" data-producao-secao="espetos">
       <button type="button" class="producao-botao-voltar" data-producao-voltar>← Voltar para Produção</button>
-
-      <div class="producao-secao-cabecalho">
-        <h2>Produção de Espetos</h2>
-        <button type="button" class="btn btn-primario" id="botao-novo-lote-espeto">+ Novo Lote</button>
-      </div>
-      <p class="dica-campo" id="dica-espetos-somente-admin" style="display:none;">Somente administradores podem registrar ou editar lotes de produção.</p>
-
-      <div class="card tabela-producao-wrap">
-        <table class="tabela">
-          <thead>
-            <tr>
-              <th>Data</th>
-              <th>Produto</th>
-              <th>Peso bruto</th>
-              <th>Peso útil</th>
-              <th>Perda</th>
-              <th>Rendimento</th>
-              <th>Qtd real</th>
-              <th>Custo real final/espeto</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="corpo-tabela-lotes-espetos"></tbody>
-        </table>
-        <div class="estado-vazio" id="estado-carregando-lotes-espetos">Carregando lotes de produção...</div>
-        <div class="estado-vazio" id="estado-erro-lotes-espetos" style="display:none;"></div>
-        <div class="estado-vazio" id="estado-vazio-lotes-espetos" style="display:none;">
-          Nenhum lote de produção registrado ainda.
+      <div class="producao-secao-cabecalho"><h2>Produzir Espetos</h2></div>
+      <p class="dica-campo" data-pl-somente-admin style="display:none;">Somente administradores podem registrar produções.</p>
+      <form class="card pl-form" id="pl-form-espeto" novalidate>
+        <div class="pl-grade">
+          <div class="form-grupo pl-campo-largo">
+            <label for="pl-espeto-produto">Espeto</label>
+            <select id="pl-espeto-produto" class="input" required></select>
+          </div>
+          <div class="form-grupo pl-campo-largo">
+            <label for="pl-espeto-materia">Matéria-prima</label>
+            <select id="pl-espeto-materia" class="input" required></select>
+            <p class="dica-campo" id="pl-espeto-materia-info"></p>
+          </div>
+          <div class="form-grupo">
+            <label for="pl-espeto-peso">Peso bruto usado (kg)</label>
+            <input type="number" id="pl-espeto-peso" class="input pl-input-grande" min="0" step="0.001" inputmode="decimal" placeholder="10" required />
+          </div>
+          <div class="form-grupo">
+            <label for="pl-espeto-qtd">Espetos produzidos</label>
+            <input type="number" id="pl-espeto-qtd" class="input pl-input-grande" min="1" step="1" inputmode="numeric" placeholder="50" required />
+          </div>
+          <div class="form-grupo">
+            <label for="pl-espeto-data">Data</label>
+            <input type="date" id="pl-espeto-data" class="input" required />
+          </div>
         </div>
-      </div>
+        <div class="pl-previa" id="pl-espeto-previa"></div>
+        <p class="pl-erro" id="pl-espeto-erro" style="display:none;"></p>
+        <div class="pl-rodape"><button type="submit" class="btn btn-primario" id="pl-espeto-confirmar">Registrar produção</button></div>
+      </form>
+      <h3 class="producao-subtitulo">Últimas produções de espetos</h3>
+      <div class="pl-ultimas" id="pl-espeto-ultimas"></div>
     </section>
 
-    <!-- Produção de Acompanhamentos -->
+    <!-- Produzir Acompanhamentos -->
     <section class="producao-secao" data-producao-secao="acompanhamentos">
       <button type="button" class="producao-botao-voltar" data-producao-voltar>← Voltar para Produção</button>
+      <div class="producao-secao-cabecalho"><h2>Produzir Acompanhamentos</h2></div>
+      <p class="dica-campo" data-pl-somente-admin style="display:none;">Somente administradores podem registrar produções.</p>
+      <form class="card pl-form" id="pl-form-acomp" novalidate>
+        <div class="pl-grade">
+          <div class="form-grupo pl-campo-largo">
+            <label for="pl-acomp-produto">Acompanhamento</label>
+            <select id="pl-acomp-produto" class="input" required></select>
+          </div>
+          <div class="form-grupo">
+            <label for="pl-acomp-peso">Peso final produzido (kg)</label>
+            <input type="number" id="pl-acomp-peso" class="input pl-input-grande" min="0" step="0.001" inputmode="decimal" placeholder="5" required />
+          </div>
+          <div class="form-grupo">
+            <label for="pl-acomp-porcao">Porção (g)</label>
+            <input type="number" id="pl-acomp-porcao" class="input pl-input-grande" min="1" step="1" inputmode="numeric" placeholder="200" required />
+          </div>
+          <div class="form-grupo">
+            <label for="pl-acomp-data">Data</label>
+            <input type="date" id="pl-acomp-data" class="input" required />
+          </div>
+          <div class="form-grupo pl-campo-largo">
+            <label for="pl-acomp-receita">Ficha técnica usada <span class="pl-opcional">opcional — para custo e baixa dos ingredientes</span></label>
+            <div class="pl-linha">
+              <select id="pl-acomp-receita" class="input"></select>
+              <label class="pl-vezes" id="pl-acomp-vezes-grupo">× <input type="number" id="pl-acomp-vezes" class="input" min="0.1" step="0.5" value="1" inputmode="decimal" aria-label="Vezes que a ficha foi feita" /></label>
+            </div>
+          </div>
+        </div>
+        <div class="pl-previa" id="pl-acomp-previa"></div>
+        <p class="pl-erro" id="pl-acomp-erro" style="display:none;"></p>
+        <div class="pl-rodape"><button type="submit" class="btn btn-primario" id="pl-acomp-confirmar">Registrar produção</button></div>
+      </form>
+      <h3 class="producao-subtitulo">Últimas produções de acompanhamentos</h3>
+      <div class="pl-ultimas" id="pl-acomp-ultimas"></div>
+    </section>
 
-      <div class="producao-secao-cabecalho">
-        <h2>Produção de Acompanhamentos</h2>
-        <button type="button" class="btn btn-primario" id="botao-novo-lote-acompanhamento">+ Nova Produção</button>
+    <!-- Histórico de Produção -->
+    <section class="producao-secao" data-producao-secao="historico">
+      <button type="button" class="producao-botao-voltar" data-producao-voltar>← Voltar para Produção</button>
+      <div class="producao-secao-cabecalho"><h2>Histórico de Produção</h2></div>
+      <div class="pl-filtros">
+        <div class="form-grupo"><label for="pl-filtro-tipo">Tipo</label>
+          <select id="pl-filtro-tipo" class="input"><option value="">Todos</option><option value="skewer">Espetos</option><option value="side">Acompanhamentos</option></select></div>
+        <div class="form-grupo"><label for="pl-filtro-status">Situação</label>
+          <select id="pl-filtro-status" class="input"><option value="">Todas</option><option value="confirmed">Confirmadas</option><option value="cancelled">Canceladas</option></select></div>
+        <div class="form-grupo"><label for="pl-filtro-de">De</label><input type="date" id="pl-filtro-de" class="input" /></div>
+        <div class="form-grupo"><label for="pl-filtro-ate">Até</label><input type="date" id="pl-filtro-ate" class="input" /></div>
       </div>
-      <p class="dica-campo" id="dica-acompanhamentos-somente-admin" style="display:none;">Somente administradores podem registrar ou editar produções de acompanhamento.</p>
-
       <div class="card tabela-producao-wrap">
         <table class="tabela">
-          <thead>
-            <tr>
-              <th>Data</th>
-              <th>Produto</th>
-              <th>Rendimento</th>
-              <th>Porção</th>
-              <th>Qtd teórica</th>
-              <th>Qtd real</th>
-              <th>Custo total</th>
-              <th>Custo real/porção</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="corpo-tabela-acompanhamentos"></tbody>
+          <thead><tr><th>Data</th><th>Produto</th><th>Produzido</th><th>Matéria-prima / ficha</th><th>Custo total</th><th>Custo/unid.</th><th>Situação</th><th></th></tr></thead>
+          <tbody id="pl-corpo-historico"></tbody>
         </table>
-        <div class="estado-vazio" id="estado-carregando-acompanhamentos">Carregando lotes de acompanhamento...</div>
-        <div class="estado-vazio" id="estado-erro-acompanhamentos" style="display:none;"></div>
-        <div class="estado-vazio" id="estado-vazio-acompanhamentos" style="display:none;">
-          Nenhum lote de acompanhamento cadastrado.
-        </div>
+        <div class="estado-vazio" id="pl-historico-carregando">Carregando produções...</div>
+        <div class="estado-vazio" id="pl-historico-erro" style="display:none;"></div>
+        <div class="estado-vazio" id="pl-historico-vazio" style="display:none;">Nenhuma produção registrada.</div>
       </div>
     </section>
 
@@ -262,382 +300,42 @@
     </div>
   </div>
 
-  <!-- Modal: novo/editar lote de Produção de Espetos -->
-  <div class="modal-overlay" id="modal-overlay-lote-espeto">
-    <div class="modal producao-modal-rolavel" style="max-width:760px;">
+  <!-- Modal: detalhe da produção -->
+  <div class="modal-overlay" id="pl-modal-detalhe">
+    <div class="modal producao-modal-rolavel" style="max-width:720px;">
       <div class="modal-cabecalho">
-        <h2 id="titulo-modal-lote-espeto">Novo Lote de Produção</h2>
-        <button class="btn-icone" id="botao-fechar-modal-lote-espeto" aria-label="Fechar">✕</button>
+        <h2 id="pl-detalhe-titulo">Produção</h2>
+        <button class="btn-icone" id="pl-detalhe-fechar-x" aria-label="Fechar">✕</button>
       </div>
-      <form id="form-lote-espeto">
-        <input type="hidden" id="campo-id-lote-espeto" />
-        <div class="modal-corpo">
-          <div class="form-grupo">
-            <label for="campo-produto-lote">Produto</label>
-            <select id="campo-produto-lote" class="input" required></select>
-          </div>
-
-          <!-- Lote da compra vinculado à CARNE PRINCIPAL do header
-               (skewer_production_batches.lot_id) — mecanismo independente do
-               seletor de lote dos componentes (Ingredientes/Temperos/
-               Preparos, mais abaixo, que grava em
-               skewer_batch_components.lot_id e usa purchase_items.
-               ingredient_id). A carne principal usa o vínculo Produto:
-               products.id -> purchase_items.product_id -> lots (nunca
-               ingredient_id, nunca heurística por nome) — os lotes exibidos
-               aqui dependem só do PRODUTO selecionado acima. -->
-          <div class="form-grupo producao-campo-lote" id="grupo-lote-carne-lote">
-            <label for="campo-lote-carne-lote">Lote da carne</label>
-            <select id="campo-lote-carne-lote" class="input">
-              <option value="">Sem lote / custo manual</option>
-            </select>
-            <p class="dica-campo" id="dica-lote-carne-sem-vinculo" style="display:none;">Este produto ainda não está vinculado a um Item de Compra.</p>
-            <p class="dica-campo" id="dica-lote-carne-nenhum-disponivel" style="display:none;">Nenhum lote disponível para este produto.</p>
-            <p class="dica-campo" id="texto-saldo-lote-carne" style="display:none;"></p>
-            <p class="dica-campo" id="dica-lote-carne-saldo-insuficiente" style="display:none; color:var(--cor-status-vermelho);">Peso bruto maior que o saldo disponível neste lote.</p>
-          </div>
-
-          <div class="form-grupo">
-            <label for="campo-data-lote">Data da produção</label>
-            <input type="date" id="campo-data-lote" class="input" required />
-          </div>
-
-          <div style="display:flex; gap:12px;">
-            <div class="form-grupo" style="flex:2;">
-              <label for="campo-peso-bruto-lote">Peso bruto</label>
-              <input type="number" id="campo-peso-bruto-lote" class="input" min="0" step="0.001" required />
-            </div>
-            <div class="form-grupo" style="flex:1;">
-              <label for="campo-unidade-peso-bruto-lote">Unidade</label>
-              <select id="campo-unidade-peso-bruto-lote" class="input">
-                <option value="kg">kg</option>
-                <option value="g">g</option>
-              </select>
-            </div>
-          </div>
-
-          <div style="display:flex; gap:12px;">
-            <div class="form-grupo" style="flex:2;">
-              <label for="campo-peso-util-lote">Peso após limpeza</label>
-              <input type="number" id="campo-peso-util-lote" class="input" min="0" step="0.001" required />
-            </div>
-            <div class="form-grupo" style="flex:1;">
-              <label for="campo-unidade-peso-util-lote">Unidade</label>
-              <select id="campo-unidade-peso-util-lote" class="input">
-                <option value="kg">kg</option>
-                <option value="g">g</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Etapa I1: custo da carne deixou de ser um campo editável — o
-               valor é sempre calculado (gross_weight_g × lote.unit_cost_base)
-               quando há lote, ou preservado como estava quando a produção
-               histórica não tem lote (não há mais como digitar um valor
-               novo por aqui). campo-custo-total-lote continua existindo,
-               só que oculto (type="hidden") — mantém toda a leitura/escrita
-               já existente (lerDadosFormularioLoteEspeto, payload de save)
-               sem precisar reescrever esses pontos; texto-custo-carne-lote
-               é só a exibição visual, sempre somente-leitura. -->
-          <div class="form-grupo">
-            <label id="rotulo-custo-total-lote">Custo da carne</label>
-            <span class="producao-unidade-travada" id="texto-custo-carne-lote">—</span>
-            <input type="hidden" id="campo-custo-total-lote" />
-          </div>
-
-          <div class="form-grupo">
-            <label for="campo-peso-espeto-lote">Peso padrão por espeto (g)</label>
-            <input type="number" id="campo-peso-espeto-lote" class="input" min="0" step="0.1" required />
-          </div>
-
-          <div class="form-grupo">
-            <label for="campo-quantidade-real-lote">Quantidade realmente produzida</label>
-            <input type="number" id="campo-quantidade-real-lote" class="input" min="1" step="1" required />
-          </div>
-
-          <div class="producao-preview-lote" id="preview-indicadores-lote">
-            <div class="producao-preview-lote-grade">
-              <div><span>Peso bruto</span><strong id="preview-peso-bruto">—</strong></div>
-              <div><span>Peso útil</span><strong id="preview-peso-util">—</strong></div>
-              <div><span>Perda</span><strong id="preview-perda">—</strong></div>
-              <div><span>Rendimento</span><strong id="preview-rendimento">—</strong></div>
-              <div><span>Custo bruto</span><strong id="preview-custo-bruto">—</strong></div>
-              <div><span>Custo útil</span><strong id="preview-custo-util">—</strong></div>
-              <div><span>Qtd. teórica</span><strong id="preview-qtd-teorica">—</strong></div>
-              <div><span>Sobra teórica</span><strong id="preview-sobra-teorica">—</strong></div>
-              <div><span>Qtd. real</span><strong id="preview-qtd-real">—</strong></div>
-              <div><span>Diferença</span><strong id="preview-diferenca">—</strong></div>
-              <div><span>Custo teórico</span><strong id="preview-custo-teorico">—</strong></div>
-            </div>
-            <div class="producao-preview-lote-destaque">
-              <span>Custo real por espeto</span>
-              <strong id="preview-custo-real">—</strong>
-            </div>
-          </div>
-
-          <h3 class="producao-subtitulo">Custos Adicionais</h3>
-
-          <h4 class="producao-subtitulo-menor">Insumos de produção</h4>
-          <div class="producao-lista-componentes-lote" id="lista-insumos-lote"></div>
-          <div class="estado-vazio" id="estado-vazio-insumos-lote" style="display:none;">Nenhum insumo adicionado a este lote.</div>
-
-          <div class="producao-adicionar-componente">
-            <div class="form-grupo" style="flex:2; min-width:180px;">
-              <label for="campo-supply-lote">Insumo</label>
-              <select id="campo-supply-lote" class="input"></select>
-            </div>
-            <div class="form-grupo" style="flex:1; min-width:100px;">
-              <label for="campo-quantidade-supply-lote">Quantidade</label>
-              <input type="number" id="campo-quantidade-supply-lote" class="input" min="0" step="0.001" />
-            </div>
-            <div class="form-grupo" style="flex:0; min-width:60px;">
-              <label>Unidade</label>
-              <span class="producao-unidade-travada" id="texto-unidade-supply-lote">un</span>
-            </div>
-            <div class="producao-botao-adicionar-componente">
-              <button type="button" class="btn btn-secundario" id="botao-adicionar-supply-lote">+ Adicionar insumo</button>
-            </div>
-          </div>
-          <div class="form-grupo producao-campo-lote" id="grupo-lote-supply-lote" style="display:none;">
-            <label for="campo-lote-supply-lote">Lote do insumo</label>
-            <select id="campo-lote-supply-lote" class="input"></select>
-            <p class="dica-campo" id="dica-lote-supply-nenhum-disponivel" style="display:none;">Nenhum lote disponível para este insumo.</p>
-            <p class="dica-campo" id="dica-lote-supply-sem-vinculo" style="display:none;">Este insumo ainda não está vinculado a um Item de Compra.</p>
-            <p class="dica-campo" id="dica-supply-lote-saldo-insuficiente" style="display:none; color:var(--cor-status-vermelho);">Quantidade maior que o saldo disponível neste lote.</p>
-            <p class="dica-campo">O saldo será baixado deste lote ao salvar a produção.</p>
-          </div>
-          <p class="producao-preview-custo" id="preview-supply-lote"></p>
-          <p class="dica-campo" id="dica-supply-lote-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
-
-          <h4 class="producao-subtitulo-menor">Temperos / Preparos</h4>
-          <p class="dica-campo">Ao salvar, o custo de insumos/ingredientes/preparos é sempre recalculado a partir do valor atual — o histórico exibido abaixo reflete o que foi salvo da última vez, não o que será gravado agora.</p>
-          <div class="producao-lista-componentes-lote" id="lista-temperos-lote"></div>
-          <div class="estado-vazio" id="estado-vazio-temperos-lote" style="display:none;">Nenhum tempero/preparo adicionado a este lote.</div>
-
-          <div class="form-grupo">
-            <label for="campo-tipo-tempero-lote">Tipo</label>
-            <select id="campo-tipo-tempero-lote" class="input">
-              <option value="recipe">Preparo</option>
-              <option value="ingredient">Ingrediente</option>
-            </select>
-          </div>
-          <div class="producao-adicionar-componente">
-            <div class="form-grupo" style="flex:2; min-width:180px;">
-              <label for="campo-referencia-tempero-lote" id="rotulo-referencia-tempero-lote">Preparo</label>
-              <select id="campo-referencia-tempero-lote" class="input"></select>
-            </div>
-            <div class="form-grupo" style="flex:1; min-width:90px;">
-              <label for="campo-quantidade-tempero-lote">Quantidade</label>
-              <input type="number" id="campo-quantidade-tempero-lote" class="input" min="0" step="0.001" />
-            </div>
-            <div class="form-grupo" style="flex:0; min-width:60px;">
-              <label>Unidade</label>
-              <span class="producao-unidade-travada" id="texto-unidade-tempero-lote">—</span>
-            </div>
-            <div class="producao-botao-adicionar-componente">
-              <button type="button" class="btn btn-secundario" id="botao-adicionar-tempero-lote">+ Adicionar tempero/preparo</button>
-            </div>
-          </div>
-          <div class="form-grupo producao-campo-lote" id="grupo-lote-tempero-lote" style="display:none;">
-            <label for="campo-lote-tempero-lote">Lote do ingrediente</label>
-            <select id="campo-lote-tempero-lote" class="input"></select>
-            <p class="dica-campo" id="dica-lote-tempero-nenhum-disponivel" style="display:none;">Nenhum lote disponível para este ingrediente.</p>
-            <p class="dica-campo" id="dica-lote-tempero-sem-vinculo" style="display:none;">Este ingrediente ainda não está vinculado a um Item de Compra.</p>
-            <p class="dica-campo" id="dica-tempero-lote-saldo-insuficiente" style="display:none; color:var(--cor-status-vermelho);">Quantidade maior que o saldo disponível neste lote.</p>
-            <p class="dica-campo">O saldo será baixado deste lote ao salvar a produção.</p>
-          </div>
-          <p class="dica-campo" id="dica-tempero-sem-opcoes" style="display:none;">Nenhum ingrediente ativo na categoria Temperos. Em Compras → Itens de Compra, edite ou crie um item de compra com Categoria = Ingrediente e Categoria do ingrediente = Temperos.</p>
-          <p class="producao-preview-custo" id="preview-tempero-lote"></p>
-          <p class="dica-campo" id="dica-tempero-lote-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
-
-          <h3 class="producao-subtitulo">Resumo do Lote</h3>
-          <div class="producao-resumo-final-lote">
-            <div><span>Custo da carne</span><strong id="resumo-custo-carne">—</strong></div>
-            <div><span>Insumos</span><strong id="resumo-custo-insumos">—</strong></div>
-            <div><span>Temperos/Preparos</span><strong id="resumo-custo-temperos">—</strong></div>
-            <div class="producao-resumo-final-lote-total"><span>Custo final do lote</span><strong id="resumo-custo-final">—</strong></div>
-            <div><span>Qtd. produzida</span><strong id="resumo-qtd-produzida">—</strong></div>
-            <div class="producao-resumo-final-lote-destaque"><span>Custo real final / espeto</span><strong id="resumo-custo-real-final">—</strong></div>
-          </div>
-
-          <!-- Só aparece em lote já salvo (item 5) — reaproveita salvarCustoProdutoNoSupabase já existente, nunca altera o lote em si. -->
-          <div id="bloco-custo-produto" style="display:none;">
-            <h3 class="producao-subtitulo">Custo do Produto</h3>
-            <div class="producao-resumo-final-lote">
-              <div><span>Produto</span><strong id="custoproduto-nome-produto">—</strong></div>
-              <div><span>Origem</span><strong id="custoproduto-origem-lote">—</strong></div>
-              <div><span>Custo atual</span><strong id="custoproduto-custo-atual">—</strong></div>
-              <div><span>Custo deste lote</span><strong id="custoproduto-custo-lote">—</strong></div>
-              <div><span>Diferença</span><strong id="custoproduto-diferenca">—</strong></div>
-              <div><span>Variação</span><strong id="custoproduto-variacao">—</strong></div>
-            </div>
-            <p class="dica-campo" id="dica-produto-inativo-custo" style="display:none;">⚠ Produto inativo.</p>
-            <p class="dica-campo" id="dica-custo-ja-aplicado" style="display:none;">Este custo já está aplicado.</p>
-            <div style="display:flex; justify-content:flex-end;">
-              <button type="button" class="btn btn-secundario" id="botao-aplicar-custo-produto">Aplicar custo ao produto</button>
-            </div>
-            <p class="dica-campo" id="dica-custo-produto-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
-          </div>
-
-          <p class="dica-campo" id="dica-lote-espeto-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
-        </div>
-        <div class="modal-rodape">
-          <button type="button" class="btn btn-secundario" id="botao-excluir-lote-espeto" style="margin-right:auto; display:none;">🗑️ Excluir Lote</button>
-          <button type="button" class="btn btn-secundario" id="botao-cancelar-lote-espeto">Cancelar</button>
-          <button type="submit" class="btn btn-primario">Salvar Lote</button>
-        </div>
-      </form>
+      <div class="modal-corpo" id="pl-detalhe-corpo"></div>
+      <div class="modal-rodape">
+        <button type="button" class="btn btn-perigo" id="pl-detalhe-cancelar" style="display:none;">Cancelar produção (estorno)</button>
+        <button type="button" class="btn btn-secundario" id="pl-detalhe-fechar">Fechar</button>
+      </div>
     </div>
   </div>
 
-  <!-- Modal: nova/editar produção de Acompanhamento -->
-  <div class="modal-overlay" id="modal-overlay-lote-acompanhamento">
-    <div class="modal producao-modal-rolavel" style="max-width:760px;">
+  <!-- Modal: motivo do cancelamento -->
+  <div class="modal-overlay" id="pl-modal-cancelar">
+    <div class="modal" style="max-width:460px;">
       <div class="modal-cabecalho">
-        <h2 id="titulo-modal-lote-acompanhamento">Nova Produção de Acompanhamento</h2>
-        <button class="btn-icone" id="botao-fechar-modal-lote-acompanhamento" aria-label="Fechar">✕</button>
+        <h2>Cancelar produção</h2>
+        <button class="btn-icone" id="pl-cancelar-fechar-x" aria-label="Fechar">✕</button>
       </div>
-      <form id="form-lote-acompanhamento">
-        <input type="hidden" id="campo-id-lote-acompanhamento" />
-        <div class="modal-corpo">
-          <div class="form-grupo">
-            <label for="campo-produto-acompanhamento">Produto</label>
-            <select id="campo-produto-acompanhamento" class="input" required></select>
-          </div>
-
-          <div class="form-grupo">
-            <label for="campo-data-acompanhamento">Data da produção</label>
-            <input type="date" id="campo-data-acompanhamento" class="input" required />
-          </div>
-
-          <h3 class="producao-subtitulo">Ingredientes / Preparos</h3>
-          <div class="producao-lista-componentes-lote" id="lista-componentes-acompanhamento"></div>
-          <div class="estado-vazio" id="estado-vazio-componentes-acompanhamento" style="display:none;">Nenhum ingrediente ou preparo adicionado a este lote.</div>
-
-          <div class="form-grupo">
-            <label for="campo-tipo-componente-acompanhamento">Tipo</label>
-            <select id="campo-tipo-componente-acompanhamento" class="input">
-              <option value="ingredient">Ingrediente</option>
-              <option value="recipe">Preparo</option>
-            </select>
-          </div>
-          <div class="producao-adicionar-componente">
-            <div class="form-grupo" style="flex:2; min-width:180px;">
-              <label for="campo-referencia-componente-acompanhamento" id="rotulo-referencia-componente-acompanhamento">Ingrediente</label>
-              <select id="campo-referencia-componente-acompanhamento" class="input"></select>
-            </div>
-            <div class="form-grupo" style="flex:1; min-width:100px;">
-              <label for="campo-quantidade-componente-acompanhamento">Quantidade</label>
-              <input type="number" id="campo-quantidade-componente-acompanhamento" class="input" min="0" step="0.001" />
-            </div>
-            <div class="form-grupo" style="flex:0; min-width:60px;">
-              <label>Unidade</label>
-              <span class="producao-unidade-travada" id="texto-unidade-componente-acompanhamento">—</span>
-            </div>
-            <div class="producao-botao-adicionar-componente">
-              <button type="button" class="btn btn-secundario" id="botao-adicionar-componente-acompanhamento">+ Adicionar</button>
-            </div>
-          </div>
-          <div class="form-grupo producao-campo-lote" id="grupo-lote-componente-acompanhamento" style="display:none;">
-            <label for="campo-lote-componente-acompanhamento">Lote</label>
-            <select id="campo-lote-componente-acompanhamento" class="input"></select>
-            <p class="dica-campo" id="dica-lote-componente-acompanhamento-nenhum-disponivel" style="display:none;">Nenhum lote disponível para este ingrediente.</p>
-            <p class="dica-campo" id="dica-lote-componente-acompanhamento-sem-vinculo" style="display:none;">Este ingrediente ainda não está vinculado a um Item de Compra.</p>
-            <p class="dica-campo" id="dica-componente-acompanhamento-lote-saldo-insuficiente" style="display:none; color:var(--cor-status-vermelho);">Quantidade maior que o saldo disponível neste lote.</p>
-            <p class="dica-campo">O saldo será baixado deste lote ao salvar a produção.</p>
-          </div>
-          <p class="producao-preview-custo" id="preview-componente-acompanhamento"></p>
-          <p class="dica-campo" id="dica-componente-acompanhamento-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
-
-          <h3 class="producao-subtitulo">Rendimento e Porções</h3>
-          <div style="display:flex; gap:12px;">
-            <div class="form-grupo" style="flex:2;">
-              <label for="campo-rendimento-quantidade-acompanhamento">Rendimento final</label>
-              <input type="number" id="campo-rendimento-quantidade-acompanhamento" class="input" min="0" step="0.001" required />
-            </div>
-            <div class="form-grupo" style="flex:1;">
-              <label for="campo-rendimento-unidade-acompanhamento">Unidade</label>
-              <select id="campo-rendimento-unidade-acompanhamento" class="input">
-                <option value="g">g</option>
-                <option value="ml">ml</option>
-                <option value="un">un</option>
-              </select>
-            </div>
-          </div>
-          <p class="dica-campo">Informe o rendimento REAL obtido depois da produção — nunca calculado automaticamente pela soma dos componentes.</p>
-
-          <div style="display:flex; gap:12px; align-items:flex-end;">
-            <div class="form-grupo" style="flex:2;">
-              <label for="campo-porcao-quantidade-acompanhamento">Tamanho da porção</label>
-              <input type="number" id="campo-porcao-quantidade-acompanhamento" class="input" min="0" step="0.001" required />
-            </div>
-            <div class="form-grupo" style="flex:1;">
-              <label>Unidade</label>
-              <span class="producao-unidade-travada" id="texto-unidade-porcao-acompanhamento">g</span>
-            </div>
-          </div>
-          <p class="dica-campo">A unidade da porção acompanha sempre a unidade do rendimento.</p>
-
-          <div class="form-grupo">
-            <label for="campo-porcoes-reais-acompanhamento">Quantidade real produzida</label>
-            <input type="number" id="campo-porcoes-reais-acompanhamento" class="input" min="1" step="1" placeholder="Opcional" />
-            <p class="dica-campo">Informe quantas porções você realmente conseguiu montar.</p>
-          </div>
-
-          <p class="dica-campo" id="dica-acomp-rendimento-invalido" style="display:none; color:var(--cor-status-vermelho);">O rendimento informado não produz nenhuma porção válida.</p>
-
-          <h3 class="producao-subtitulo">Indicadores da Produção</h3>
-          <div class="producao-resumo-final-lote">
-            <div id="linha-indicador-rendimento-teorico"><span>Rendimento teórico dos componentes</span><strong id="indicadores-rendimento-teorico">—</strong></div>
-            <div id="linha-indicador-rendimento-real"><span>Rendimento real</span><strong id="indicadores-rendimento-real">—</strong></div>
-            <div id="linha-indicador-diferenca-rendimento"><span>Diferença</span><strong id="indicadores-diferenca-rendimento">—</strong></div>
-            <div id="linha-indicador-rendimento-percentual"><span>Rendimento</span><strong id="indicadores-rendimento-percentual">—</strong></div>
-            <div id="linha-indicador-perda"><span>Perda</span><strong id="indicadores-perda">—</strong></div>
-            <div id="linha-indicador-porcao"><span>Porção</span><strong id="indicadores-porcao">—</strong></div>
-            <div id="linha-indicador-porcoes-teoricas"><span>Porções teóricas</span><strong id="indicadores-porcoes-teoricas">—</strong></div>
-            <div id="linha-indicador-porcoes-reais"><span>Porções reais</span><strong id="indicadores-porcoes-reais">—</strong></div>
-            <div id="linha-indicador-diferenca-porcoes"><span>Diferença de porções</span><strong id="indicadores-diferenca-porcoes">—</strong></div>
-            <div id="linha-indicador-sobra"><span>Sobra teórica</span><strong id="indicadores-sobra">—</strong></div>
-          </div>
-
-          <h3 class="producao-subtitulo">Resumo do Lote</h3>
-          <div class="producao-resumo-final-lote">
-            <div><span>Custo total</span><strong id="resumo-acomp-custo-total">—</strong></div>
-            <div><span>Custo por base</span><strong id="resumo-acomp-custo-base">—</strong></div>
-            <div><span>Custo teórico/porção</span><strong id="resumo-acomp-custo-teorico">—</strong></div>
-            <div class="producao-resumo-final-lote-destaque"><span>Custo real/porção</span><strong id="resumo-acomp-custo-real">—</strong></div>
-          </div>
-
-          <!-- Só aparece em lote já salvo — reaproveita aplicarCustoProducaoAcompanhamentoNoSupabase já existente, nunca altera o lote em si. -->
-          <div id="bloco-custo-acomp-produto" style="display:none;">
-            <h3 class="producao-subtitulo">Custo do Produto</h3>
-            <div class="producao-resumo-final-lote">
-              <div><span>Produto</span><strong id="custoproduto-acomp-nome-produto">—</strong></div>
-              <div><span>Origem</span><strong id="custoproduto-acomp-origem-lote">—</strong></div>
-              <div><span>Custo atual</span><strong id="custoproduto-acomp-custo-atual">—</strong></div>
-              <div><span>Custo deste lote</span><strong id="custoproduto-acomp-custo-lote">—</strong></div>
-              <div><span>Diferença</span><strong id="custoproduto-acomp-diferenca">—</strong></div>
-              <div><span>Variação</span><strong id="custoproduto-acomp-variacao">—</strong></div>
-            </div>
-            <p class="dica-campo" id="dica-produto-acomp-inativo-custo" style="display:none;">⚠ Produto inativo.</p>
-            <p class="dica-campo" id="dica-custo-acomp-ja-aplicado" style="display:none;">Este custo já está aplicado.</p>
-            <div style="display:flex; justify-content:flex-end;">
-              <button type="button" class="btn btn-secundario" id="botao-aplicar-custo-acomp-produto">Aplicar custo ao produto</button>
-            </div>
-            <p class="dica-campo" id="dica-custo-acomp-produto-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
-          </div>
-
-          <p class="dica-campo" id="dica-lote-acompanhamento-erro" style="display:none; color:var(--cor-status-vermelho);"></p>
+      <div class="modal-corpo">
+        <p>A produção fica no histórico como <strong>cancelada</strong>: o produto sai do estoque e a matéria-prima/ingredientes voltam pelo mesmo custo.</p>
+        <div class="form-grupo">
+          <label for="pl-cancelar-motivo">Motivo</label>
+          <textarea id="pl-cancelar-motivo" class="input" rows="2" maxlength="500" placeholder="Ex.: quantidade digitada errada"></textarea>
         </div>
-        <div class="modal-rodape">
-          <button type="button" class="btn btn-secundario" id="botao-excluir-lote-acompanhamento" style="margin-right:auto; display:none;">🗑️ Excluir Lote</button>
-          <button type="button" class="btn btn-secundario" id="botao-cancelar-lote-acompanhamento">Cancelar</button>
-          <button type="submit" class="btn btn-primario" id="botao-salvar-lote-acompanhamento">Salvar</button>
-        </div>
-      </form>
+        <p class="pl-erro" id="pl-cancelar-erro" style="display:none;"></p>
+      </div>
+      <div class="modal-rodape">
+        <button type="button" class="btn btn-secundario" id="pl-cancelar-voltar">Voltar</button>
+        <button type="button" class="btn btn-perigo" id="pl-cancelar-confirmar">Cancelar produção</button>
+      </div>
     </div>
   </div>
-
   <script src="js/utils.js"></script>
   <script src="js/storage.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -646,12 +344,12 @@
   <script src="js/services/ingredients-service.js"></script>
   <script src="js/services/recipes-service.js"></script>
   <script src="js/services/products-service.js"></script>
-  <script src="js/services/skewer-production-service.js"></script>
-  <script src="js/services/side-production-service.js"></script>
   <script src="js/services/production-supplies-service.js"></script>
   <script src="js/services/product-costs-service.js"></script>
   <script src="js/services/purchases-service.js"></script>
+  <script src="js/services/production-service.js"></script>
   <script src="js/app.js"></script>
   <script src="js/producao.js"></script>
+  <script src="js/producao-lotes.js"></script>
 </body>
 </html>

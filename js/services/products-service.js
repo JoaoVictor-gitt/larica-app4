@@ -114,6 +114,10 @@ function _linhaSupabaseParaProduto(linha) {
     status: linha.active ? 'ativo' : 'inativo',
     disponivel: linha.is_available !== false, // disponibilidade operacional — distinta de active/status (ver comentário no schema)
     stockMode: linha.stock_mode || 'untracked', // Etapa K2 — só classificação, nenhuma automação de estoque ainda
+    // Fase C — porção (g) dos acompanhamentos e padrões da última produção
+    porcaoGramas: linha.portion_grams === null || linha.portion_grams === undefined ? null : Number(linha.portion_grams),
+    producaoItemId: linha.production_raw_item_id || null,
+    producaoReceitaId: linha.production_recipe_id || null,
     comboConfig: null, // preenchido por buscarProdutosDoSupabase() quando for combo
     criadoEm: linha.created_at || '',
     atualizadoEm: linha.updated_at || '',
@@ -438,6 +442,16 @@ async function alternarDisponibilidadeNoSupabase(id, disponivel) {
   const { data, error } = await supabaseClient.from('products').update({ is_available: disponivel }).eq('id', id).select().single();
   if (error) throw new Error(error.message);
   return _linhaSupabaseParaProduto(data);
+}
+
+/** Fase C — tamanho da porção (g) de um acompanhamento, via RPC set_product_portion (admin). null limpa. */
+async function definirPorcaoProdutoNoSupabase(id, porcaoGramas) {
+  const { data, error } = await supabaseClient.rpc('set_product_portion', {
+    p_product_id: id,
+    p_portion_grams: porcaoGramas === null || porcaoGramas === undefined || porcaoGramas === '' ? null : Number(porcaoGramas),
+  });
+  if (error) throw new Error(error.message);
+  return data;
 }
 
 /**

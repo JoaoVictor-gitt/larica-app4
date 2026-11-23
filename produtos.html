@@ -154,7 +154,7 @@
                 <label for="campo-custo">Custo unitário (€)</label>
                 <input type="number" id="campo-custo" class="input" min="0" step="0.0001" placeholder="Não cadastrado" />
                 <p class="dica-campo" id="dica-custo-combo" style="display:none;">O custo do combo é calculado pelos componentes escolhidos.</p>
-                <p class="dica-campo" id="dica-custo-espetinho" style="display:none;">O custo dos espetos é calculado a partir dos lotes em <a href="producao.html">Produção → Produção de Espetos</a>.</p>
+                <p class="dica-campo" id="dica-custo-espetinho" style="display:none;">O custo dos espetos é calculado em <a href="producao.html">Produção → Produzir Espetos</a>, pelo custo médio da carne.</p>
                 <p class="dica-campo" id="dica-custo-somente-admin" style="display:none;">Somente administradores podem editar o custo.</p>
               </div>
             </div>
@@ -162,6 +162,12 @@
             <div class="form-grupo" id="grupo-estoque">
               <label for="campo-estoque">Qtd. em estoque *</label>
               <input type="number" id="campo-estoque" class="input" min="0" step="1" required />
+            </div>
+
+            <div class="form-grupo" id="grupo-porcao" style="display:none;">
+              <label for="campo-porcao">Porção (g)</label>
+              <input type="number" id="campo-porcao" class="input" min="1" step="1" inputmode="numeric" placeholder="Ex.: 200" />
+              <p class="dica-campo">Usada na Produção para calcular quantas porções saem de cada preparo.</p>
             </div>
 
             <div class="form-grupo">
