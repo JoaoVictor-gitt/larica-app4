@@ -3,7 +3,8 @@
 // Fluxo: o navegador (admin logado) já enviou a foto/PDF para o bucket privado
 // 'purchase-documents' e registrou o documento (RPC register_purchase_document).
 // Esta rota recebe só { document_id }, confere que quem chama é admin (com o JWT do
-// próprio usuário), baixa o arquivo com a service role, pede a leitura à OpenAI e
+// próprio usuário), baixa o arquivo com a service role, pede a leitura à IA (Gemini
+// se GEMINI_API_KEY estiver configurada; senão OpenAI) e
 // grava o resultado em purchase_documents (RPC record_purchase_document_ocr).
 //
 // Nada é registrado como compra aqui: o resultado é só uma proposta que o usuário
@@ -19,6 +20,122 @@ export interface PurchaseOcrEnv {
   OPENAI_API_KEY: string;
   OPENAI_MODEL: string;
   OPENAI_OCR_MODEL?: string;
+  // Google Gemini (plano gratuito do AI Studio). Com GEMINI_API_KEY presente, a leitura
+  // de notas usa o Gemini; sem ela, continua na OpenAI.
+  GEMINI_API_KEY?: string;
+  GEMINI_OCR_MODEL?: string;
+}
+
+export const GEMINI_MODELO_PADRAO = 'gemini-3.5-flash-lite';
+const MODELO_RE = /^[A-Za-z0-9._-]{1,80}$/;
+
+type Ia = { provedor: 'gemini' | 'openai'; modelo: string };
+
+export function escolherIa(env: PurchaseOcrEnv): Ia | null {
+  if (env.GEMINI_API_KEY) return { provedor: 'gemini', modelo: env.GEMINI_OCR_MODEL || GEMINI_MODELO_PADRAO };
+  const modelo = env.OPENAI_OCR_MODEL || env.OPENAI_MODEL;
+  if (env.OPENAI_API_KEY && modelo) return { provedor: 'openai', modelo };
+  return null;
+}
+
+type Leitura = { ok: true; nota: NotaLida } | { ok: false; motivo: string };
+
+// Converte o texto devolvido pela IA em nota validada (aceita cercas ```json por segurança).
+function interpretarTextoNota(texto: string): Leitura {
+  const limpo = texto.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  let bruto: unknown;
+  try {
+    bruto = JSON.parse(limpo);
+  } catch {
+    return { ok: false, motivo: 'A IA não devolveu uma leitura válida.' };
+  }
+  const nota = validarNotaLida(bruto);
+  return nota ? { ok: true, nota } : { ok: false, motivo: 'A IA não devolveu uma leitura válida.' };
+}
+
+async function postarComPrazo(url: string, headers: Record<string, string>, body: string): Promise<Response | null> {
+  const controlador = new AbortController();
+  const timeout = setTimeout(() => controlador.abort(), 60000);
+  try {
+    return await fetch(url, { method: 'POST', headers, body, signal: controlador.signal });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function chamarGeminiNota(env: PurchaseOcrEnv, mime: string, base64: string, modelo: string): Promise<Leitura> {
+  if (!MODELO_RE.test(modelo)) return { ok: false, motivo: 'Nome de modelo do Gemini inválido em GEMINI_OCR_MODEL.' };
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`;
+  // A chave vai no cabeçalho (nunca na URL, para não aparecer em logs).
+  const headers = { 'x-goog-api-key': env.GEMINI_API_KEY || '', 'Content-Type': 'application/json' };
+  const montar = (comEsquema: boolean) => JSON.stringify({
+    systemInstruction: { parts: [{ text: PROMPT_SISTEMA }] },
+    contents: [{
+      role: 'user',
+      parts: [
+        { text: comEsquema ? 'Leia esta nota de compra.' : `Leia esta nota de compra. Responda só com um JSON exatamente neste esquema: ${JSON.stringify(ESQUEMA_NOTA)}` },
+        { inlineData: { mimeType: mime, data: base64 } },
+      ],
+    }],
+    generationConfig: comEsquema
+      ? { responseMimeType: 'application/json', responseJsonSchema: ESQUEMA_NOTA }
+      : { responseMimeType: 'application/json' },
+  });
+
+  let r = await postarComPrazo(url, headers, montar(true));
+  if (!r) return { ok: false, motivo: 'A leitura demorou demais ou a IA está indisponível.' };
+  let corpoErro = '';
+  if (r.status === 400) {
+    corpoErro = await r.text().catch(() => '');
+    // Se o modelo não aceitar o esquema, tenta de novo pedindo o JSON pelo texto
+    // (a validação abaixo continua descartando qualquer coisa fora do formato).
+    if (/schema/i.test(corpoErro) && !/api.?key/i.test(corpoErro)) {
+      r = await postarComPrazo(url, headers, montar(false));
+      if (!r) return { ok: false, motivo: 'A leitura demorou demais ou a IA está indisponível.' };
+      corpoErro = '';
+    }
+  }
+
+  if (!r.ok) {
+    if (!corpoErro) corpoErro = await r.text().catch(() => '');
+    // Só a classificação do erro é usada; o corpo nunca é repassado.
+    if (r.status === 401 || (r.status === 400 && /api.?key/i.test(corpoErro))) {
+      return { ok: false, motivo: 'A chave do Gemini (GEMINI_API_KEY no Worker) foi recusada. Confira o valor no Cloudflare.' };
+    }
+    if (r.status === 403) {
+      return { ok: false, motivo: 'O Google recusou a chave do Gemini (chave inválida, bloqueada ou projeto precisando de verificação em aistudio.google.com).' };
+    }
+    if (r.status === 404) {
+      return { ok: false, motivo: `O modelo "${modelo}" não existe ou não está disponível para esta chave. Configure GEMINI_OCR_MODEL no Cloudflare.` };
+    }
+    if (r.status === 429) {
+      return { ok: false, motivo: 'Limite gratuito do Gemini atingido (por minuto ou por dia). Aguarde um pouco e tente de novo.' };
+    }
+    if (r.status === 400 && /mime|unsupported|inline/i.test(corpoErro)) {
+      return { ok: false, motivo: 'O Gemini não aceitou este tipo de arquivo. Tente uma foto JPG/PNG.' };
+    }
+    if (r.status >= 500) return { ok: false, motivo: 'O Gemini está indisponível no momento. Tente de novo em instantes.' };
+    return { ok: false, motivo: 'A IA não conseguiu processar o documento.' };
+  }
+
+  const corpo = await r.json().catch(() => null) as {
+    promptFeedback?: { blockReason?: unknown };
+    candidates?: Array<{ finishReason?: unknown; content?: { parts?: Array<{ text?: unknown; thought?: unknown }> } }>;
+  } | null;
+  if (corpo?.promptFeedback?.blockReason) return { ok: false, motivo: 'O Gemini recusou ler este documento.' };
+  const candidato = corpo?.candidates?.[0];
+  const fim = candidato?.finishReason;
+  if (fim === 'MAX_TOKENS') return { ok: false, motivo: 'A nota é longa demais para a leitura automática.' };
+  const texto = (candidato?.content?.parts || [])
+    .filter((p) => typeof p.text === 'string' && p.thought !== true)
+    .map((p) => p.text as string)
+    .join('');
+  if (!texto) {
+    return { ok: false, motivo: fim && fim !== 'STOP' ? 'O Gemini recusou ler este documento.' : 'A IA não devolveu uma leitura válida.' };
+  }
+  return interpretarTextoNota(texto);
 }
 
 export const LIMITE_ARQUIVO_OCR = 10 * 1024 * 1024;
@@ -293,7 +410,11 @@ export async function chamarOpenAiNota(env: PurchaseOcrEnv, mime: string, base64
     if (r.status === 400 && /image|file|vision|modalit|support/i.test(corpoErro)) {
       return { ok: false, motivo: 'O modelo de IA configurado não aceita imagens/PDF. Configure OPENAI_OCR_MODEL com um modelo com visão.' };
     }
-    if (r.status === 429) return { ok: false, motivo: 'Limite de uso da IA atingido. Tente mais tarde.' };
+    if (r.status === 429 && /insufficient_quota|billing|exceeded your current quota/i.test(corpoErro)) {
+      return { ok: false, motivo: 'A conta da OpenAI está sem créditos (insufficient_quota). Adicione créditos ou uma forma de pagamento em platform.openai.com → Billing.' };
+    }
+    if (r.status === 429) return { ok: false, motivo: 'Muitas leituras seguidas na OpenAI (limite por minuto). Aguarde um pouco e tente de novo.' };
+    if (r.status === 401) return { ok: false, motivo: 'A chave da OpenAI (OPENAI_API_KEY no Worker) foi recusada. Confira o valor no Cloudflare.' };
     return { ok: false, motivo: 'A IA não conseguiu processar o documento.' };
   }
 
@@ -315,8 +436,8 @@ export async function tratarOcrCompra(request: Request, env: PurchaseOcrEnv, cor
   if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY || !env.SUPABASE_SERVICE_ROLE_KEY) {
     return json({ error: 'Configuração do servidor ausente.' }, 500);
   }
-  const modelo = env.OPENAI_OCR_MODEL || env.OPENAI_MODEL;
-  if (!env.OPENAI_API_KEY || !modelo) {
+  const ia = escolherIa(env);
+  if (!ia) {
     return json({ error: 'Leitura automática indisponível: a IA não está configurada. Preencha a compra manualmente.', code: 'ocr_unavailable' }, 503);
   }
 
@@ -351,6 +472,7 @@ export async function tratarOcrCompra(request: Request, env: PurchaseOcrEnv, cor
     return json({ error: 'Documento inválido.' }, 400);
   }
 
+  const modelo = ia.modelo;
   await registrarStatus(env, doc.id, 'processing', null, modelo, null);
 
   let arquivo: ArrayBuffer;
@@ -377,7 +499,10 @@ export async function tratarOcrCompra(request: Request, env: PurchaseOcrEnv, cor
     return json({ error: 'Arquivo vazio ou grande demais (máx. 10 MB).' }, 400);
   }
 
-  const leitura = await chamarOpenAiNota(env, doc.mime_type, arrayBufferParaBase64(arquivo), modelo);
+  const base64 = arrayBufferParaBase64(arquivo);
+  const leitura = ia.provedor === 'gemini'
+    ? await chamarGeminiNota(env, doc.mime_type, base64, modelo)
+    : await chamarOpenAiNota(env, doc.mime_type, base64, modelo);
   if (!leitura.ok) {
     await registrarStatus(env, doc.id, 'failed', null, modelo, leitura.motivo);
     return json({ error: `${leitura.motivo} Você pode preencher a compra manualmente.` }, 502);

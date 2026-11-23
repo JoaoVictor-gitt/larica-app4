@@ -32,6 +32,9 @@ interface Env {
   OPENAI_MODEL: string;
   // Fase B — modelo com visão para ler notas fiscais (opcional; sem ele usa OPENAI_MODEL).
   OPENAI_OCR_MODEL?: string;
+  // Leitura de notas pelo Google Gemini (opcional; com a chave presente, tem prioridade sobre a OpenAI).
+  GEMINI_API_KEY?: string;
+  GEMINI_OCR_MODEL?: string;
   // W6.7D — endpoint temporário de diagnóstico (remover junto com a rota
   // /internal/whatsapp/ai-preview quando a Meta for desbloqueada e o W6.8 existir).
   AI_TEST_TOKEN: string;
