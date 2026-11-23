@@ -1,0 +1,103 @@
+/* menu.css — página Menu (menu.html): página principal do painel, com um card por área. */
+
+.menu-topo { margin-bottom: var(--espaco-lg); }
+.menu-topo h1 { margin: 0; font-size: 1.6rem; line-height: 1.2; }
+.menu-saudacao {
+  margin: 0 0 4px;
+  color: var(--cor-terracota);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.menu-data { margin: 6px 0 0; color: var(--cor-texto-secundario); font-size: 0.9rem; }
+
+.menu-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--espaco-md);
+}
+
+/* Card inteiro clicável: o link do título se estica sobre o card (::after); os atalhos ficam por cima */
+.menu-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 14px;
+  padding: 20px;
+  background: var(--cor-branco);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-md);
+  box-shadow: var(--sombra-sm);
+  transition: transform var(--transicao-rapida), border-color var(--transicao-rapida), box-shadow var(--transicao-rapida);
+}
+.menu-card:hover { transform: translateY(-3px); border-color: var(--cor-terracota); box-shadow: var(--sombra-md); }
+.menu-card:focus-within { border-color: var(--cor-terracota); }
+
+.menu-card-icone {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--raio-md);
+  display: grid;
+  place-items: center;
+  font-size: 1.5rem;
+  background: var(--cor-cinza-claro);
+}
+.menu-card-texto h2 { margin: 2px 0 4px; font-size: 1.05rem; }
+.menu-card-texto p { margin: 0; font-size: 0.85rem; line-height: 1.4; color: var(--cor-texto-secundario); }
+.menu-card-link { color: var(--cor-texto); text-decoration: none; }
+.menu-card-link::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.menu-card-link:focus-visible { outline: none; }
+.menu-card:has(.menu-card-link:focus-visible) { outline: 3px solid var(--cor-terracota); outline-offset: 2px; }
+.menu-card-seta { color: var(--cor-texto-secundario); font-size: 1.1rem; transition: transform var(--transicao-rapida), color var(--transicao-rapida); }
+.menu-card:hover .menu-card-seta { transform: translateX(3px); color: var(--cor-terracota); }
+
+.menu-card-atalhos {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--cor-borda);
+}
+.menu-card-atalhos a {
+  position: relative;
+  z-index: 1;
+  padding: 5px 12px;
+  border-radius: var(--raio-pill);
+  background: var(--cor-cinza-claro);
+  color: var(--cor-texto);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background var(--transicao-rapida), color var(--transicao-rapida);
+}
+.menu-card-atalhos a:hover { background: var(--cor-terracota); color: var(--cor-sobre-acento); }
+
+/* Pedidos (operação do dia) em destaque */
+.menu-card-destaque {
+  grid-column: span 2;
+  background: linear-gradient(135deg, var(--cor-terracota), var(--cor-terracota-escura));
+  border-color: transparent;
+}
+.menu-card-destaque .menu-card-icone { background: rgba(255, 255, 255, 0.18); }
+.menu-card-destaque .menu-card-link,
+.menu-card-destaque .menu-card-texto p,
+.menu-card-destaque .menu-card-seta { color: var(--cor-sobre-acento); }
+.menu-card-destaque .menu-card-texto h2 { font-size: 1.3rem; }
+.menu-card-destaque:hover { border-color: transparent; }
+.menu-card-destaque:hover .menu-card-seta { color: var(--cor-sobre-acento); }
+.menu-card-destaque .menu-card-atalhos { border-top-color: rgba(255, 255, 255, 0.25); }
+.menu-card-destaque .menu-card-atalhos a { background: rgba(255, 255, 255, 0.18); color: var(--cor-sobre-acento); }
+.menu-card-destaque .menu-card-atalhos a:hover { background: var(--cor-sobre-acento); color: var(--cor-terracota); }
+
+@media (max-width: 640px) {
+  .menu-grade { grid-template-columns: 1fr; }
+  .menu-card-destaque { grid-column: auto; }
+  .menu-topo h1 { font-size: 1.3rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-card, .menu-card-seta { transition: none; }
+  .menu-card:hover { transform: none; }
+}

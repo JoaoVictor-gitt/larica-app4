@@ -14,19 +14,23 @@
 // Fase 10C/Etapa 3) exigida tanto pra aparecer no menu quanto pra acessar a página diretamente por URL.
 // `somenteAdmin: true` = módulo exclusivo de admin (sem permissão concedível a employee) — as RPCs
 // da página também checam is_admin() no banco; isto aqui só esconde o menu e barra o acesso por URL.
-// Ordem do menu: Dashboard, Produtos, Compras, Produção, Pedidos, Financeiro, Estoque, Configurações.
+// Ordem do menu: Menu, Pedidos, Estoque, Produtos, Compras, Produção, Dashboard, Financeiro, Configurações.
+// "Menu" (menu.html) é a página principal do painel: cards para as outras áreas. `todos: true` = qualquer
+// usuário do painel (staff) pode abrir — ela só mostra os cards das áreas que o usuário pode acessar.
+// `descricao` aparece no card da página Menu.
 // Itens com `oculto: true` não aparecem no menu, mas continuam aqui porque o guard de página
 // (garantirAcessoPaginaAtual) só libera páginas mapeadas. `dentroDe` indica qual item do menu fica
 // destacado quando a página está aberta: Histórico e Clientes ficam dentro de Pedidos.
 const MENU_ADMIN = [
-  { chave: 'dashboard', rotulo: 'Dashboard', icone: '📊', href: 'dashboard.html', permissao: 'dashboard.view' },
-  { chave: 'produtos', rotulo: 'Produtos', icone: '🍡', href: 'produtos.html', permissao: 'products.view' },
-  { chave: 'compras', rotulo: 'Compras', icone: '🛒', href: 'compras.html', permissao: 'purchases.view' },
-  { chave: 'producao', rotulo: 'Produção', icone: '🧾', href: 'producao.html', permissao: 'production.view' },
-  { chave: 'pedidos', rotulo: 'Pedidos', icone: '📋', href: 'pedidos.html', permissao: 'orders.view' },
-  { chave: 'financeiro', rotulo: 'Financeiro', icone: '💶', href: 'financeiro.html', permissao: 'reports.view' },
-  { chave: 'estoque', rotulo: 'Estoque', icone: '📦', href: 'estoque.html', permissao: 'stock.view' },
-  { chave: 'configuracoes', rotulo: 'Configurações', icone: '⚙️', href: 'configuracoes.html', permissao: 'settings.manage' },
+  { chave: 'menu', rotulo: 'Menu', icone: '🏠', href: 'menu.html', todos: true },
+  { chave: 'pedidos', rotulo: 'Pedidos', icone: '📋', href: 'pedidos.html', permissao: 'orders.view', descricao: 'Pedidos de hoje, impressão e confirmação de pagamento.' },
+  { chave: 'estoque', rotulo: 'Estoque', icone: '📦', href: 'estoque.html', permissao: 'stock.view', descricao: 'Saldo de produtos e insumos, ajustes e movimentações.' },
+  { chave: 'produtos', rotulo: 'Produtos', icone: '🍡', href: 'produtos.html', permissao: 'products.view', descricao: 'Cardápio, preços, fotos e combos.' },
+  { chave: 'compras', rotulo: 'Compras', icone: '🛒', href: 'compras.html', permissao: 'purchases.view', descricao: 'Lançamento de compras e notas, com leitura automática.' },
+  { chave: 'producao', rotulo: 'Produção', icone: '🧾', href: 'producao.html', permissao: 'production.view', descricao: 'Produção de espetos e acompanhamentos.' },
+  { chave: 'dashboard', rotulo: 'Dashboard', icone: '📊', href: 'dashboard.html', permissao: 'dashboard.view', descricao: 'Visão geral de vendas, resultados e alertas.' },
+  { chave: 'financeiro', rotulo: 'Financeiro', icone: '💶', href: 'financeiro.html', permissao: 'reports.view', descricao: 'Despesas, receitas, caixa, CMV e DRE.' },
+  { chave: 'configuracoes', rotulo: 'Configurações', icone: '⚙️', href: 'configuracoes.html', permissao: 'settings.manage', descricao: 'Ajustes da loja e do sistema.' },
   { chave: 'historico', rotulo: 'Histórico', icone: '🕒', href: 'historico.html', permissao: 'history.view', oculto: true, dentroDe: 'pedidos' },
   { chave: 'clientes', rotulo: 'Clientes', icone: '👥', href: 'clientes.html', somenteAdmin: true, oculto: true, dentroDe: 'pedidos' },
   // Fase E: o Relatório Diário de vendas fica dentro do Financeiro (mesma permissão de antes).
@@ -44,6 +48,7 @@ const SUBTITULOS_POR_AREA = { admin: 'Painel Administrativo', pedido: 'Fazer Ped
 
 // Títulos exibidos no header de cada página
 const TITULOS_PAGINA = {
+  menu: 'Menu',
   dashboard: 'Dashboard',
   pedido: 'Fazer Pedido',
   pedidos: 'Pedidos',
@@ -112,6 +117,9 @@ function temAcesso(contexto, permissao) {
 /** true se o contexto pode ver/acessar o item de MENU_ADMIN — `somenteAdmin` exige admin, senão vale a permissão do item. Fail closed. */
 function itemMenuLiberado(contexto, item) {
   if (!contexto || !item) return false;
+  // Menu: qualquer usuário do painel com acesso a pelo menos uma área. Sem nenhuma permissão continua
+  // caindo no logout (fail closed), como antes — a página Menu não vira porta de entrada.
+  if (item.todos) return contexto.ehAdmin === true || (contexto.permissoes || []).length > 0;
   if (item.somenteAdmin) return contexto.ehAdmin === true;
   return temAcesso(contexto, item.permissao);
 }
@@ -214,6 +222,9 @@ function montarShell(contextoPermissoes) {
 
   document.body.classList.add('app-shell');
   aplicarVisibilidadePorPermissao(contextoPermissoes);
+  // Avisa a página que o shell está pronto, com as permissões já carregadas (usado pela página Menu
+  // para mostrar só os cards que o usuário pode abrir — sem nova consulta ao banco).
+  document.dispatchEvent(new CustomEvent('larica:shell-pronto', { detail: { contexto: contextoPermissoes } }));
 }
 
 /**
