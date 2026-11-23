@@ -14,17 +14,21 @@
 // Fase 10C/Etapa 3) exigida tanto pra aparecer no menu quanto pra acessar a página diretamente por URL.
 // `somenteAdmin: true` = módulo exclusivo de admin (sem permissão concedível a employee) — as RPCs
 // da página também checam is_admin() no banco; isto aqui só esconde o menu e barra o acesso por URL.
+// Ordem do menu: Dashboard, Produtos, Compras, Produção, Pedidos, Financeiro, Estoque, Configurações.
+// Itens com `oculto: true` não aparecem no menu, mas continuam aqui porque o guard de página
+// (garantirAcessoPaginaAtual) só libera páginas mapeadas. `dentroDe` indica qual item do menu fica
+// destacado quando a página está aberta: Histórico e Clientes ficam dentro de Pedidos.
 const MENU_ADMIN = [
   { chave: 'dashboard', rotulo: 'Dashboard', icone: '📊', href: 'dashboard.html', permissao: 'dashboard.view' },
-  { chave: 'pedidos', rotulo: 'Pedidos', icone: '📋', href: 'pedidos.html', permissao: 'orders.view' },
   { chave: 'produtos', rotulo: 'Produtos', icone: '🍡', href: 'produtos.html', permissao: 'products.view' },
-  { chave: 'estoque', rotulo: 'Estoque', icone: '📦', href: 'estoque.html', permissao: 'stock.view' },
   { chave: 'compras', rotulo: 'Compras', icone: '🛒', href: 'compras.html', permissao: 'purchases.view' },
   { chave: 'producao', rotulo: 'Produção', icone: '🧾', href: 'producao.html', permissao: 'production.view' },
-  { chave: 'historico', rotulo: 'Histórico', icone: '🕒', href: 'historico.html', permissao: 'history.view' },
-  { chave: 'clientes', rotulo: 'Clientes', icone: '👥', href: 'clientes.html', somenteAdmin: true },
-  { chave: 'relatorios', rotulo: 'Relatórios', icone: '📈', href: 'relatorios.html', permissao: 'reports.view' },
+  { chave: 'pedidos', rotulo: 'Pedidos', icone: '📋', href: 'pedidos.html', permissao: 'orders.view' },
+  { chave: 'relatorios', rotulo: 'Financeiro', icone: '💶', href: 'relatorios.html', permissao: 'reports.view' },
+  { chave: 'estoque', rotulo: 'Estoque', icone: '📦', href: 'estoque.html', permissao: 'stock.view' },
   { chave: 'configuracoes', rotulo: 'Configurações', icone: '⚙️', href: 'configuracoes.html', permissao: 'settings.manage' },
+  { chave: 'historico', rotulo: 'Histórico', icone: '🕒', href: 'historico.html', permissao: 'history.view', oculto: true, dentroDe: 'pedidos' },
+  { chave: 'clientes', rotulo: 'Clientes', icone: '👥', href: 'clientes.html', somenteAdmin: true, oculto: true, dentroDe: 'pedidos' },
 ];
 
 // Página -> item de MENU_ADMIN (permissão/somenteAdmin), derivado de MENU_ADMIN (uma só fonte de verdade, nunca duplicado à mão)
@@ -45,9 +49,9 @@ const TITULOS_PAGINA = {
   compras: 'Compras',
   producao: 'Produção',
   produtos: 'Produtos',
-  historico: 'Histórico',
-  clientes: 'Clientes',
-  relatorios: 'Relatório Diário',
+  historico: 'Pedidos · Histórico',
+  clientes: 'Pedidos · Clientes',
+  relatorios: 'Financeiro · Relatórios',
   configuracoes: 'Configurações',
 };
 
@@ -113,7 +117,7 @@ function itemMenuLiberado(contexto, item) {
 function primeiraPaginaPermitida(contexto) {
   if (!contexto) return null;
   if (contexto.ehAdmin) return MENU_ADMIN[0].href;
-  const item = MENU_ADMIN.find((m) => itemMenuLiberado(contexto, m));
+  const item = MENU_ADMIN.find((m) => !m.oculto && itemMenuLiberado(contexto, m)) || MENU_ADMIN.find((m) => itemMenuLiberado(contexto, m));
   return item ? item.href : null;
 }
 
@@ -158,12 +162,14 @@ function montarShell(contextoPermissoes) {
   }
 
   // Admin (área protegida): só os itens que o contexto realmente autoriza.
-  const itensMenu = MENU_ADMIN.filter((p) => itemMenuLiberado(contextoPermissoes, p));
+  const itensMenu = MENU_ADMIN.filter((p) => !p.oculto && itemMenuLiberado(contextoPermissoes, p));
+  const itemPaginaAtual = ITEM_MENU_POR_PAGINA[paginaAtual];
+  const chaveAtiva = itemPaginaAtual && itemPaginaAtual.dentroDe ? itemPaginaAtual.dentroDe : paginaAtual;
 
   const linksMenu = itensMenu
     .map(
       (p) => `
-      <a class="sidebar-link ${p.chave === paginaAtual ? 'ativo' : ''}" href="${p.href}">
+      <a class="sidebar-link ${p.chave === chaveAtiva ? 'ativo' : ''}" href="${p.href}">
         <span>${p.icone}</span><span>${p.rotulo}</span>
         ${p.chave === 'pedidos' ? '<span class="badge-contador" id="badge-contador-pedidos-novos" style="display:none;">0</span>' : ''}
       </a>`
@@ -204,6 +210,21 @@ function montarShell(contextoPermissoes) {
   principal.appendChild(conteudo);
 
   document.body.classList.add('app-shell');
+  aplicarVisibilidadePorPermissao(contextoPermissoes);
+}
+
+/**
+ * Esconde atalhos que o usuário não pode abrir: `data-somente-admin` (só admin) e
+ * `data-permissao="x.view"`. É só conveniência visual; a página de destino continua protegida
+ * pelo guard de página e o banco pela RLS.
+ */
+function aplicarVisibilidadePorPermissao(contexto) {
+  document.querySelectorAll('[data-somente-admin]').forEach((el) => {
+    if (!contexto || contexto.ehAdmin !== true) el.style.display = 'none';
+  });
+  document.querySelectorAll('[data-permissao]').forEach((el) => {
+    if (!temAcesso(contexto, el.dataset.permissao)) el.style.display = 'none';
+  });
 }
 
 /** Monta o cabeçalho compacto da área pública "Fazer Pedido" (logo + navegação + acesso ao carrinho) */
@@ -269,11 +290,20 @@ function atualizarContadorCarrinho() {
   badge.style.display = total > 0 ? 'flex' : 'none';
 }
 
-/** Atualiza o "Pedidos (n)" no menu lateral do admin com a quantidade de pedidos com status Solicitado */
+/**
+ * Atualiza o "Pedidos (n)" no menu lateral: pedidos de hoje com pagamento Revolut/transferência
+ * aguardando confirmação, a única pendência que exige ação da equipe sem etapas de atendimento.
+ */
 function atualizarContadorPedidosNovos() {
   const badge = document.getElementById('badge-contador-pedidos-novos');
   if (!badge) return;
-  const total = obterPedidosClientes().filter((p) => p.status === STATUS_PEDIDO.SOLICITADO).length;
+  const total = obterPedidosClientes().filter(
+    (p) =>
+      p.status === STATUS_PEDIDO.SOLICITADO &&
+      (p.formaPagamento === 'revolut' || p.formaPagamento === 'transferencia') &&
+      p.statusPagamento === STATUS_PAGAMENTO.PENDENTE &&
+      (typeof ehDoDiaOperacional !== 'function' || ehDoDiaOperacional(p.criadoEm))
+  ).length;
   badge.textContent = total;
   badge.style.display = total > 0 ? 'flex' : 'none';
 }

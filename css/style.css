@@ -525,6 +525,38 @@ input[type="checkbox"] { accent-color: var(--cor-terracota); }
 
 .pagina-titulo h1 { margin: 0; font-size: 1.4rem; }
 
+/* Abas de uma área (ex.: Pedidos: Hoje / Histórico / Clientes) — global porque cada aba é uma página */
+.abas-area-pedidos {
+  display: inline-flex;
+  gap: var(--espaco-xs);
+  padding: 3px;
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-pill);
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.aba-area-pedidos {
+  padding: 6px 14px;
+  border-radius: var(--raio-pill);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--cor-texto-secundario);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.aba-area-pedidos.ativa {
+  background: var(--cor-branco);
+  color: var(--cor-texto);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+@media (max-width: 600px) {
+  .abas-area-pedidos { width: 100%; }
+  .aba-area-pedidos { flex: 1; text-align: center; }
+}
+
 .estado-vazio {
   text-align: center;
   padding: var(--espaco-2xl);

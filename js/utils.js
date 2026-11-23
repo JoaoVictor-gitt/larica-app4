@@ -84,6 +84,84 @@ function ehHoje(iso) {
   );
 }
 
+// Dia operacional: começa às 04:00 do horário do aparelho. Um pedido feito depois da meia-noite, com o
+// food truck ainda aberto, continua no mesmo dia de trabalho, em vez de sumir da tela de Pedidos.
+const HORA_INICIO_DIA_OPERACIONAL = 4;
+
+/** Início (Date) do dia operacional que contém `referencia` (padrão: agora). */
+function inicioDiaOperacional(referencia = new Date()) {
+  const inicio = new Date(referencia);
+  inicio.setHours(HORA_INICIO_DIA_OPERACIONAL, 0, 0, 0);
+  if (inicio.getTime() > new Date(referencia).getTime()) inicio.setDate(inicio.getDate() - 1);
+  return inicio;
+}
+
+/** true se a data ISO pertence ao dia operacional atual. */
+function ehDoDiaOperacional(iso) {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return false;
+  const inicio = inicioDiaOperacional().getTime();
+  return t >= inicio && t < inicio + 24 * 3600000;
+}
+
+/**
+ * Períodos padrão do sistema (Histórico, Financeiro). Cada dia segue o dia operacional (04:00 a 04:00).
+ * Retorna { de: Date|null, ate: Date|null } com `ate` EXCLUSIVO; null em ambos = todo o período.
+ * `personalizadoDe`/`personalizadoAte` são datas "AAAA-MM-DD" (inclusive).
+ */
+const PERIODOS_PADRAO = [
+  { chave: 'hoje', rotulo: 'Hoje' },
+  { chave: 'ontem', rotulo: 'Ontem' },
+  { chave: '7dias', rotulo: 'Últimos 7 dias' },
+  { chave: '30dias', rotulo: 'Últimos 30 dias' },
+  { chave: 'mes_atual', rotulo: 'Mês atual' },
+  { chave: 'mes_anterior', rotulo: 'Mês anterior' },
+  { chave: 'personalizado', rotulo: 'Período personalizado' },
+  { chave: 'tudo', rotulo: 'Todo o período' },
+];
+
+function _diaOperacionalDaData(ano, mes, dia) {
+  return new Date(ano, mes, dia, HORA_INICIO_DIA_OPERACIONAL, 0, 0, 0);
+}
+
+function intervaloDoPeriodo(chave, personalizadoDe, personalizadoAte) {
+  const hoje = inicioDiaOperacional();
+  const diasAtras = (n) => new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - n, HORA_INICIO_DIA_OPERACIONAL);
+  const amanha = diasAtras(-1);
+  switch (chave) {
+    case 'hoje':
+      return { de: hoje, ate: amanha };
+    case 'ontem':
+      return { de: diasAtras(1), ate: hoje };
+    case '7dias':
+      return { de: diasAtras(6), ate: amanha };
+    case '30dias':
+      return { de: diasAtras(29), ate: amanha };
+    case 'mes_atual':
+      return { de: _diaOperacionalDaData(hoje.getFullYear(), hoje.getMonth(), 1), ate: amanha };
+    case 'mes_anterior':
+      return {
+        de: _diaOperacionalDaData(hoje.getFullYear(), hoje.getMonth() - 1, 1),
+        ate: _diaOperacionalDaData(hoje.getFullYear(), hoje.getMonth(), 1),
+      };
+    case 'personalizado': {
+      const ler = (txt) => {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(txt || '');
+        return m ? [Number(m[1]), Number(m[2]) - 1, Number(m[3])] : null;
+      };
+      const a = ler(personalizadoDe);
+      const b = ler(personalizadoAte);
+      return {
+        de: a ? _diaOperacionalDaData(a[0], a[1], a[2]) : null,
+        ate: b ? _diaOperacionalDaData(b[0], b[1], b[2] + 1) : null,
+      };
+    }
+    default:
+      return { de: null, ate: null };
+  }
+}
+
 /**
  * Calcula o subtotal de um carrinho a partir dos itens e do preço unitário
  * já registado em cada item (snapshot no momento em que foi adicionado).
@@ -285,11 +363,13 @@ const STATUS_PEDIDO = {
 // à parte (RPC própria, cancel_order), nunca faz parte dessa sequência linear.
 const SEQUENCIA_STATUS_PEDIDO = [STATUS_PEDIDO.SOLICITADO, STATUS_PEDIDO.EM_PREPARO, STATUS_PEDIDO.PRONTO, STATUS_PEDIDO.FINALIZADO];
 
+// Pedidos não têm mais etapas de atendimento: todo pedido não cancelado é exibido como "Registrado".
+// Os valores antigos (em preparo, pronto, finalizado) continuam no banco e são tratados igual.
 const ROTULOS_STATUS_PEDIDO = {
-  solicitado: 'Solicitado',
-  em_preparo: 'Em Preparo',
-  pronto: 'Pronto',
-  finalizado: 'Finalizado',
+  solicitado: 'Registrado',
+  em_preparo: 'Registrado',
+  pronto: 'Registrado',
+  finalizado: 'Registrado',
   cancelado: 'Cancelado',
 };
 
@@ -315,7 +395,16 @@ const ROTULOS_STATUS_PAGAMENTO = {
 };
 
 /** Rótulos pt-BR pros movement_type de stock_movements (tela Estoque > Movimentações recentes) */
-const ROTULOS_TIPO_MOVIMENTACAO_ESTOQUE = { sale: 'Venda', manual_addition: 'Entrada', manual_removal: 'Saída' };
+const ROTULOS_TIPO_MOVIMENTACAO_ESTOQUE = {
+  sale: 'Venda',
+  manual_addition: 'Entrada',
+  manual_removal: 'Saída',
+  cancellation: 'Devolução (cancelamento)',
+  purchase_in: 'Entrada (compra)',
+  purchase_reversal: 'Estorno de compra',
+  production_in: 'Entrada (produção)',
+  production_reversal: 'Estorno de produção',
+};
 
 /** Converte a duração da Edge Function calculate-delivery (ex.: "532s") num texto amigável em minutos, ou '' se inválida */
 // Único caller: js/pedido.js (checkout público). Texto em inglês por isso — não é usado no admin.

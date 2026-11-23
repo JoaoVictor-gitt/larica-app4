@@ -1,10 +1,10 @@
 /*
  * pedidos.js
- * Painel operacional de Pedidos (Kanban): Solicitado -> Em Preparo -> Pronto
- * -> Finalizado. Lê/atualiza os mesmos pedidos gravados pela área "Fazer
- * Pedido" (obterPedidosClientes(), storage.js) — nenhuma lógica de status
- * mora aqui, só chama aceitarPedido()/marcarPedidoComoPronto()/
- * concluirPedido() (storage.js), que validam a transição. Depende de
+ * Pedidos de hoje: lista única do dia operacional, sem etapas de atendimento
+ * (Solicitado/Em preparo/Pronto/Finalizado foram removidos da operação).
+ * Cada card mostra pagamento, impressão e cancelamento. Lê os mesmos pedidos
+ * gravados pela área "Fazer Pedido" (obterPedidosClientes(), storage.js).
+ * Pedidos anteriores ficam no Histórico (historico.html). Depende de
  * utils.js, storage.js e app.js (carregados antes deste).
  */
 
@@ -23,11 +23,6 @@ let idsPedidosVistos = null;
 
 // Cancelamento de pedido (Fase 7) — id do pedido atualmente aberto no modal de cancelamento
 let pedidoCancelamentoId = null;
-
-// Meta de Preparo/SLA (Etapa 3) — carregada 1x em init(), nunca por pedido. null enquanto não carrega
-// (ou se a leitura falhar) — nesse caso os indicadores de meta simplesmente não aparecem nos cards,
-// sem quebrar o resto da tela (ver calcularTemposPedido()).
-let metaPreparoMinutos = null;
 
 // Impressão automática de novos pedidos — carregada 1x em init(), igual à meta de preparo. Ambas
 // false/null enquanto não carrega (ou se a leitura falhar) — nesse caso nunca escaneia candidatos,
@@ -114,15 +109,6 @@ async function init() {
   // Marca tudo que já existe na primeira carga como "visto" — nunca toca som pros pedidos que já estavam lá ao abrir a página.
   idsPedidosVistos = new Set(obterPedidosClientes().map((p) => p.id));
 
-  // Meta de preparo — carregamento independente do resto (uma falha aqui não pode derrubar o
-  // Kanban); coluna própria fora da lista pública de business_settings (ver settings-service.js).
-  try {
-    // Com timeout: se esta leitura pendurasse, init() nunca chegaria a ligar Realtime/polling.
-    metaPreparoMinutos = await _comTimeout(buscarMetaPreparoDoSupabase(), 10000, 'meta de preparo');
-  } catch (erroMeta) {
-    console.error('Não foi possível carregar a meta de preparo:', erroMeta);
-  }
-
   // Impressão automática — mesmo padrão defensivo da meta de preparo: falha aqui nunca derruba o
   // Kanban, só deixa _impressaoAutomaticaAtiva em false (nenhum candidato é escaneado).
   await atualizarConfiguracaoImpressaoAutomatica();
@@ -136,7 +122,7 @@ async function init() {
   ligarEventosModalPedido();
   ligarEventosModalCancelamento();
   ligarEventosSomPedidos();
-  // Atualiza "há X min" e o alerta de demora sozinho enquanto a página estiver aberta (não busca dado novo, só redesenha o cache atual)
+  // Atualiza "há X min" e a virada do dia operacional enquanto a página estiver aberta (não busca dado novo, só redesenha o cache atual)
   setInterval(renderizarQuadroPedidos, 30000);
 
   iniciarRealtimePedidos();
@@ -806,76 +792,72 @@ function ligarEventosFiltrosPedidos() {
 }
 
 // ---------------------------------------------------------------------------
-// Quadro Kanban
+// Pedidos de hoje — lista única, sem etapas de atendimento
 // ---------------------------------------------------------------------------
+//
+// O cache já vem só com o dia operacional (getOperationalOrders); o filtro ehDoDiaOperacional aqui é
+// uma segunda barreira para a virada do dia com a página aberta, entre duas cargas. Mais novo primeiro:
+// o pedido que acabou de chegar fica no topo, onde o alerta de impressão é visto.
 
-function renderizarQuadroPedidos() {
+function pedidosDeHojeFiltrados() {
   const termo = termoBuscaPedidos.trim().toLowerCase();
-  let pedidos = obterPedidosClientes();
-
+  let pedidos = obterPedidosClientes().filter((p) => ehDoDiaOperacional(p.criadoEm));
   if (filtroTipoPedidos) pedidos = pedidos.filter((p) => p.fulfilment === filtroTipoPedidos);
   if (termo) {
     pedidos = pedidos.filter(
       (p) => (p.numero || '').toLowerCase().includes(termo) || ((p.cliente || {}).nome || '').toLowerCase().includes(termo)
     );
   }
+  return pedidos.slice().sort((a, b) => new Date(b.criadoEm) - new Date(a.criadoEm));
+}
 
-  // Mais antigo primeiro em todas as colunas — evita esquecer pedido parado (item 12 do briefing)
-  pedidos = pedidos.slice().sort((a, b) => new Date(a.criadoEm) - new Date(b.criadoEm));
+function renderizarQuadroPedidos() {
+  const pedidos = pedidosDeHojeFiltrados();
+  const lista = document.getElementById('lista-pedidos-hoje');
+  const vazio = document.getElementById('vazio-pedidos-hoje');
+  if (!lista) return;
 
-  renderizarColunaKanban('aguardando_pagamento', pedidos.filter(pedidoAguardandoPagamento));
-  renderizarColunaKanban(
-    'solicitado',
-    pedidos.filter((p) => p.status === STATUS_PEDIDO.SOLICITADO && !pedidoAguardandoPagamento(p))
-  );
-  renderizarColunaKanban('em_preparo', pedidos.filter((p) => p.status === STATUS_PEDIDO.EM_PREPARO));
-  renderizarColunaKanban('pronto', pedidos.filter((p) => p.status === STATUS_PEDIDO.PRONTO));
-  renderizarColunaKanban(
-    'finalizado',
-    pedidos.filter((p) => p.status === STATUS_PEDIDO.FINALIZADO && ehHoje(p.finalizadoEm || p.criadoEm))
-  );
+  renderizarResumoPedidosHoje();
+
+  if (pedidos.length === 0) {
+    lista.innerHTML = '';
+    vazio.style.display = 'block';
+  } else {
+    vazio.style.display = 'none';
+    lista.innerHTML = pedidos.map((p) => cardPedidoHtml(p)).join('');
+    lista.querySelectorAll('[data-acao="ver"]').forEach((botao) => {
+      botao.addEventListener('click', () => abrirModalDetalhesPedido(botao.dataset.id));
+    });
+    lista.querySelectorAll('[data-acao="imprimir"]').forEach((botao) => {
+      botao.addEventListener('click', () => solicitarImpressaoPedido(botao.dataset.id));
+    });
+    lista.querySelectorAll('[data-acao="cancelar"]').forEach((botao) => {
+      botao.addEventListener('click', () => abrirModalCancelamento(botao.dataset.id));
+    });
+    lista.querySelectorAll('[data-acao="confirmar-pagamento"]').forEach((botao) => {
+      botao.addEventListener('click', () => executarAcaoPedido(botao, confirmarPagamentoPedido, 'Pagamento confirmado.'));
+    });
+  }
 
   if (typeof atualizarContadorPedidosNovos === 'function') atualizarContadorPedidosNovos();
 }
 
-function renderizarColunaKanban(status, pedidosDaColuna) {
-  const lista = document.getElementById('lista-pedidos-' + status);
-  const vazio = document.getElementById('vazio-coluna-' + status);
-  const contador = document.getElementById('contador-coluna-' + status);
-  contador.textContent = pedidosDaColuna.length;
-
-  if (pedidosDaColuna.length === 0) {
-    lista.innerHTML = '';
-    vazio.style.display = 'block';
-    return;
-  }
-  vazio.style.display = 'none';
-  lista.innerHTML = pedidosDaColuna.map((p) => cardPedidoHtml(p)).join('');
-
-  lista.querySelectorAll('[data-acao="ver"]').forEach((botao) => {
-    botao.addEventListener('click', () => abrirModalDetalhesPedido(botao.dataset.id));
-  });
-  lista.querySelectorAll('[data-acao="imprimir"]').forEach((botao) => {
-    botao.addEventListener('click', () => solicitarImpressaoPedido(botao.dataset.id));
-  });
-  lista.querySelectorAll('[data-acao="aceitar"]').forEach((botao) => {
-    botao.addEventListener('click', () => executarAcaoPedido(botao, aceitarPedido, 'Pedido aceito — em preparo.'));
-  });
-  lista.querySelectorAll('[data-acao="pronto"]').forEach((botao) => {
-    botao.addEventListener('click', () => executarAcaoPedido(botao, marcarPedidoComoPronto, 'Pedido marcado como pronto.'));
-  });
-  lista.querySelectorAll('[data-acao="concluir"]').forEach((botao) => {
-    botao.addEventListener('click', () => {
-      if (!confirm('Confirmar que este pedido foi entregue/retirado?')) return;
-      executarAcaoPedido(botao, concluirPedido, 'Pedido finalizado.');
-    });
-  });
-  lista.querySelectorAll('[data-acao="cancelar"]').forEach((botao) => {
-    botao.addEventListener('click', () => abrirModalCancelamento(botao.dataset.id));
-  });
-  lista.querySelectorAll('[data-acao="confirmar-pagamento"]').forEach((botao) => {
-    botao.addEventListener('click', () => executarAcaoPedido(botao, confirmarPagamentoPedido, 'Pagamento confirmado.'));
-  });
+/** Linha de resumo do dia: quantidade e total dos válidos (cancelado nunca soma), cancelados e pendências de pagamento. */
+function renderizarResumoPedidosHoje() {
+  const alvo = document.getElementById('resumo-pedidos-hoje');
+  if (!alvo) return;
+  const doDia = obterPedidosClientes().filter((p) => ehDoDiaOperacional(p.criadoEm));
+  const validos = doDia.filter((p) => p.status !== STATUS_PEDIDO.CANCELADO);
+  const cancelados = doDia.length - validos.length;
+  const aguardando = validos.filter(pedidoAguardandoPagamento).length;
+  const total = validos.reduce((soma, p) => soma + (Number(p.total) || 0), 0);
+  const moeda = obterConfiguracoes().moeda;
+  alvo.innerHTML = [
+    `<span><strong>${validos.length}</strong> ${validos.length === 1 ? 'pedido' : 'pedidos'}</span>`,
+    `<span>Total <strong>${formatarMoeda(total, moeda)}</strong></span>`,
+    aguardando ? `<span><strong>${aguardando}</strong> aguardando pagamento</span>` : '',
+    cancelados ? `<span>${cancelados} ${cancelados === 1 ? 'cancelado' : 'cancelados'}</span>` : '',
+  ].join('');
 }
 
 /**
@@ -1818,46 +1800,58 @@ function resumoFinanceiroComandaHtml(pedido, moeda) {
 // ---------------------------------------------------------------------------
 
 function cardPedidoHtml(pedido) {
-  const novo = pedido.status === STATUS_PEDIDO.SOLICITADO;
+  const cancelado = pedido.status === STATUS_PEDIDO.CANCELADO;
+  const aguardandoPagamento = !cancelado && pedidoAguardandoPagamento(pedido);
   const totalItens = (pedido.itens || []).reduce((soma, item) => soma + item.quantidade, 0);
-  const minutosDesdeCriacao = Math.max(0, Math.floor((Date.now() - new Date(pedido.criadoEm).getTime()) / 60000));
-  const nivelDemora = pedido.status === STATUS_PEDIDO.FINALIZADO ? 'normal' : calcularNivelDemoraPedido(minutosDesdeCriacao);
   const tipoRotulo =
     pedido.fulfilment === 'entrega'
       ? '🚗 Entrega'
       : pedido.fulfilment === 'comer_no_local'
       ? '🍽️ Comer no local'
       : `📍 Retirada · ${escaparHtml(rotuloCompactoHorarioRetirada(pedido))}`;
-  const tempoRotulo = formatarTempoDecorrido(obterTimestampEtapaAtual(pedido));
   const moeda = obterConfiguracoes().moeda;
+  const classes = [
+    'card',
+    'card-pedido',
+    cancelado ? 'card-pedido-cancelado' : '',
+    !cancelado && pedidoEmDestaqueNovo(pedido.id) ? 'pedido-novo-alerta' : '',
+  ].filter(Boolean).join(' ');
 
   return `
-    <div class="card card-pedido ${novo ? 'card-pedido-novo' : ''} ${pedidoEmDestaqueNovo(pedido.id) ? 'pedido-novo-alerta' : ''} demora-${nivelDemora}" data-id="${pedido.id}">
+    <div class="${classes}" data-id="${pedido.id}" data-status="${escaparHtml(pedido.status)}">
       <div class="card-pedido-cabecalho">
         <strong>${escaparHtml(pedido.numero)}</strong>
         ${seloCanalVendaHtml(pedido)}
-        ${novo ? '<span class="badge-novo">Novo</span>' : ''}
+        ${cancelado ? '<span class="badge-cancelado">Cancelado</span>' : aguardandoPagamento ? '<span class="badge-aguardando-pagamento">Aguardando pagamento</span>' : ''}
       </div>
       <div class="card-pedido-info">
-        <span>${formatarHora(pedido.criadoEm)} · ${escaparHtml(tempoRotulo)}</span>
+        <span>${formatarHora(pedido.criadoEm)} · ${escaparHtml(formatarTempoDecorrido(pedido.criadoEm))}</span>
         <span>${tipoRotulo}</span>
       </div>
       <div class="card-pedido-cliente">${escaparHtml((pedido.cliente || {}).nome || '(sem nome)')}</div>
-      ${blocoTemposPedidoHtml(pedido)}
+      ${!cancelado ? linhaEntregaCardHtml(pedido) : ''}
       <div class="card-pedido-pagamento">${rotuloPagamentoCompacto(pedido)}</div>
-      ${alertaImpressaoAutomaticaHtml(pedido)}
-      ${pedido.status === STATUS_PEDIDO.PRONTO ? blocoProntoParaHtml(pedido) : ''}
+      ${!cancelado ? linhaTrocoNecessarioHtml(pedido) : ''}
+      ${!cancelado ? alertaImpressaoAutomaticaHtml(pedido) : ''}
       <div class="card-pedido-rodape">
         <span>${totalItens} ${totalItens === 1 ? 'item' : 'itens'}</span>
         <span>${formatarMoeda(pedido.total, moeda)}</span>
       </div>
       <div class="card-pedido-acoes">
         <button type="button" class="btn btn-secundario" data-acao="ver" data-id="${pedido.id}">Ver pedido</button>
-        <button type="button" class="btn btn-secundario" data-acao="imprimir" data-id="${pedido.id}" ${_impressaoEmAndamento ? 'disabled' : ''}>${pedido.qtdImpressoes > 0 ? '🖨️ Reimprimir' : '🖨️ Imprimir'}</button>
-        ${botaoPrincipalPedidoHtml(pedido)}
+        ${cancelado ? '' : `<button type="button" class="btn btn-secundario" data-acao="imprimir" data-id="${pedido.id}" ${_impressaoEmAndamento ? 'disabled' : ''}>${pedido.qtdImpressoes > 0 ? '🖨️ Reimprimir' : '🖨️ Imprimir'}</button>`}
+        ${aguardandoPagamento ? `<button type="button" class="btn btn-primario" data-acao="confirmar-pagamento" data-id="${pedido.id}">Confirmar pagamento</button>` : ''}
       </div>
       ${pedidoPodeSerCancelado(pedido) ? `<button type="button" class="link-cancelar-pedido" data-acao="cancelar" data-id="${pedido.id}">Cancelar pedido</button>` : ''}
     </div>`;
+}
+
+/** Endereço resumido no card de entrega — antes só aparecia na etapa "Pronto". */
+function linhaEntregaCardHtml(pedido) {
+  if (pedido.fulfilment !== 'entrega') return '';
+  const endereco = pedido.endereco || {};
+  const partes = [endereco.linha1, endereco.linha2, endereco.eircode].filter(Boolean).map(escaparHtml);
+  return partes.length ? `<div class="card-pedido-entrega">${partes.join(' · ')}</div>` : '';
 }
 
 /** Selo do canal no card — só Deliveroo/Just Eat (pedido Larica é o caso comum e fica sem selo). */
@@ -1867,196 +1861,13 @@ function seloCanalVendaHtml(pedido) {
   return `<span class="selo-canal-venda selo-canal-${canal}">${escaparHtml(rotuloCanalVenda(canal))}</span>`;
 }
 
-/** Cancelável só em Solicitado/Em Preparo — nunca Pronto/Finalizado/Cancelado (mesma regra da RPC cancel_order) */
+/**
+ * Cancelável enquanto o status no banco for requested/preparing — mesma regra da RPC cancel_order. Sem
+ * etapas, todo pedido novo fica em requested, então segue cancelável. Pedidos antigos já marcados como
+ * pronto/finalizado continuam não canceláveis, porque o banco recusaria.
+ */
 function pedidoPodeSerCancelado(pedido) {
   return pedido.status === STATUS_PEDIDO.SOLICITADO || pedido.status === STATUS_PEDIDO.EM_PREPARO;
-}
-
-/** Timestamp relevante pro "há X min" mostrado no card, conforme o status atual */
-function obterTimestampEtapaAtual(pedido) {
-  if (pedido.status === STATUS_PEDIDO.EM_PREPARO) return pedido.aceitoEm || pedido.criadoEm;
-  if (pedido.status === STATUS_PEDIDO.PRONTO) return pedido.prontoEm || pedido.criadoEm;
-  if (pedido.status === STATUS_PEDIDO.FINALIZADO) return pedido.finalizadoEm || pedido.criadoEm;
-  return pedido.criadoEm;
-}
-
-// ---------------------------------------------------------------------------
-// Tempo de Preparo (Etapa 1) — accepted_at/ready_at/completed_at já são
-// gravados server-side por update_order_status() (confirmado no diagnóstico:
-// FOR UPDATE, sem regressão de status, sem trigger customizado). Aqui só
-// calculamos e exibimos a diferença — nunca gravamos hora nenhuma pelo
-// navegador. O timer "ao vivo" pra requested/preparing é só a re-renderização
-// já existente (setInterval(renderizarQuadroPedidos, 30000) em init() e o
-// reload do Realtime), que já roda pra atualizar "há X min" — não criamos
-// um segundo timer.
-// ---------------------------------------------------------------------------
-
-/**
- * Diferença em segundos entre dois instantes ISO, ou null se algum estiver ausente, for inválido, ou
- * se `fimIso` vier antes de `inicioIso` (item 21 — timestamp historicamente inconsistente nunca vira
- * duração negativa na tela; console.warn técnico pra diagnóstico, sem quebrar nada). Nunca usa o
- * fallback aceitoEm||criadoEm de obterTimestampEtapaAtual() — aqui os campos crus entram direto,
- * porque um accepted_at NULL precisa continuar sendo "sem dado" (—), nunca virar "0s de espera"
- * (item 22).
- */
-function diferencaSegundos(inicioIso, fimIso) {
-  if (!inicioIso || !fimIso) return null;
-  const inicio = new Date(inicioIso).getTime();
-  const fim = new Date(fimIso).getTime();
-  if (isNaN(inicio) || isNaN(fim)) return null;
-
-  const diffSegundos = (fim - inicio) / 1000;
-  if (diffSegundos < 0) {
-    console.warn('[Pedidos] Timestamp inconsistente ao calcular tempo de preparo — fim anterior ao início.', { inicioIso, fimIso });
-    return null;
-  }
-  return diffSegundos;
-}
-
-/**
- * Tempos operacionais do pedido (item 1): espera (criadoEm->aceitoEm), preparo (aceitoEm->prontoEm) e
- * ateFicarPronto (criadoEm->prontoEm), mais ateFinalizar (criadoEm->finalizadoEm, secundário, só
- * quando finalizado). requested/preparing usam "agora" pro lado ainda aberto — dinâmico, recalculado a
- * cada chamada, nunca gravado; ready/completed usam só timestamps fechados do banco, nunca mais mudam.
- * Não é chamado para pedido cancelado (a coluna Kanban nunca renderiza cancelados, ver
- * renderizarQuadroPedidos) — decisão deliberada de não criar UI especial de cancelamento nesta etapa.
- *
- * `dentroDaMeta` (Etapa 3 — Meta/SLA): null se a meta não carregou ou o preparo ainda não tem valor
- * (requested, item 16: meta nunca se aplica antes de accepted_at); caso contrário, compara o `preparo`
- * calculado acima (sempre accepted_at-based, nunca created_at-based) contra metaPreparoMinutos*60 — pra
- * preparing é dinâmico (mesmo timer de renderizarQuadroPedidos, sem setInterval novo); pra ready/
- * completed é o valor histórico fechado.
- */
-function calcularTemposPedido(pedido) {
-  const agoraIso = new Date().toISOString();
-
-  if (pedido.status === STATUS_PEDIDO.SOLICITADO) {
-    return { espera: diferencaSegundos(pedido.criadoEm, agoraIso), preparo: null, ateFicarPronto: null, ateFinalizar: null, dentroDaMeta: null };
-  }
-
-  if (pedido.status === STATUS_PEDIDO.EM_PREPARO) {
-    const preparo = diferencaSegundos(pedido.aceitoEm, agoraIso);
-    return {
-      espera: diferencaSegundos(pedido.criadoEm, pedido.aceitoEm),
-      preparo,
-      ateFicarPronto: null,
-      ateFinalizar: null,
-      dentroDaMeta: metaPreparoMinutos !== null && preparo !== null ? preparo <= metaPreparoMinutos * 60 : null,
-    };
-  }
-
-  if (pedido.status === STATUS_PEDIDO.PRONTO || pedido.status === STATUS_PEDIDO.FINALIZADO) {
-    const preparo = diferencaSegundos(pedido.aceitoEm, pedido.prontoEm);
-    return {
-      espera: diferencaSegundos(pedido.criadoEm, pedido.aceitoEm),
-      preparo,
-      ateFicarPronto: diferencaSegundos(pedido.criadoEm, pedido.prontoEm),
-      ateFinalizar: pedido.status === STATUS_PEDIDO.FINALIZADO ? diferencaSegundos(pedido.criadoEm, pedido.finalizadoEm) : null,
-      dentroDaMeta: metaPreparoMinutos !== null && preparo !== null ? preparo <= metaPreparoMinutos * 60 : null,
-    };
-  }
-
-  return { espera: null, preparo: null, ateFicarPronto: null, ateFinalizar: null, dentroDaMeta: null };
-}
-
-/**
- * Indicador discreto de meta ao lado do valor de Preparo (item 15/17). Em preparing: só aparece
- * quando JÁ passou da meta ("Acima da meta") — dentro da meta fica silencioso, sem alerta. Em ready/
- * completed: sempre mostra o resultado histórico fechado ("Dentro"/"Fora da meta"). Puramente visual —
- * não bloqueia status, não grava nada no banco.
- */
-function badgeMetaPreparoHtml(pedido, tempos) {
-  if (tempos.dentroDaMeta === null) return '';
-
-  if (pedido.status === STATUS_PEDIDO.EM_PREPARO) {
-    return tempos.dentroDaMeta ? '' : '<span class="badge-meta-preparo badge-meta-fora">Acima da meta</span>';
-  }
-
-  return tempos.dentroDaMeta
-    ? '<span class="badge-meta-preparo badge-meta-dentro">Dentro da meta</span>'
-    : '<span class="badge-meta-preparo badge-meta-fora">Fora da meta</span>';
-}
-
-/** Bloco compacto "⏱ Tempos" do card — Espera/Preparo/Até pronto sempre; Até finalizar só quando finalizado e calculável */
-function blocoTemposPedidoHtml(pedido) {
-  const t = calcularTemposPedido(pedido);
-  const secundario =
-    pedido.status === STATUS_PEDIDO.FINALIZADO && t.ateFinalizar !== null
-      ? `<div class="card-pedido-tempo-item card-pedido-tempo-secundario">
-          <span class="card-pedido-tempo-rotulo">Até finalizar</span>
-          <span class="card-pedido-tempo-valor">${formatarDuracao(t.ateFinalizar)}</span>
-        </div>`
-      : '';
-
-  return `
-    <div class="card-pedido-tempos">
-      <div class="card-pedido-tempo-item">
-        <span class="card-pedido-tempo-rotulo">Espera</span>
-        <span class="card-pedido-tempo-valor">${formatarDuracao(t.espera)}</span>
-      </div>
-      <div class="card-pedido-tempo-item">
-        <span class="card-pedido-tempo-rotulo">Preparo</span>
-        <span class="card-pedido-tempo-valor">${formatarDuracao(t.preparo)}</span>
-        ${badgeMetaPreparoHtml(pedido, t)}
-      </div>
-      <div class="card-pedido-tempo-item">
-        <span class="card-pedido-tempo-rotulo">Até pronto</span>
-        <span class="card-pedido-tempo-valor">${formatarDuracao(t.ateFicarPronto)}</span>
-      </div>
-      ${secundario}
-    </div>`;
-}
-
-function botaoPrincipalPedidoHtml(pedido) {
-  if (pedidoAguardandoPagamento(pedido)) {
-    return `<button type="button" class="btn btn-primario" data-acao="confirmar-pagamento" data-id="${pedido.id}">Confirmar pagamento</button>`;
-  }
-  if (pedido.status === STATUS_PEDIDO.SOLICITADO) {
-    return `<button type="button" class="btn btn-primario" data-acao="aceitar" data-id="${pedido.id}">Aceitar pedido</button>`;
-  }
-  if (pedido.status === STATUS_PEDIDO.EM_PREPARO) {
-    return `<button type="button" class="btn btn-primario" data-acao="pronto" data-id="${pedido.id}">Marcar como pronto</button>`;
-  }
-  if (pedido.status === STATUS_PEDIDO.PRONTO) {
-    const rotulo =
-      pedido.fulfilment === 'entrega' ? 'Pedido entregue' : pedido.fulfilment === 'comer_no_local' ? 'Pedido servido' : 'Pedido retirado';
-    return `<button type="button" class="btn btn-primario" data-acao="concluir" data-id="${pedido.id}">${rotulo}</button>`;
-  }
-  return '';
-}
-
-/** Bloco de destaque no card quando o pedido está Pronto — o que o funcionário precisa pra liberar/entregar */
-function blocoProntoParaHtml(pedido) {
-  const cliente = pedido.cliente || {};
-  const linhaTroco = linhaTrocoNecessarioHtml(pedido);
-  const nomeTelefone = `${escaparHtml(cliente.nome || '')} · ${escaparHtml(cliente.telefone || '')}`;
-
-  if (pedido.fulfilment === 'entrega') {
-    const endereco = pedido.endereco || {};
-    return `
-      <div class="bloco-pronto-para">
-        <strong>Pronto para entrega</strong>
-        <span>${nomeTelefone}</span>
-        <span>${escaparHtml(endereco.eircode || '')}</span>
-        <span>${escaparHtml(endereco.linha1 || '')}${endereco.linha2 ? ', ' + escaparHtml(endereco.linha2) : ''}</span>
-        ${linhaTroco}
-      </div>`;
-  }
-  if (pedido.fulfilment === 'comer_no_local') {
-    return `
-      <div class="bloco-pronto-para">
-        <strong>Pronto — comer no local</strong>
-        <span>${nomeTelefone}</span>
-        ${linhaTroco}
-      </div>`;
-  }
-  // retirada
-  return `
-    <div class="bloco-pronto-para">
-      <strong>Pronto para retirada</strong>
-      <span>${nomeTelefone}</span>
-      ${linhaTroco}
-    </div>`;
 }
 
 /** true quando o pedido é pago em Dinheiro e precisa de troco — checagem única, reaproveitada no card e no bloco "Pronto para..." */

@@ -247,19 +247,15 @@ async function getLatestOrderNumber() {
   return data && data[0] ? Number(data[0].order_number) : 0;
 }
 
-// Janela dos pedidos encerrados no Kanban. A tela só mostra "Finalizado hoje"; 48 h cobrem fuso e relógio do aparelho.
-const HORAS_JANELA_PEDIDOS_OPERACIONAIS = 48;
-
 /**
- * Só o que o Kanban usa: todo pedido ativo, de qualquer data, mais os criados, concluídos ou cancelados
- * dentro da janela. orders não tem updated_at, por isso a janela olha cada carimbo. O Histórico continua
- * usando getOrders().
+ * Só os pedidos do dia operacional atual (desde as 04:00, ver inicioDiaOperacional em utils.js),
+ * inclusive os cancelados, que a tela identifica. Pedidos não têm mais etapas, então um pedido
+ * antigo nunca volta à tela de Pedidos: ele fica no Histórico, que continua usando getOrders().
+ * O limite é recalculado a cada carga, então a virada do dia se resolve sozinha.
  */
 async function getOperationalOrders() {
-  const desde = new Date(Date.now() - HORAS_JANELA_PEDIDOS_OPERACIONAIS * 3600000).toISOString();
-  return getOrdersWithDetails({
-    ouFiltro: `status.in.(requested,preparing,ready),created_at.gte.${desde},completed_at.gte.${desde},cancelled_at.gte.${desde}`,
-  });
+  const inicio = typeof inicioDiaOperacional === 'function' ? inicioDiaOperacional() : new Date(new Date().setHours(0, 0, 0, 0));
+  return getOrdersWithDetails({ ouFiltro: `created_at.gte.${inicio.toISOString()}` });
 }
 
 /**

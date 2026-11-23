@@ -549,10 +549,29 @@ function usarCachePedidosOperacionais() {
   _cachePedidosSomenteOperacionais = true;
 }
 
+// Histórico: período escolhido na tela ({ de, ate } em Date, `ate` exclusivo). A consulta vai filtrada
+// para o servidor, em vez de baixar todos os pedidos de todas as datas. null = todo o período.
+let _periodoCachePedidos = null;
+
+function definirPeriodoCachePedidos(de, ate) {
+  _periodoCachePedidos = de || ate ? { de: de || null, ate: ate || null } : null;
+}
+
+async function _consultarPedidosDoEscopo() {
+  if (_cachePedidosSomenteOperacionais && typeof getOperationalOrders === 'function') return getOperationalOrders();
+  if (_periodoCachePedidos) {
+    const { de, ate } = _periodoCachePedidos;
+    return getOrdersWithDetails({
+      dateFrom: de ? de.toISOString() : undefined,
+      dateTo: ate ? new Date(ate.getTime() - 1).toISOString() : undefined,
+    });
+  }
+  return getOrders();
+}
+
 async function _executarCargaPedidos() {
   const seq = ++_seqCargaPedidos;
-  const pedidos =
-    _cachePedidosSomenteOperacionais && typeof getOperationalOrders === 'function' ? await getOperationalOrders() : await getOrders();
+  const pedidos = await _consultarPedidosDoEscopo();
   if (seq > _seqCargaPedidosAplicada) {
     _cachePedidosClientes = pedidos;
     _seqCargaPedidosAplicada = seq;

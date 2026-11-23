@@ -233,6 +233,7 @@ function renderizarLista() {
 
   let produtos = pesquisarProdutos({ termo, categoria, status });
   produtos = ordenarProdutos(produtos, ordenacao);
+  atualizarResumoFiltrosProdutos(produtos.length, { termo, categoria, status, ordenacao });
 
   const corpo = document.getElementById('corpo-tabela-produtos');
   const estadoVazio = document.getElementById('estado-vazio-produtos');
@@ -260,7 +261,23 @@ function renderizarLista() {
 function ordenarProdutos(produtos, criterio) {
   const [campo, direcao] = (criterio || 'nome-asc').split('-');
   const copia = [...produtos];
+  // Produto sem custo (ou combo, custo variável) ou sem data vai sempre para o fim, nunca vira 0.
+  const custoOuNull = (p) => (p.categoria === 'Combos' ? null : custoUnitarioDoProduto(p));
+  const dataOuNull = (p) => {
+    const t = p.criadoEm ? new Date(p.criadoEm).getTime() : NaN;
+    return isNaN(t) ? null : t;
+  };
+  const compararComAusentes = (va, vb) => {
+    if (va === null && vb === null) return 0;
+    if (va === null) return Infinity;
+    if (vb === null) return -Infinity;
+    return direcao === 'desc' ? vb - va : va - vb;
+  };
   copia.sort((a, b) => {
+    if (campo === 'custo' || campo === 'cadastro') {
+      const r = campo === 'custo' ? compararComAusentes(custoOuNull(a), custoOuNull(b)) : compararComAusentes(dataOuNull(a), dataOuNull(b));
+      return r === Infinity ? 1 : r === -Infinity ? -1 : r || a.nome.localeCompare(b.nome);
+    }
     let comparacao = 0;
     if (campo === 'nome') comparacao = a.nome.localeCompare(b.nome);
     else if (campo === 'preco') comparacao = a.preco - b.preco;
@@ -268,6 +285,52 @@ function ordenarProdutos(produtos, criterio) {
     return direcao === 'desc' ? -comparacao : comparacao;
   });
   return copia;
+}
+
+// ---------------------------------------------------------------------------
+// Painel de pesquisa (lupa)
+// ---------------------------------------------------------------------------
+
+function abrirPainelPesquisaProdutos(abrir) {
+  const painel = document.getElementById('painel-pesquisa-produtos');
+  const botao = document.getElementById('botao-pesquisa-produtos');
+  const deveAbrir = typeof abrir === 'boolean' ? abrir : painel.hidden;
+  painel.hidden = !deveAbrir;
+  botao.setAttribute('aria-expanded', String(deveAbrir));
+  if (deveAbrir) document.getElementById('campo-pesquisa').focus();
+}
+
+function limparFiltrosProdutos() {
+  document.getElementById('campo-pesquisa').value = '';
+  document.getElementById('filtro-categoria').value = '';
+  document.getElementById('filtro-status').value = '';
+  document.getElementById('campo-ordenar').value = 'nome-asc';
+  renderizarLista();
+}
+
+/** Contador de filtros na lupa e uma linha discreta com o que está aplicado (só quando há filtro). */
+function atualizarResumoFiltrosProdutos(qtd, { termo, categoria, status, ordenacao }) {
+  const ativos = [termo, categoria, status].filter(Boolean).length + (ordenacao && ordenacao !== 'nome-asc' ? 1 : 0);
+  const badge = document.getElementById('badge-filtros-ativos');
+  const resumo = document.getElementById('resumo-filtros-produtos');
+  if (badge) {
+    badge.textContent = ativos;
+    badge.style.display = ativos ? '' : 'none';
+  }
+  if (!resumo) return;
+  if (!ativos) {
+    resumo.innerHTML = '';
+    return;
+  }
+  const partes = [];
+  if (termo) partes.push(`“${escaparHtml(termo)}”`);
+  if (categoria) partes.push(escaparHtml(categoria));
+  if (status) partes.push(status === 'ativo' ? 'Ativos' : 'Inativos');
+  const ordem = document.querySelector(`#campo-ordenar option[value="${ordenacao}"]`);
+  if (ordenacao && ordenacao !== 'nome-asc' && ordem) partes.push('Ordem: ' + escaparHtml(ordem.textContent));
+  resumo.innerHTML = `<span>${qtd} ${qtd === 1 ? 'produto' : 'produtos'} · ${partes.join(' · ')}</span>
+    <button type="button" class="link-limpar-filtros" id="link-limpar-filtros-produtos">Limpar</button>`;
+  document.getElementById('link-limpar-filtros-produtos').addEventListener('click', limparFiltrosProdutos);
 }
 
 /** Célula "Custo" da tabela — Variável pra combo; "Sem custo de produção" pra Espetinho sem custo aplicado ainda (nunca €0,00); "Não cadastrado" pras demais categorias sem custo; senão o valor formatado. */
@@ -397,6 +460,15 @@ function ligarEventosFiltros() {
   document.getElementById('filtro-categoria').addEventListener('change', renderizarLista);
   document.getElementById('filtro-status').addEventListener('change', renderizarLista);
   document.getElementById('campo-ordenar').addEventListener('change', renderizarLista);
+  document.getElementById('botao-pesquisa-produtos').addEventListener('click', () => abrirPainelPesquisaProdutos());
+  document.getElementById('botao-fechar-pesquisa-produtos').addEventListener('click', () => abrirPainelPesquisaProdutos(false));
+  document.getElementById('botao-limpar-filtros-produtos').addEventListener('click', limparFiltrosProdutos);
+  document.getElementById('painel-pesquisa-produtos').addEventListener('keydown', (evento) => {
+    if (evento.key === 'Escape') {
+      abrirPainelPesquisaProdutos(false);
+      document.getElementById('botao-pesquisa-produtos').focus();
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------

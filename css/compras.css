@@ -365,3 +365,237 @@
   color: var(--cor-terracota);
   white-space: nowrap;
 }
+
+/* =====================================================================
+ * Fase B — Compras v2 (nota fiscal, conferência, custo médio)
+ * Mesmos tokens do sistema; layout pensado primeiro para o celular.
+ * ===================================================================== */
+
+.compras-card-destaque { border-color: var(--cor-terracota); }
+.compras-card-destaque .compras-card-icone { background: var(--cor-acento-sutil); }
+
+.btn-pequeno { padding: 6px 12px; font-size: 0.82rem; min-height: 34px; }
+
+.compras-cabecalho-acoes { display: flex; gap: var(--espaco-sm); align-items: center; flex-wrap: wrap; }
+
+.compras-etapa { margin-bottom: var(--espaco-md); }
+.compras-etapa-titulo {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  font-weight: 700;
+  font-size: 0.98rem;
+  margin-bottom: var(--espaco-md);
+}
+.compras-etapa-titulo-solto { margin: var(--espaco-lg) 0 var(--espaco-sm); }
+.compras-etapa-numero {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--cor-terracota);
+  color: var(--cor-sobre-acento);
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+.compras-etapa-opcional {
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: var(--cor-texto-secundario);
+  background: var(--cor-cinza-claro);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+/* Botões de arquivo: o <input> fica dentro do <label> e invisível */
+.compras-acoes-documento { display: flex; gap: var(--espaco-sm); flex-wrap: wrap; margin-bottom: var(--espaco-md); }
+.compras-botao-arquivo { position: relative; cursor: pointer; overflow: hidden; }
+.compras-botao-arquivo input[type=file] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+}
+.compras-botao-arquivo:focus-within { outline: 2px solid var(--cor-terracota); outline-offset: 2px; }
+
+.compras-documentos { display: flex; flex-wrap: wrap; gap: var(--espaco-sm); margin-bottom: var(--espaco-sm); }
+.compras-documento {
+  display: flex;
+  gap: var(--espaco-sm);
+  align-items: center;
+  padding: var(--espaco-sm);
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-md);
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.compras-documento-miniatura {
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-sm);
+  overflow: hidden;
+  background: var(--cor-branco);
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.compras-documento-miniatura img { width: 100%; height: 100%; object-fit: cover; }
+.compras-documento-icone { font-size: 1.8rem; }
+.compras-documento-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.compras-documento-nome { font-weight: 600; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compras-documento-status { font-size: 0.78rem; color: var(--cor-texto-secundario); min-height: 1em; }
+.compras-documento-acoes { display: flex; gap: var(--espaco-xs); align-items: center; }
+
+.compras-dica-alerta { color: var(--cor-status-amarelo); }
+.compras-avisos-ia { margin: 6px 0 0; padding-left: 18px; color: var(--cor-status-amarelo); }
+
+.compras-grade-campos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0 var(--espaco-md);
+}
+.compras-campo-largo { grid-column: 1 / -1; flex: 2 1 220px; }
+@media (min-width: 720px) {
+  .compras-grade-campos .compras-campo-largo { grid-column: span 2; }
+}
+
+/* Linhas da nota (cards) */
+.compras-lista-linhas { display: flex; flex-direction: column; gap: var(--espaco-sm); }
+.compras-linha-card { padding: var(--espaco-md); border-left: 3px solid var(--cor-status-verde); }
+.compras-linha-card.compras-linha-incompleta { border-left-color: var(--cor-status-amarelo); }
+.compras-linha-topo { display: flex; gap: var(--espaco-sm); align-items: center; margin-bottom: var(--espaco-sm); }
+.compras-linha-topo .input { flex: 1; min-width: 0; font-weight: 600; }
+.compras-linha-numero {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--cor-cinza-claro);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.compras-linha-associacao { display: flex; flex-wrap: wrap; gap: var(--espaco-sm); margin-bottom: var(--espaco-sm); align-items: center; }
+.compras-linha-item { display: flex; gap: var(--espaco-xs); flex: 2 1 240px; min-width: 0; }
+.compras-linha-item .input { flex: 1; min-width: 0; }
+.compras-linha-destino { flex: 1 1 150px; width: auto; }
+.compras-linha-associacao > select.input { flex: 1 1 180px; width: auto; }
+.compras-linha-sugestoes { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.82rem; }
+.compras-associacao-ok { color: var(--cor-status-verde); font-weight: 700; }
+.compras-associacao-info { color: var(--cor-texto-secundario); }
+.compras-check { display: flex; gap: 6px; align-items: center; flex-basis: 100%; color: var(--cor-texto-secundario); cursor: pointer; }
+
+.compras-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px dashed var(--cor-terracota);
+  background: var(--cor-acento-sutil);
+  color: var(--cor-texto);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.compras-chip small { color: var(--cor-texto-secundario); }
+.compras-chip-fixo { border-style: solid; border-color: var(--cor-borda); background: var(--cor-cinza-claro); cursor: default; }
+.compras-chip-fixo button { background: none; border: none; color: var(--cor-texto-secundario); cursor: pointer; padding: 0 0 0 2px; }
+.compras-apelidos { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.compras-linha-valores {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--espaco-sm);
+}
+@media (min-width: 900px) {
+  .compras-linha-valores { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+.compras-linha-valores label { display: flex; flex-direction: column; gap: 2px; font-size: 0.72rem; color: var(--cor-texto-secundario); min-width: 0; }
+.compras-linha-valores .input { width: 100%; min-width: 0; }
+
+.compras-linha-calculo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--espaco-md);
+  margin-top: var(--espaco-sm);
+  font-size: 0.82rem;
+  color: var(--cor-texto-secundario);
+}
+.compras-linha-calculo strong { color: var(--cor-texto); }
+.compras-calculo-nota { font-style: italic; }
+.compras-linha-pendencias { flex-basis: 100%; color: var(--cor-status-amarelo); font-weight: 600; }
+
+.compras-botao-adicionar { width: 100%; margin: var(--espaco-sm) 0 var(--espaco-md); border: 1px dashed var(--cor-borda); }
+
+/* Resumo em grade (conferência, histórico, detalhe) */
+.compras-resumo-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--espaco-sm);
+  margin: var(--espaco-sm) 0;
+}
+.compras-resumo-grade > div {
+  background: var(--cor-cinza-claro);
+  border-radius: var(--raio-sm);
+  padding: var(--espaco-sm) var(--espaco-md);
+  display: block;
+}
+.compras-resumo-grade dt { font-size: 0.72rem; color: var(--cor-texto-secundario); margin: 0; }
+.compras-resumo-grade dd { margin: 2px 0 0; font-weight: 700; font-size: 1rem; }
+.compras-resumo-grade > .compras-resumo-destaque { background: var(--cor-acento-sutil); }
+.compras-resumo-grade > .compras-resumo-destaque dd { color: var(--cor-terracota); font-size: 1.15rem; }
+.compras-resumo-periodo { margin-bottom: var(--espaco-md); }
+
+.compras-aviso {
+  font-size: 0.84rem;
+  padding: var(--espaco-sm) var(--espaco-md);
+  border-radius: var(--raio-sm);
+  background: var(--cor-cinza-claro);
+  border-left: 3px solid var(--cor-status-amarelo);
+  margin: var(--espaco-sm) 0;
+}
+.compras-aviso-erro { border-left-color: var(--cor-status-vermelho); }
+.compras-aviso-linha { margin: var(--espaco-sm) 0 0; }
+.compras-erro { color: var(--cor-status-vermelho); font-size: 0.85rem; font-weight: 600; margin: var(--espaco-sm) 0; }
+
+.compras-rodape-fixo {
+  position: sticky;
+  bottom: 0;
+  padding: var(--espaco-sm) 0;
+  background: linear-gradient(to top, var(--cor-fundo) 70%, transparent);
+  z-index: 5;
+}
+.compras-rodape-fixo .btn { min-width: 220px; }
+@media (max-width: 600px) {
+  .compras-rodape-fixo .btn { width: 100%; }
+}
+
+.compras-status { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
+.compras-status-ok { background: var(--cor-acento-sutil); color: var(--cor-status-verde); }
+.compras-status-cancelada { background: var(--cor-cinza-claro); color: var(--cor-status-vermelho); }
+.compras-linha-cancelada td { color: var(--cor-texto-secundario); }
+.compras-linha-cancelada td:nth-child(6) strong { text-decoration: line-through; }
+.compras-tag-despesa { color: var(--cor-texto-secundario); }
+.compras-negativo { color: var(--cor-status-vermelho); font-weight: 700; }
+.compras-acoes-linha { white-space: nowrap; }
+
+.modal.compras-modal-largo { max-width: 860px; width: calc(100% - 24px); }
+.compras-tabela-compacta { min-width: 560px; }
+.compras-tabela-compacta td, .compras-tabela-compacta th { font-size: 0.82rem; }
+
+/* Histórico: colunas numéricas (VAT, total) à direita — substitui a regra antiga */
+#corpo-tabela-historico-compras td:nth-child(3) { text-align: left; }
+#corpo-tabela-historico-compras td:nth-child(4) { text-align: center; }
+#corpo-tabela-historico-compras td:nth-child(5),
+#corpo-tabela-historico-compras td:nth-child(6) { text-align: right; white-space: nowrap; }
+#corpo-tabela-itens-compra td:nth-child(3),
+#corpo-tabela-itens-compra td:nth-child(4) { text-align: right; white-space: nowrap; }

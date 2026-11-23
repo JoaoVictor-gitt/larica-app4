@@ -1,43 +1,22 @@
 /*
- * compras.js
- * Lógica da área Compras (Etapa E — UI completa, sem consumo de lote
- * ainda). Cinco seções: Itens de Compra (purchase_items, cadastro
- * simples), Fornecedores (suppliers, cadastro simples), Registrar Compra
- * (cabeçalho+linhas, salva via save_purchase — a única porta de escrita,
- * nunca INSERT/UPDATE direto), Lotes em Estoque (só leitura, lots) e
- * Histórico de Compras (só leitura, purchases+purchase_lines+lots
- * agrupados em memória). Nenhuma tela desta página consome/baixa lote —
- * isso é uma etapa futura separada (Produção/Pedidos). Depende de
- * utils.js, js/services/purchases-service.js,
- * js/services/products-service.js, js/services/ingredients-service.js,
- * js/services/production-supplies-service.js.
+ * compras.js — Fase B (Compras v2)
  *
- * Edição de compra: uma compra só tem suas linhas/data editáveis enquanto
- * nenhum lote dela tiver movimento além do 'purchase' inicial
- * (compraTemConsumoReal, calculada só sobre os caches já carregados,
- * nunca uma consulta nova) — mesma regra já implementada em
- * save_purchase (Etapa D); a UI só espelha isso pra travar os campos
- * antes mesmo de tentar salvar, mas o banco continua a barreira real.
+ * Seções: Nova Compra (documento -> leitura por IA opcional -> conferência ->
+ * confirmar), Histórico (filtros, detalhe, documentos, cancelamento com
+ * estorno), Itens e Estoque (saldo, custo médio, histórico de preços,
+ * comparação por fornecedor, nomes alternativos) e Fornecedores.
  *
- * Modais (Item de Compra / Fornecedor) NÃO fecham ao clicar fora — mesmo
- * estado final já corrigido em Produção (nenhum listener de click/
- * mousedown no backdrop).
- *
- * Item na linha de compra (Etapa F3): combobox digitável, não mais um
- * <select> fechado. Selecionar uma sugestão preenche itemLinhaCompraSelecionadoId
- * (comportamento idêntico ao <select> antigo); digitar um nome sem
- * selecionar nada mantém itemLinhaCompraSelecionadoId=null — a linha vira
- * "item novo" (badge "Novo item"), enviada a save_purchase como
- * item_name, nunca com um purchase_item_id inventado no client. Quem
- * decide de verdade se reaproveita um item já existente por nome ou cria
- * um provisório (needs_review=true) é sempre a RPC save_purchase — o
- * client só sugere. Salvar um item com needsReview=true chama
- * finalizarItemCompraNoSupabase (RPC finalize_purchase_item), nunca
- * UPDATE direto — needsReview=false segue o CRUD direto de sempre.
+ * Regras que a tela respeita (o banco é a barreira real):
+ *   - nada vira compra só porque a IA leu: o usuário confere e confirma;
+ *   - associação item <-> descrição da nota só é automática quando já foi
+ *     confirmada antes (nome alternativo) ou o nome é idêntico; similaridade
+ *     só SUGERE;
+ *   - o rascunho fica salvo neste aparelho e guarda o client_request_id: se a
+ *     conexão cair na confirmação, tentar de novo não duplica a compra;
+ *   - compra confirmada não se edita: cancela (estorno) e lança de novo.
+ * Cálculos de prévia em js/compras-calculo.js (mesmas regras do banco).
  */
 
-const FATORES_CONVERSAO_UNIDADE_COMPRA = { g: 1, kg: 1000, ml: 1, l: 1000, un: 1 };
-const UNIDADES_COMPRA_POR_BASE = { g: ['g', 'kg'], ml: ['ml', 'l'], un: ['un'] };
 const CATEGORIAS_ITEM_COMPRA = {
   ingredient: 'Ingrediente',
   meat: 'Carne',
@@ -47,130 +26,114 @@ const CATEGORIAS_ITEM_COMPRA = {
   cleaning: 'Limpeza',
   other: 'Outros',
 };
-const ROTULOS_STATUS_LOTE = { available: 'Disponível', depleted: 'Esgotado', archived: 'Arquivado' };
+const UNIDADE_PADRAO_POR_BASE = { g: 'kg', ml: 'l', un: 'un' };
+const CHAVE_RASCUNHO_COMPRA = 'larica_rascunho_compra_v2';
 
 let itensCompraCache = [];
 let fornecedoresCache = [];
 let comprasCache = [];
 let linhasComprasCache = [];
-let lotesCache = [];
-let movimentosLotesCache = [];
+let categoriasFinanceirasCache = [];
+let apelidosCache = [];
 let produtosCache = [];
+let custosProdutosCache = new Map();
 let ingredientesCache = [];
 let insumosCache = [];
 let souAdminCompras = false;
 
-let compraEmEdicaoId = null;
-let linhasCompraEmEdicao = [];
-let compraTemConsumo = false;
-let lotesMostrandoHistoricoCompleto = false;
+let rascunho = null;
+let compraEmDetalheId = null;
+let uidLinhaAguardandoNovoItem = null;
+let confirmandoCompra = false;
 
-let itemLinhaCompraSelecionadoId = null;
-let indiceSugestaoItemLinhaCompraAtiva = -1;
-// Etapa K3.2: índice (em linhasCompraEmEdicao) da linha sendo editada em
-// lugar — null quando o formulário está no modo normal de "adicionar".
-// Preserva linhaId (nunca remove+adiciona uma linha só pra mudar
-// quantidade/preço/validade, o que geraria uma purchase_line NOVA no
-// backend e perderia a reconciliação de estoque da linha original).
-let indiceLinhaCompraEmEdicao = null;
-let filtroItensCompraSomentePendentes = false;
-/** Etapa I4: '' = todas; 'insumos_embalagens' (sintético) = supply+packaging; ou uma categoria real (ver itemCompraPassaFiltroCategoria). */
-let filtroItensCompraCategoria = '';
+// ===================================================================== inicialização
 
-/**
- * Cada seção roda no seu próprio try/catch — uma exceção em qualquer uma
- * nunca impede as seguintes de iniciar (mesma correção já validada em
- * Produção). Ver finalizarSecaoComErro().
- */
 document.addEventListener('DOMContentLoaded', async () => {
   ligarEventosNavegacaoCompras();
-
   try {
-    const [itens, fornecedores, compras, linhas, lotes, movimentos, produtos, ingredientes, insumos, ehAdmin] = await Promise.all([
-      buscarItensCompraDoSupabase(),
-      buscarFornecedoresDoSupabase(),
-      buscarComprasDoSupabase(),
-      buscarLinhasComprasDoSupabase(),
-      buscarLotesDoSupabase(),
-      buscarMovimentosLotesDoSupabase(),
-      buscarProdutosDoSupabase(),
-      buscarIngredientesDoSupabase(),
-      buscarInsumosProducaoDoSupabase(),
-      usuarioEhAdminNoSupabase(),
-    ]);
-    itensCompraCache = itens;
-    fornecedoresCache = fornecedores;
-    comprasCache = compras;
-    linhasComprasCache = linhas;
-    lotesCache = lotes;
-    movimentosLotesCache = movimentos;
-    produtosCache = produtos;
-    ingredientesCache = ingredientes;
-    insumosCache = insumos;
-    souAdminCompras = ehAdmin;
-  } catch (erroCarregamento) {
-    console.error('Erro ao carregar dados iniciais de Compras:', erroCarregamento);
-    finalizarSecaoComErro('estado-carregando-itens-compra', 'estado-erro-itens-compra', erroCarregamento);
-    finalizarSecaoComErro('estado-carregando-fornecedores', 'estado-erro-fornecedores', erroCarregamento);
-    finalizarSecaoComErro('estado-carregando-lotes', 'estado-erro-lotes', erroCarregamento);
-    finalizarSecaoComErro('estado-carregando-historico-compras', 'estado-erro-historico-compras', erroCarregamento);
-    const dicaRegistrar = document.getElementById('dica-registrar-compra-erro');
-    dicaRegistrar.textContent = 'Não foi possível carregar os dados necessários. ' + erroCarregamento.message;
-    dicaRegistrar.style.display = '';
+    await carregarDadosCompras();
+  } catch (erro) {
+    console.error('Erro ao carregar Compras:', erro);
+    const el = document.getElementById('estado-erro-geral-compras');
+    el.textContent = 'Não foi possível carregar os dados de Compras. ' + erro.message;
+    el.style.display = 'block';
+    ['itens-compra', 'fornecedores', 'historico-compras'].forEach((s) => finalizarSecaoComErro(`estado-carregando-${s}`, `estado-erro-${s}`, erro));
     return;
   }
 
-  try {
-    atualizarEstadoEdicaoItensCompra();
+  executarSecao(() => {
+    ligarEventosItens();
     renderizarTabelaItensCompra();
-    ligarEventosModalItemCompra();
-    document.getElementById('estado-carregando-itens-compra').style.display = 'none';
-  } catch (erro) {
-    console.error('Erro ao preparar Itens de Compra:', erro);
-    finalizarSecaoComErro('estado-carregando-itens-compra', 'estado-erro-itens-compra', erro);
-  }
-
-  try {
-    atualizarEstadoEdicaoFornecedores();
+  }, 'itens-compra');
+  executarSecao(() => {
+    ligarEventosFornecedores();
     renderizarTabelaFornecedores();
-    ligarEventosModalFornecedor();
-    document.getElementById('estado-carregando-fornecedores').style.display = 'none';
-  } catch (erro) {
-    console.error('Erro ao preparar Fornecedores:', erro);
-    finalizarSecaoComErro('estado-carregando-fornecedores', 'estado-erro-fornecedores', erro);
-  }
-
+  }, 'fornecedores');
+  executarSecao(() => {
+    ligarEventosHistorico();
+    renderizarHistoricoCompras();
+  }, 'historico-compras');
   try {
-    popularFiltrosLotes();
-    ligarEventosFiltrosLotes();
-    renderizarTabelaLotes();
-    document.getElementById('estado-carregando-lotes').style.display = 'none';
+    ligarEventosNovaCompra();
+    iniciarRascunho();
   } catch (erro) {
-    console.error('Erro ao preparar Lotes em Estoque:', erro);
-    finalizarSecaoComErro('estado-carregando-lotes', 'estado-erro-lotes', erro);
-  }
-
-  try {
-    renderizarTabelaHistoricoCompras();
-    document.getElementById('estado-carregando-historico-compras').style.display = 'none';
-  } catch (erro) {
-    console.error('Erro ao preparar Histórico de Compras:', erro);
-    finalizarSecaoComErro('estado-carregando-historico-compras', 'estado-erro-historico-compras', erro);
-  }
-
-  try {
-    ligarEventosRegistrarCompra();
-    atualizarEstadoEdicaoRegistrarCompra();
-    prepararNovaCompra();
-  } catch (erro) {
-    console.error('Erro ao preparar Registrar Compra:', erro);
-    const dica = document.getElementById('dica-registrar-compra-erro');
-    dica.textContent = 'Não foi possível preparar o formulário de compra. ' + erro.message;
-    dica.style.display = '';
+    console.error('Erro ao preparar Nova Compra:', erro);
+    mostrarErroCompra('Não foi possível preparar o formulário. ' + erro.message);
   }
 });
 
-/** Garante que uma seção nunca fique presa em "Carregando..." — mesmo helper já validado em Produção. */
+async function carregarDadosCompras() {
+  const [itens, fornecedores, compras, linhas, categorias, apelidos, produtos, custos, ingredientes, insumos, ehAdmin] = await Promise.all([
+    buscarItensCompraDoSupabase(),
+    buscarFornecedoresDoSupabase(),
+    buscarComprasDoSupabase(),
+    buscarLinhasComprasDoSupabase(),
+    buscarCategoriasFinanceirasDoSupabase(),
+    buscarApelidosItensCompraDoSupabase(),
+    buscarProdutosDoSupabase(),
+    buscarCustosProdutosDoSupabase(),
+    buscarIngredientesDoSupabase(),
+    buscarInsumosProducaoDoSupabase(),
+    usuarioEhAdminNoSupabase(),
+  ]);
+  itensCompraCache = itens;
+  fornecedoresCache = fornecedores;
+  comprasCache = compras;
+  linhasComprasCache = linhas;
+  categoriasFinanceirasCache = categorias;
+  apelidosCache = apelidos;
+  produtosCache = produtos;
+  custosProdutosCache = custos;
+  ingredientesCache = ingredientes;
+  insumosCache = insumos;
+  souAdminCompras = ehAdmin;
+  atualizarDatalists();
+}
+
+async function recarregarDepoisDeGravar() {
+  try {
+    await carregarDadosCompras();
+  } catch (erro) {
+    console.error('Erro ao recarregar Compras:', erro);
+    mostrarToast('Gravado, mas não foi possível atualizar a tela. Recarregue a página.', 'erro');
+    return;
+  }
+  renderizarTabelaItensCompra();
+  renderizarTabelaFornecedores();
+  renderizarHistoricoCompras();
+}
+
+function executarSecao(fn, chave) {
+  try {
+    fn();
+    const el = document.getElementById(`estado-carregando-${chave}`);
+    if (el) el.style.display = 'none';
+  } catch (erro) {
+    console.error(`Erro ao preparar ${chave}:`, erro);
+    finalizarSecaoComErro(`estado-carregando-${chave}`, `estado-erro-${chave}`, erro);
+  }
+}
+
 function finalizarSecaoComErro(idCarregando, idErro, erro) {
   const elCarregando = document.getElementById(idCarregando);
   if (elCarregando) elCarregando.style.display = 'none';
@@ -181,9 +144,7 @@ function finalizarSecaoComErro(idCarregando, idErro, erro) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Navegação (central de Compras <-> seções, mesmo padrão de Produção)
-// ---------------------------------------------------------------------------
+// ===================================================================== navegação e utilitários
 
 function ligarEventosNavegacaoCompras() {
   document.querySelectorAll('[data-compras-abrir]').forEach((botao) => {
@@ -199,6 +160,7 @@ function abrirSecaoCompras(chave) {
   document.querySelectorAll('.compras-secao').forEach((secao) => {
     secao.classList.toggle('compras-secao-ativa', secao.dataset.comprasSecao === chave);
   });
+  window.scrollTo(0, 0);
 }
 
 function fecharSecaoCompras() {
@@ -214,50 +176,908 @@ function fecharModal(idOverlay) {
   document.getElementById(idOverlay).classList.remove('modal-visivel');
 }
 
-// ---------------------------------------------------------------------------
-// Formatação
-// ---------------------------------------------------------------------------
-
-function formatarQuantidadeCompra(valor) {
-  return Number(valor).toLocaleString('pt-PT', { maximumFractionDigits: 3 });
+/** Escapa texto para HTML e para atributos (inclui aspas) — descrições de nota são texto livre. */
+function esc(texto) {
+  return escaparHtml(texto).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-/** 6 casas g/ml, 4 casas un — mesma disciplina de precisão já usada em Produção. */
-function formatarCustoPorBaseCompra(valor, unidade) {
-  if (!Number.isFinite(valor)) return '—';
-  const casas = unidade === 'g' || unidade === 'ml' ? 6 : 4;
-  return '€' + valor.toFixed(casas).replace('.', ',') + '/' + unidade;
+function euro(valor) {
+  if (valor === null || valor === undefined || !Number.isFinite(Number(valor))) return '—';
+  return '€' + Number(valor).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** 'YYYY-MM-DD' -> 'DD/MM/AAAA', sem passar por Date/fuso — purchased_at/received_at/expiration_date são date puro. */
+function euroPreciso(valor) {
+  if (valor === null || valor === undefined || !Number.isFinite(Number(valor))) return '—';
+  const n = Number(valor);
+  const casas = Math.abs(n) < 1 ? 4 : 2;
+  return '€' + n.toLocaleString('pt-PT', { minimumFractionDigits: casas, maximumFractionDigits: casas });
+}
+
+function numeroTexto(valor, casas = 3) {
+  return Number(valor).toLocaleString('pt-PT', { maximumFractionDigits: casas });
+}
+
 function formatarDataCompra(dataIso) {
   if (!dataIso) return '';
-  const partes = dataIso.split('-');
-  if (partes.length !== 3) return dataIso;
-  const [ano, mes, dia] = partes;
-  return `${dia}/${mes}/${ano}`;
+  const [ano, mes, dia] = String(dataIso).slice(0, 10).split('-');
+  return dia && mes && ano ? `${dia}/${mes}/${ano}` : dataIso;
 }
 
-/** Data de hoje no fuso do navegador local, como 'YYYY-MM-DD' — nunca toISOString() (UTC). */
 function dataHojeLocal() {
   const agora = new Date();
-  const ano = agora.getFullYear();
-  const mes = String(agora.getMonth() + 1).padStart(2, '0');
-  const dia = String(agora.getDate()).padStart(2, '0');
-  return `${ano}-${mes}-${dia}`;
-}
-
-// ---------------------------------------------------------------------------
-// ITENS DE COMPRA — purchase_items, cadastro simples (GRANT direto, sem RPC)
-// ---------------------------------------------------------------------------
-
-function atualizarEstadoEdicaoItensCompra() {
-  document.getElementById('botao-novo-item-compra').disabled = !souAdminCompras;
-  document.getElementById('dica-itens-compra-somente-admin').style.display = souAdminCompras ? 'none' : '';
+  return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}`;
 }
 
 function itemCompraPorId(id) {
-  return itensCompraCache.find((i) => i.id === id);
+  return itensCompraCache.find((i) => i.id === id) || null;
+}
+
+function fornecedorPorId(id) {
+  return fornecedoresCache.find((f) => f.id === id) || null;
+}
+
+function categoriaFinanceiraPorId(id) {
+  return categoriasFinanceirasCache.find((c) => c.id === id) || null;
+}
+
+function produtoDoItem(item) {
+  return item && item.produtoId ? produtosCache.find((p) => p.id === item.produtoId) || null : null;
+}
+
+/** O estoque deste item fica no produto de revenda (Coca Cola etc.)? */
+function estoqueFicaNoProduto(item) {
+  const produto = produtoDoItem(item);
+  return !!(item && item.controlaEstoque && produto && produto.stockMode === 'purchased');
+}
+
+function opcoesCategoriasDespesa(selecionada) {
+  const ativas = categoriasFinanceirasCache.filter((c) => c.tipo === 'expense' && c.ativo);
+  return '<option value="">— Categoria —</option>' + ativas
+    .map((c) => `<option value="${c.id}" ${c.id === selecionada ? 'selected' : ''}>${esc(c.nome)}</option>`)
+    .join('');
+}
+
+function atualizarDatalists() {
+  document.getElementById('lista-itens-compra-datalist').innerHTML = itensCompraCache
+    .filter((i) => i.ativo)
+    .map((i) => `<option value="${esc(i.nome)}">${i.controlaEstoque ? 'Estoque' : 'Despesa'}</option>`)
+    .join('');
+  document.getElementById('lista-fornecedores-datalist').innerHTML = fornecedoresCache
+    .filter((f) => f.ativo)
+    .map((f) => `<option value="${esc(f.nome)}"></option>`)
+    .join('');
+}
+
+function itemPorNomeDigitado(texto) {
+  const n = normalizarTextoCompra(texto);
+  if (!n) return null;
+  return itensCompraCache.find((i) => i.ativo && normalizarTextoCompra(i.nome) === n) || null;
+}
+
+function mostrarErroCompra(mensagem) {
+  const el = document.getElementById('dica-registrar-compra-erro');
+  el.textContent = mensagem || '';
+  el.style.display = mensagem ? '' : 'none';
+}
+
+// ===================================================================== rascunho (Nova Compra)
+
+function novoUid() {
+  return crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2);
+}
+
+function linhaVazia() {
+  return {
+    uid: novoUid(),
+    descricao: '',
+    itemId: null,
+    itemTexto: '',
+    destino: 'estoque',
+    categoriaFinanceiraId: null,
+    quantidade: null,
+    unidade: '',
+    precoUnitario: null,
+    valorBruto: null,
+    desconto: null,
+    taxaVat: null,
+    lembrarApelido: true,
+    sugestao: null,
+    observacaoIa: null,
+    origemAssociacao: null,
+  };
+}
+
+function rascunhoNovo() {
+  return {
+    requestId: novoUid(),
+    origem: 'manual',
+    documentos: [],
+    fornecedor: '',
+    data: dataHojeLocal(),
+    referencia: '',
+    vatRecuperavel: true,
+    observacoes: '',
+    descontoGeral: null,
+    totalPago: null,
+    linhas: [linhaVazia()],
+    avisosIa: [],
+  };
+}
+
+function salvarRascunhoLocal() {
+  try {
+    const copia = { ...rascunho, documentos: rascunho.documentos.map((d) => ({ documento: d.documento })) };
+    localStorage.setItem(CHAVE_RASCUNHO_COMPRA, JSON.stringify(copia));
+  } catch (erro) {
+    // armazenamento local indisponível: segue sem rascunho salvo
+  }
+}
+
+function apagarRascunhoLocal() {
+  try {
+    localStorage.removeItem(CHAVE_RASCUNHO_COMPRA);
+  } catch (erro) {
+    // ignore
+  }
+}
+
+function iniciarRascunho() {
+  let salvo = null;
+  try {
+    salvo = JSON.parse(localStorage.getItem(CHAVE_RASCUNHO_COMPRA) || 'null');
+  } catch (erro) {
+    salvo = null;
+  }
+  rascunho = salvo && salvo.requestId && Array.isArray(salvo.linhas) ? { ...rascunhoNovo(), ...salvo } : rascunhoNovo();
+  if (!rascunho.linhas.length) rascunho.linhas = [linhaVazia()];
+  preencherCabecalhoDoRascunho();
+  renderizarDocumentosRascunho();
+  renderizarLinhasRascunho();
+  atualizarResumoCompra();
+  atualizarPermissaoNovaCompra();
+}
+
+function rascunhoTemConteudo() {
+  return rascunho.documentos.length > 0 || rascunho.linhas.some((l) => l.descricao || l.itemId || l.quantidade || l.valorBruto || l.precoUnitario);
+}
+
+function preencherCabecalhoDoRascunho() {
+  document.getElementById('campo-fornecedor-compra').value = rascunho.fornecedor || '';
+  document.getElementById('campo-data-compra').value = rascunho.data || dataHojeLocal();
+  document.getElementById('campo-referencia-compra').value = rascunho.referencia || '';
+  document.getElementById('campo-vat-recuperavel-compra').value = rascunho.vatRecuperavel ? 'true' : 'false';
+  document.getElementById('campo-observacoes-compra').value = rascunho.observacoes || '';
+  document.getElementById('campo-desconto-geral-compra').value = rascunho.descontoGeral ?? '';
+  document.getElementById('campo-total-pago-compra').value = rascunho.totalPago ?? '';
+}
+
+function atualizarPermissaoNovaCompra() {
+  document.getElementById('dica-compras-somente-admin').style.display = souAdminCompras ? 'none' : '';
+  document.getElementById('botao-confirmar-compra').disabled = !souAdminCompras;
+  document.querySelectorAll('.compras-acoes-documento input[type=file]').forEach((i) => { i.disabled = !souAdminCompras; });
+}
+
+function ligarEventosNovaCompra() {
+  const campos = [
+    ['campo-fornecedor-compra', 'fornecedor'],
+    ['campo-data-compra', 'data'],
+    ['campo-referencia-compra', 'referencia'],
+    ['campo-observacoes-compra', 'observacoes'],
+  ];
+  campos.forEach(([id, chave]) => {
+    document.getElementById(id).addEventListener('input', (e) => {
+      rascunho[chave] = e.target.value;
+      salvarRascunhoLocal();
+    });
+  });
+  document.getElementById('campo-vat-recuperavel-compra').addEventListener('change', (e) => {
+    rascunho.vatRecuperavel = e.target.value === 'true';
+    salvarRascunhoLocal();
+    atualizarTodasAsLinhasCalculadas();
+  });
+  document.getElementById('campo-desconto-geral-compra').addEventListener('input', (e) => {
+    rascunho.descontoGeral = numeroOuNullCompra(e.target.value);
+    salvarRascunhoLocal();
+    atualizarTodasAsLinhasCalculadas();
+  });
+  document.getElementById('campo-total-pago-compra').addEventListener('input', (e) => {
+    rascunho.totalPago = numeroOuNullCompra(e.target.value);
+    salvarRascunhoLocal();
+    atualizarResumoCompra();
+  });
+  document.getElementById('botao-adicionar-linha-compra').addEventListener('click', () => {
+    rascunho.linhas.push(linhaVazia());
+    salvarRascunhoLocal();
+    renderizarLinhasRascunho();
+    const cards = document.querySelectorAll('.compras-linha-card');
+    const ultimo = cards[cards.length - 1];
+    if (ultimo) ultimo.querySelector('[data-campo="descricao"]').focus();
+  });
+  document.getElementById('botao-limpar-compra').addEventListener('click', () => {
+    if (rascunhoTemConteudo() && !confirm('Descartar o rascunho desta compra?')) return;
+    rascunho = rascunhoNovo();
+    apagarRascunhoLocal();
+    preencherCabecalhoDoRascunho();
+    renderizarDocumentosRascunho();
+    renderizarLinhasRascunho();
+    atualizarResumoCompra();
+    mostrarErroCompra('');
+  });
+  document.getElementById('botao-confirmar-compra').addEventListener('click', confirmarCompra);
+
+  document.getElementById('campo-foto-camera').addEventListener('change', aoEscolherArquivos);
+  document.getElementById('campo-foto-galeria').addEventListener('change', aoEscolherArquivos);
+  document.getElementById('campo-pdf').addEventListener('change', aoEscolherArquivos);
+}
+
+// --------------------------------------------------------------------- documentos
+
+async function aoEscolherArquivos(evento) {
+  const arquivos = Array.from(evento.target.files || []);
+  evento.target.value = '';
+  if (!arquivos.length || !souAdminCompras) return;
+  const dica = document.getElementById('dica-documentos-compra');
+  for (const arquivo of arquivos) {
+    const pendente = { documento: null, previa: null, enviando: true, nome: arquivo.name || 'documento' };
+    rascunho.documentos.push(pendente);
+    renderizarDocumentosRascunho();
+    try {
+      const { documento, previa } = await enviarDocumentoCompra(arquivo);
+      pendente.documento = documento;
+      pendente.previa = previa;
+      pendente.enviando = false;
+    } catch (erro) {
+      rascunho.documentos = rascunho.documentos.filter((d) => d !== pendente);
+      dica.textContent = 'Não foi possível anexar "' + (arquivo.name || 'arquivo') + '": ' + erro.message;
+    }
+    salvarRascunhoLocal();
+    renderizarDocumentosRascunho();
+  }
+}
+
+function renderizarDocumentosRascunho() {
+  const lista = document.getElementById('lista-documentos-compra');
+  lista.innerHTML = rascunho.documentos.map((d, i) => {
+    const ehPdf = d.documento && d.documento.tipoMime === 'application/pdf';
+    const miniatura = d.previa
+      ? `<img src="${d.previa}" alt="Nota anexada" />`
+      : `<span class="compras-documento-icone">${ehPdf ? '📄' : '🧾'}</span>`;
+    const status = d.enviando ? 'Enviando…' : d.lendo ? 'Lendo com IA…' : d.lido ? '✓ Lido pela IA' : '';
+    return `
+      <div class="compras-documento" data-indice="${i}">
+        <button type="button" class="compras-documento-miniatura" data-acao="abrir" ${d.documento ? '' : 'disabled'} title="Abrir">${miniatura}</button>
+        <div class="compras-documento-info">
+          <span class="compras-documento-nome">${esc((d.documento && d.documento.nomeArquivo) || d.nome || 'Documento')}</span>
+          <span class="compras-documento-status">${status}</span>
+          <div class="compras-documento-acoes">
+            <button type="button" class="btn btn-primario btn-pequeno" data-acao="ler" ${d.documento && !d.lendo ? '' : 'disabled'}>✨ Ler com IA</button>
+            <button type="button" class="btn-icone" data-acao="remover" title="Remover" ${d.enviando || d.lendo ? 'disabled' : ''}>✕</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+  lista.querySelectorAll('.compras-documento').forEach((el) => {
+    const i = Number(el.dataset.indice);
+    el.querySelector('[data-acao="abrir"]').addEventListener('click', () => abrirDocumento(rascunho.documentos[i].documento));
+    el.querySelector('[data-acao="ler"]').addEventListener('click', () => lerDocumentoDoRascunho(i));
+    el.querySelector('[data-acao="remover"]').addEventListener('click', () => removerDocumentoDoRascunho(i));
+  });
+}
+
+async function abrirDocumento(documento) {
+  if (!documento) return;
+  try {
+    const url = await obterLinkDocumentoCompra(documento.caminho);
+    window.open(url, '_blank', 'noopener');
+  } catch (erro) {
+    mostrarToast('Não foi possível abrir o documento. ' + erro.message, 'erro');
+  }
+}
+
+function removerDocumentoDoRascunho(indice) {
+  const d = rascunho.documentos[indice];
+  rascunho.documentos.splice(indice, 1);
+  salvarRascunhoLocal();
+  renderizarDocumentosRascunho();
+  // Arquivo ainda não ligado a compra: tenta liberar o espaço (melhor esforço).
+  if (d && d.documento) {
+    supabaseClient.storage.from('purchase-documents').remove([d.documento.caminho]).catch(() => undefined);
+  }
+}
+
+async function lerDocumentoDoRascunho(indice) {
+  const d = rascunho.documentos[indice];
+  if (!d || !d.documento) return;
+  const dica = document.getElementById('dica-documentos-compra');
+  d.lendo = true;
+  renderizarDocumentosRascunho();
+  let nota;
+  try {
+    nota = await lerDocumentoCompraComIa(d.documento.id);
+  } catch (erro) {
+    d.lendo = false;
+    renderizarDocumentosRascunho();
+    dica.textContent = erro.message;
+    dica.classList.add('compras-dica-alerta');
+    return;
+  }
+  d.lendo = false;
+  d.lido = true;
+  aplicarLeituraNoRascunho(rascunhoDaNotaLida(nota));
+  renderizarDocumentosRascunho();
+}
+
+function aplicarLeituraNoRascunho(lido) {
+  const dica = document.getElementById('dica-documentos-compra');
+  dica.classList.remove('compras-dica-alerta');
+  const linhasPreenchidas = rascunho.linhas.filter((l) => l.descricao || l.itemId || l.quantidade || l.valorBruto);
+  const novas = lido.linhas.map((l) => ({ ...linhaVazia(), ...l }));
+  if (novas.length && linhasPreenchidas.length) {
+    if (confirm(`A nota tem ${novas.length} linha(s). OK = adicionar às linhas atuais; Cancelar = substituir as linhas atuais.`)) {
+      rascunho.linhas = [...linhasPreenchidas, ...novas];
+    } else {
+      rascunho.linhas = novas;
+    }
+  } else if (novas.length) {
+    rascunho.linhas = novas;
+  }
+  if (!rascunho.fornecedor && lido.fornecedor) rascunho.fornecedor = lido.fornecedor;
+  if (!rascunho.referencia && lido.referencia) rascunho.referencia = lido.referencia;
+  if (lido.data) rascunho.data = lido.data;
+  if (lido.descontoGeral !== null && lido.descontoGeral !== undefined) rascunho.descontoGeral = lido.descontoGeral;
+  if (lido.totalPago !== null && lido.totalPago !== undefined) rascunho.totalPago = lido.totalPago;
+  rascunho.origem = 'ocr';
+  rascunho.avisosIa = lido.avisos || [];
+  if (lido.moeda && lido.moeda !== 'EUR') rascunho.avisosIa.push(`Moeda da nota: ${lido.moeda}. Os valores serão gravados como euros.`);
+
+  const resumo = novas.length
+    ? `IA leu ${novas.length} linha(s). Confira cada uma — campos em branco não puderam ser lidos.`
+    : 'A IA não encontrou itens legíveis. Preencha manualmente.';
+  dica.innerHTML = esc(resumo) + (rascunho.avisosIa.length
+    ? '<ul class="compras-avisos-ia">' + rascunho.avisosIa.map((a) => `<li>${esc(a)}</li>`).join('') + '</ul>'
+    : '');
+
+  if (!rascunho.linhas.length) rascunho.linhas = [linhaVazia()];
+  preencherCabecalhoDoRascunho();
+  salvarRascunhoLocal();
+  renderizarLinhasRascunho();
+  atualizarResumoCompra();
+  buscarSugestoesDasLinhas();
+}
+
+// --------------------------------------------------------------------- associação (sugestões)
+
+async function buscarSugestoesDasLinhas(somenteUid) {
+  const alvo = rascunho.linhas.filter((l) => !l.itemId && normalizarTextoCompra(l.descricao) && (!somenteUid || l.uid === somenteUid));
+  if (!alvo.length) return;
+  let resultado;
+  try {
+    resultado = await sugerirItensParaDescricoesNoSupabase(alvo.map((l) => l.descricao));
+  } catch (erro) {
+    console.error('Sugestões indisponíveis:', erro);
+    return;
+  }
+  resultado.forEach((r) => {
+    const linha = alvo[r.index];
+    if (!linha || linha.itemId) return;
+    linha.sugestao = r;
+    if (r.exact) {
+      // Associação já confirmada antes (nome alternativo) ou nome idêntico: reutiliza, visível e trocável.
+      associarItemNaLinha(linha, itemCompraPorId(r.exact.purchase_item_id), r.exact.via === 'alias' ? 'apelido' : 'nome');
+    }
+  });
+  salvarRascunhoLocal();
+  renderizarLinhasRascunho();
+  atualizarResumoCompra();
+}
+
+function associarItemNaLinha(linha, item, origem) {
+  if (!item) {
+    linha.itemId = null;
+    linha.origemAssociacao = null;
+    return;
+  }
+  linha.itemId = item.id;
+  linha.itemTexto = item.nome;
+  linha.origemAssociacao = origem || 'manual';
+  linha.destino = item.controlaEstoque ? 'estoque' : 'despesa';
+  if (!item.controlaEstoque && !linha.categoriaFinanceiraId) linha.categoriaFinanceiraId = item.categoriaFinanceiraId;
+  if (item.controlaEstoque) {
+    const compativeis = UNIDADES_COMPATIVEIS_POR_BASE[item.unidadeBase] || [];
+    if (!compativeis.includes(linha.unidade)) {
+      // unidade lida/da linha não serve para este item: só troca quando estava vazia
+      if (!linha.unidade) linha.unidade = UNIDADE_PADRAO_POR_BASE[item.unidadeBase] || '';
+    }
+  }
+}
+
+// --------------------------------------------------------------------- linhas
+
+function renderizarLinhasRascunho() {
+  const lista = document.getElementById('lista-linhas-compra');
+  lista.innerHTML = rascunho.linhas.map((l, i) => htmlLinhaCompra(l, i)).join('');
+  lista.querySelectorAll('.compras-linha-card').forEach((card) => ligarEventosLinha(card));
+  atualizarTodasAsLinhasCalculadas();
+}
+
+function htmlLinhaCompra(l, i) {
+  const item = itemCompraPorId(l.itemId);
+  const unidades = item && item.controlaEstoque ? UNIDADES_COMPATIVEIS_POR_BASE[item.unidadeBase] || UNIDADES_LINHA_COMPRA : UNIDADES_LINHA_COMPRA;
+  const opcoesUnidade = '<option value="">—</option>' + unidades
+    .map((u) => `<option value="${u}" ${u === l.unidade ? 'selected' : ''}>${u}</option>`).join('')
+    + (l.unidade && !unidades.includes(l.unidade) ? `<option value="${l.unidade}" selected>${l.unidade} (incompatível)</option>` : '');
+  const opcoesVat = '<option value="">VAT</option>' + TAXAS_VAT_COMPRA
+    .map((t) => `<option value="${t}" ${Number(l.taxaVat) === t && l.taxaVat !== null ? 'selected' : ''}>${String(t).replace('.', ',')}%</option>`).join('');
+
+  let associacao = '';
+  if (item) {
+    const selo = l.origemAssociacao === 'apelido' ? 'reconhecido por associação anterior'
+      : l.origemAssociacao === 'nome' ? 'mesmo nome do cadastro' : 'associado';
+    const destino = item.controlaEstoque
+      ? (estoqueFicaNoProduto(item) ? `entra no estoque do produto ${esc(produtoDoItem(item).nome)}` : 'entra no estoque')
+      : 'despesa sem estoque';
+    associacao = `<span class="compras-associacao-ok">✓ ${esc(item.nome)}</span>
+      <span class="compras-associacao-info">${selo} · ${destino}</span>`;
+    const diferente = normalizarTextoCompra(l.descricao) && normalizarTextoCompra(l.descricao) !== normalizarTextoCompra(item.nome);
+    if (diferente) {
+      associacao += `<label class="compras-check"><input type="checkbox" data-campo="lembrarApelido" ${l.lembrarApelido ? 'checked' : ''} />
+        Lembrar "${esc(l.descricao)}" como nome de ${esc(item.nome)}</label>`;
+    }
+  } else if (l.sugestao && l.sugestao.candidates && l.sugestao.candidates.length) {
+    associacao = '<span class="compras-associacao-info">Parece com:</span> ' + l.sugestao.candidates
+      .map((c) => `<button type="button" class="compras-chip" data-sugestao="${c.purchase_item_id}">${esc(c.name)} <small>${Math.round(c.score * 100)}%</small></button>`)
+      .join('');
+  }
+
+  const mostrarCategoria = (item && !item.controlaEstoque) || (!item && l.destino === 'despesa');
+  return `
+    <div class="card compras-linha-card" data-uid="${l.uid}">
+      <div class="compras-linha-topo">
+        <span class="compras-linha-numero">${i + 1}</span>
+        <input type="text" class="input" data-campo="descricao" value="${esc(l.descricao || '')}" placeholder="Descrição na nota" maxlength="300" />
+        <button type="button" class="btn-icone" data-acao="remover" title="Remover linha">🗑️</button>
+      </div>
+      <div class="compras-linha-associacao">
+        <div class="compras-linha-item">
+          <input type="text" class="input" data-campo="itemTexto" list="lista-itens-compra-datalist" value="${esc(item ? item.nome : l.itemTexto || '')}" placeholder="Item do cadastro" autocomplete="off" />
+          <button type="button" class="btn btn-secundario btn-pequeno" data-acao="novo-item" ${souAdminCompras ? '' : 'disabled'}>+ Novo</button>
+        </div>
+        ${item ? '' : `<select class="input compras-linha-destino" data-campo="destino">
+          <option value="estoque" ${l.destino === 'estoque' ? 'selected' : ''}>Estoque</option>
+          <option value="despesa" ${l.destino === 'despesa' ? 'selected' : ''}>Despesa sem item</option>
+        </select>`}
+        ${mostrarCategoria ? `<select class="input" data-campo="categoriaFinanceiraId">${opcoesCategoriasDespesa(l.categoriaFinanceiraId || (item && item.categoriaFinanceiraId))}</select>` : ''}
+        <div class="compras-linha-sugestoes">${associacao}</div>
+      </div>
+      <div class="compras-linha-valores">
+        <label>Qtd.<input type="number" class="input" data-campo="quantidade" min="0" step="0.001" inputmode="decimal" value="${l.quantidade ?? ''}" /></label>
+        <label>Unid.<select class="input" data-campo="unidade">${opcoesUnidade}</select></label>
+        <label>Preço unit.<input type="number" class="input" data-campo="precoUnitario" min="0" step="0.0001" inputmode="decimal" value="${l.precoUnitario ?? ''}" /></label>
+        <label>Valor linha<input type="number" class="input" data-campo="valorBruto" min="0" step="0.01" inputmode="decimal" value="${l.valorBruto ?? ''}" placeholder="qtd × preço" /></label>
+        <label>Desconto<input type="number" class="input" data-campo="desconto" min="0" step="0.01" inputmode="decimal" value="${l.desconto ?? ''}" /></label>
+        <label>VAT<select class="input" data-campo="taxaVat">${opcoesVat}</select></label>
+      </div>
+      ${l.observacaoIa ? `<p class="compras-aviso compras-aviso-linha">${esc(l.observacaoIa)}</p>` : ''}
+      <div class="compras-linha-calculo" data-calculo></div>
+    </div>`;
+}
+
+function linhaPorUid(uid) {
+  return rascunho.linhas.find((l) => l.uid === uid);
+}
+
+function ligarEventosLinha(card) {
+  const uid = card.dataset.uid;
+  const numericos = ['quantidade', 'precoUnitario', 'valorBruto', 'desconto'];
+  card.querySelectorAll('[data-campo]').forEach((campo) => {
+    const chave = campo.dataset.campo;
+    const evento = campo.tagName === 'SELECT' || campo.type === 'checkbox' ? 'change' : 'input';
+    campo.addEventListener(evento, () => {
+      const l = linhaPorUid(uid);
+      if (!l) return;
+      if (chave === 'lembrarApelido') l.lembrarApelido = campo.checked;
+      else if (numericos.includes(chave)) l[chave] = numeroOuNullCompra(campo.value);
+      else if (chave === 'taxaVat') l.taxaVat = numeroOuNullCompra(campo.value);
+      else if (chave === 'categoriaFinanceiraId') l.categoriaFinanceiraId = campo.value || null;
+      else if (chave === 'itemTexto') {
+        l.itemTexto = campo.value;
+        return salvarRascunhoLocal();
+      } else l[chave] = campo.value;
+      salvarRascunhoLocal();
+      if (chave === 'destino') {
+        renderizarLinhasRascunho();
+        return;
+      }
+      atualizarTodasAsLinhasCalculadas();
+    });
+  });
+
+  const campoItem = card.querySelector('[data-campo="itemTexto"]');
+  campoItem.addEventListener('change', () => {
+    const l = linhaPorUid(uid);
+    const texto = campoItem.value.trim();
+    const item = itemPorNomeDigitado(texto);
+    if (item) associarItemNaLinha(l, item, 'manual');
+    else {
+      l.itemId = null;
+      l.itemTexto = texto;
+      l.origemAssociacao = null;
+    }
+    salvarRascunhoLocal();
+    renderizarLinhasRascunho();
+  });
+
+  card.querySelector('[data-campo="descricao"]').addEventListener('change', () => {
+    const l = linhaPorUid(uid);
+    if (!l.itemId) buscarSugestoesDasLinhas(uid);
+    else renderizarLinhasRascunho();
+  });
+
+  card.querySelectorAll('[data-sugestao]').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      const l = linhaPorUid(uid);
+      associarItemNaLinha(l, itemCompraPorId(botao.dataset.sugestao), 'sugestao');
+      salvarRascunhoLocal();
+      renderizarLinhasRascunho();
+    });
+  });
+
+  card.querySelector('[data-acao="remover"]').addEventListener('click', () => {
+    rascunho.linhas = rascunho.linhas.filter((x) => x.uid !== uid);
+    if (!rascunho.linhas.length) rascunho.linhas = [linhaVazia()];
+    salvarRascunhoLocal();
+    renderizarLinhasRascunho();
+  });
+
+  card.querySelector('[data-acao="novo-item"]').addEventListener('click', () => {
+    const l = linhaPorUid(uid);
+    uidLinhaAguardandoNovoItem = uid;
+    abrirModalNovoItemCompra(l.itemTexto && !l.itemId ? l.itemTexto : l.descricao);
+  });
+}
+
+function calculoAtual() {
+  return calcularCompra(rascunho.linhas, rascunho.descontoGeral, rascunho.vatRecuperavel, rascunho.totalPago);
+}
+
+function atualizarTodasAsLinhasCalculadas() {
+  const calc = calculoAtual();
+  rascunho.linhas.forEach((l, i) => {
+    const card = document.querySelector(`.compras-linha-card[data-uid="${l.uid}"]`);
+    if (!card) return;
+    const item = itemCompraPorId(l.itemId);
+    const r = calc.linhas[i];
+    const problemas = problemasDaLinhaCompra({ ...l, destino: item ? (item.controlaEstoque ? 'estoque' : 'despesa') : l.destino }, item);
+    let custoUnit = '';
+    if (item && item.controlaEstoque && problemas.length === 0) {
+      const base = quantidadeBaseDaLinhaCompra(l.quantidade, l.unidade, item.unidadeBase);
+      if (base) custoUnit = ` · ${euroPreciso(custoParaExibicaoCompra(r.custo / base, item.unidadeBase))}/${rotuloUnidadeExibicaoCompra(item.unidadeBase)}`;
+    }
+    const alvo = card.querySelector('[data-calculo]');
+    alvo.innerHTML = `
+      <span>Líquido <strong>${euro(r.liquido)}</strong></span>
+      <span>VAT <strong>${euro(r.vat)}</strong></span>
+      <span>Custo <strong>${euro(r.custo)}</strong>${custoUnit}</span>
+      ${r.rateio ? `<span class="compras-calculo-nota">inclui −${euro(r.rateio)} do desconto geral</span>` : ''}
+      ${problemas.length ? `<span class="compras-linha-pendencias">Falta: ${problemas.map(escaparHtml).join(', ')}</span>` : ''}`;
+    card.classList.toggle('compras-linha-incompleta', problemas.length > 0);
+  });
+  atualizarResumoCompra(calc);
+}
+
+function atualizarResumoCompra(calcPronto) {
+  const calc = calcPronto || calculoAtual();
+  const t = calc.totais;
+  const itensEstoque = rascunho.linhas.filter((l) => { const it = itemCompraPorId(l.itemId); return it && it.controlaEstoque; }).length;
+  const despesas = rascunho.linhas.length - itensEstoque;
+  document.getElementById('resumo-compra').innerHTML = `
+    <div><dt>Bruto</dt><dd>${euro(t.bruto)}</dd></div>
+    <div><dt>Descontos</dt><dd>−${euro(t.descontos)}</dd></div>
+    <div><dt>Líquido</dt><dd>${euro(t.liquido)}</dd></div>
+    <div><dt>VAT ${rascunho.vatRecuperavel ? '(recuperável)' : '(no custo)'}</dt><dd>${euro(t.vat)}</dd></div>
+    <div><dt>Total calculado</dt><dd>${euro(t.calculado)}</dd></div>
+    <div class="compras-resumo-destaque"><dt>Total pago</dt><dd>${euro(t.pago)}</dd></div>
+    <div><dt>Entradas no estoque</dt><dd>${itensEstoque}</dd></div>
+    <div><dt>Despesas</dt><dd>${despesas}</dd></div>`;
+  const aviso = document.getElementById('aviso-diferenca-compra');
+  let texto = '';
+  if (t.descontoGeralExcede) texto = 'O desconto geral é maior que o valor das linhas.';
+  else if (t.diferencaExcede) texto = `O total pago difere do calculado em ${euro(t.diferenca)} — acima do limite de €1,00. Confira valores, descontos e VAT.`;
+  else if (t.diferenca !== 0) texto = `Diferença de arredondamento de ${euro(t.diferenca)} será registrada.`;
+  aviso.textContent = texto;
+  aviso.style.display = texto ? '' : 'none';
+  aviso.classList.toggle('compras-aviso-erro', t.descontoGeralExcede || t.diferencaExcede);
+}
+
+// --------------------------------------------------------------------- confirmar
+
+function montarPayloadCompra() {
+  const fornecedorTexto = (rascunho.fornecedor || '').trim();
+  const fornecedorExistente = fornecedoresCache.find((f) => normalizarTextoCompra(f.nome) === normalizarTextoCompra(fornecedorTexto));
+  return {
+    client_request_id: rascunho.requestId,
+    supplier_id: fornecedorExistente ? fornecedorExistente.id : null,
+    supplier_name: fornecedorExistente ? null : fornecedorTexto || null,
+    purchased_at: rascunho.data,
+    reference: rascunho.referencia || null,
+    notes: rascunho.observacoes || null,
+    vat_recoverable: rascunho.vatRecuperavel,
+    header_discount: rascunho.descontoGeral || 0,
+    total_paid: rascunho.totalPago,
+    source: rascunho.origem,
+    document_ids: rascunho.documentos.filter((d) => d.documento).map((d) => d.documento.id),
+    lines: rascunho.linhas.map((l) => {
+      const item = itemCompraPorId(l.itemId);
+      return {
+        raw_description: l.descricao || null,
+        purchase_item_id: item ? item.id : null,
+        line_type: item ? undefined : l.destino === 'despesa' ? 'expense' : 'stock',
+        finance_category_id: l.categoriaFinanceiraId || null,
+        quantity: l.quantidade,
+        unit: l.unidade,
+        unit_price: l.precoUnitario,
+        gross_amount: l.valorBruto,
+        discount_amount: l.desconto || 0,
+        vat_rate: l.taxaVat,
+        remember_alias: l.lembrarApelido !== false,
+      };
+    }),
+  };
+}
+
+async function confirmarCompra() {
+  if (!souAdminCompras || confirmandoCompra) return;
+  mostrarErroCompra('');
+  if (!rascunho.data) return mostrarErroCompra('Informe a data da compra.');
+  if (rascunho.documentos.some((d) => d.enviando || d.lendo)) return mostrarErroCompra('Aguarde o envio/leitura dos documentos terminar.');
+
+  const pendentes = rascunho.linhas
+    .map((l, i) => {
+      const item = itemCompraPorId(l.itemId);
+      const p = problemasDaLinhaCompra({ ...l, destino: item ? (item.controlaEstoque ? 'estoque' : 'despesa') : l.destino }, item);
+      return p.length ? `Linha ${i + 1}: ${p.join(', ')}` : null;
+    })
+    .filter(Boolean);
+  if (pendentes.length) {
+    const primeiro = document.querySelector('.compras-linha-incompleta');
+    if (primeiro) primeiro.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return mostrarErroCompra('Complete as linhas antes de confirmar. ' + pendentes.join(' · '));
+  }
+  const calc = calculoAtual();
+  if (calc.totais.descontoGeralExcede) return mostrarErroCompra('O desconto geral é maior que o valor das linhas.');
+  if (calc.totais.diferencaExcede) return mostrarErroCompra('O total pago difere do calculado em mais de €1,00. Confira os valores.');
+
+  const entradas = rascunho.linhas.filter((l) => { const it = itemCompraPorId(l.itemId); return it && it.controlaEstoque; });
+  const resumoConfirmacao = [
+    `Confirmar compra de ${euro(calc.totais.pago)}?`,
+    `${entradas.length} entrada(s) no estoque e ${rascunho.linhas.length - entradas.length} despesa(s).`,
+    `VAT ${euro(calc.totais.vat)} ${rascunho.vatRecuperavel ? '(recuperável, fora do custo)' : '(não recuperável, no custo)'}.`,
+    'Depois de confirmada, a compra só pode ser cancelada com estorno.',
+  ].join('\n');
+  if (!confirm(resumoConfirmacao)) return;
+
+  const botao = document.getElementById('botao-confirmar-compra');
+  confirmandoCompra = true;
+  botao.disabled = true;
+  botao.textContent = 'Confirmando…';
+  let resultado;
+  try {
+    resultado = await confirmarCompraNoSupabase(montarPayloadCompra());
+  } catch (erro) {
+    // Rascunho e client_request_id preservados: nova tentativa não duplica.
+    mostrarErroCompra('Não foi possível confirmar. ' + erro.message);
+    confirmandoCompra = false;
+    botao.disabled = false;
+    botao.textContent = 'Confirmar compra';
+    return;
+  }
+  confirmandoCompra = false;
+  botao.disabled = false;
+  botao.textContent = 'Confirmar compra';
+
+  mostrarToast(resultado.duplicate ? 'Esta compra já estava registrada.' : 'Compra registrada e estoque atualizado.', 'sucesso');
+  rascunho = rascunhoNovo();
+  apagarRascunhoLocal();
+  preencherCabecalhoDoRascunho();
+  renderizarDocumentosRascunho();
+  renderizarLinhasRascunho();
+  const dica = document.getElementById('dica-documentos-compra');
+  dica.textContent = 'Fotografe ou anexe a nota para a IA preencher os dados. Você confere tudo antes de confirmar.';
+  dica.classList.remove('compras-dica-alerta');
+  await recarregarDepoisDeGravar();
+  abrirSecaoCompras('historico');
+  abrirDetalheCompra(resultado.purchase_id);
+}
+
+// ===================================================================== HISTÓRICO
+
+function ligarEventosHistorico() {
+  ['filtro-historico-busca', 'filtro-historico-de', 'filtro-historico-ate', 'filtro-historico-status'].forEach((id) => {
+    document.getElementById(id).addEventListener('input', renderizarHistoricoCompras);
+  });
+  document.getElementById('botao-fechar-modal-detalhe-compra').addEventListener('click', () => fecharModal('modal-overlay-detalhe-compra'));
+  document.getElementById('botao-fechar-detalhe-compra').addEventListener('click', () => fecharModal('modal-overlay-detalhe-compra'));
+  document.getElementById('botao-cancelar-compra').addEventListener('click', abrirModalCancelarCompra);
+  document.getElementById('botao-fechar-modal-cancelar-compra').addEventListener('click', () => fecharModal('modal-overlay-cancelar-compra'));
+  document.getElementById('botao-desistir-cancelar-compra').addEventListener('click', () => fecharModal('modal-overlay-cancelar-compra'));
+  document.getElementById('botao-confirmar-cancelar-compra').addEventListener('click', confirmarCancelamentoCompra);
+}
+
+function linhasDaCompra(compraId) {
+  return linhasComprasCache.filter((l) => l.compraId === compraId).sort((a, b) => a.ordem - b.ordem);
+}
+
+function comprasFiltradas() {
+  const busca = normalizarTextoCompra(document.getElementById('filtro-historico-busca').value);
+  const de = document.getElementById('filtro-historico-de').value;
+  const ate = document.getElementById('filtro-historico-ate').value;
+  const status = document.getElementById('filtro-historico-status').value;
+  return comprasCache.filter((c) => {
+    if (status && c.status !== status) return false;
+    if (de && c.compradoEm < de) return false;
+    if (ate && c.compradoEm > ate) return false;
+    if (busca) {
+      const fornecedor = fornecedorPorId(c.fornecedorId);
+      const textos = [fornecedor && fornecedor.nome, c.referencia, ...linhasDaCompra(c.id).map((l) => `${l.nomeSnapshot} ${l.descricaoNota || ''}`)];
+      if (!textos.some((t) => (normalizarTextoCompra(t) || '').includes(busca))) return false;
+    }
+    return true;
+  });
+}
+
+function renderizarHistoricoCompras() {
+  const corpo = document.getElementById('corpo-tabela-historico-compras');
+  const vazio = document.getElementById('estado-vazio-historico-compras');
+  const lista = comprasFiltradas();
+  const confirmadas = lista.filter((c) => c.status === 'confirmed');
+  document.getElementById('resumo-historico-compras').innerHTML = `
+    <div><dt>Compras</dt><dd>${confirmadas.length}</dd></div>
+    <div><dt>Total pago</dt><dd>${euro(confirmadas.reduce((s, c) => s + c.totalPago, 0))}</dd></div>
+    <div><dt>VAT recuperável</dt><dd>${euro(confirmadas.filter((c) => c.vatRecuperavel).reduce((s, c) => s + c.totalVat, 0))}</dd></div>
+    <div><dt>VAT no custo</dt><dd>${euro(confirmadas.filter((c) => !c.vatRecuperavel).reduce((s, c) => s + c.totalVat, 0))}</dd></div>`;
+  if (!lista.length) {
+    corpo.innerHTML = '';
+    vazio.style.display = 'block';
+    return;
+  }
+  vazio.style.display = 'none';
+  corpo.innerHTML = lista.map((c) => {
+    const fornecedor = fornecedorPorId(c.fornecedorId);
+    const n = linhasDaCompra(c.id).length;
+    const situacao = c.status === 'cancelled'
+      ? '<span class="compras-status compras-status-cancelada">Cancelada</span>'
+      : '<span class="compras-status compras-status-ok">Confirmada</span>';
+    return `
+      <tr class="${c.status === 'cancelled' ? 'compras-linha-cancelada' : ''}">
+        <td>${formatarDataCompra(c.compradoEm)}</td>
+        <td>${esc(fornecedor ? fornecedor.nome : '—')}</td>
+        <td>${esc(c.referencia || '—')}</td>
+        <td>${n}</td>
+        <td>${euro(c.totalVat)}</td>
+        <td><strong>${euro(c.totalPago)}</strong></td>
+        <td>${situacao}${c.origem === 'ocr' ? ' <span title="Lida por IA">✨</span>' : ''}</td>
+        <td><button class="btn btn-secundario btn-pequeno" data-detalhe-compra="${c.id}">Ver</button></td>
+      </tr>`;
+  }).join('');
+  corpo.querySelectorAll('[data-detalhe-compra]').forEach((b) => b.addEventListener('click', () => abrirDetalheCompra(b.dataset.detalheCompra)));
+}
+
+async function abrirDetalheCompra(compraId) {
+  const c = comprasCache.find((x) => x.id === compraId);
+  if (!c) return;
+  compraEmDetalheId = compraId;
+  const fornecedor = fornecedorPorId(c.fornecedorId);
+  document.getElementById('titulo-modal-detalhe-compra').textContent = `Compra de ${formatarDataCompra(c.compradoEm)}`;
+  const linhas = linhasDaCompra(c.id);
+  const corpo = document.getElementById('corpo-modal-detalhe-compra');
+  corpo.innerHTML = `
+    ${c.status === 'cancelled' ? `<p class="compras-aviso compras-aviso-erro">Cancelada em ${formatarData(c.canceladaEm)} — ${esc(c.motivoCancelamento || '')}. Estoque e custo médio foram estornados.</p>` : ''}
+    <dl class="compras-resumo-grade">
+      <div><dt>Fornecedor</dt><dd>${esc(fornecedor ? fornecedor.nome : '—')}</dd></div>
+      <div><dt>Nº da nota</dt><dd>${esc(c.referencia || '—')}</dd></div>
+      <div><dt>VAT</dt><dd>${c.vatRecuperavel ? 'Recuperável' : 'Não recuperável'}</dd></div>
+      <div><dt>Origem</dt><dd>${c.origem === 'ocr' ? 'Lida por IA e conferida' : 'Manual'}</dd></div>
+    </dl>
+    ${c.observacoes ? `<p class="dica-campo">${esc(c.observacoes)}</p>` : ''}
+    <div class="compras-tabela-wrap">
+      <table class="tabela compras-tabela-compacta">
+        <thead><tr><th>Item</th><th>Qtd.</th><th>Líquido</th><th>VAT</th><th>Custo</th><th>Custo/unid.</th></tr></thead>
+        <tbody>${linhas.map((l) => {
+          const item = itemCompraPorId(l.itemCompraId);
+          const categoria = categoriaFinanceiraPorId(l.categoriaFinanceiraId);
+          const unit = l.tipo === 'stock' && item && l.custoPorUnidadeBase !== null
+            ? `${euroPreciso(custoParaExibicaoCompra(l.custoPorUnidadeBase, item.unidadeBase))}/${rotuloUnidadeExibicaoCompra(item.unidadeBase)}` : '—';
+          return `<tr>
+            <td>${esc(l.nomeSnapshot)}${l.descricaoNota && l.descricaoNota !== l.nomeSnapshot ? `<br><small>nota: ${esc(l.descricaoNota)}</small>` : ''}
+              ${l.tipo === 'expense' ? `<br><small class="compras-tag-despesa">Despesa · ${esc(categoria ? categoria.nome : '')}</small>` : ''}</td>
+            <td>${numeroTexto(l.quantidade)} ${l.unidade}</td>
+            <td>${euro(l.valorLiquido)}${l.desconto + l.rateioDescontoGeral > 0 ? `<br><small>desc. ${euro(l.desconto + l.rateioDescontoGeral)}</small>` : ''}</td>
+            <td>${euro(l.valorVat)}<br><small>${String(l.taxaVat).replace('.', ',')}%</small></td>
+            <td>${euro(l.custo)}</td>
+            <td>${unit}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>
+    <dl class="compras-resumo-grade">
+      <div><dt>Bruto</dt><dd>${euro(c.totalBruto)}</dd></div>
+      <div><dt>Descontos</dt><dd>−${euro(c.totalDescontos)}</dd></div>
+      <div><dt>Líquido</dt><dd>${euro(c.totalLiquido)}</dd></div>
+      <div><dt>VAT</dt><dd>${euro(c.totalVat)}</dd></div>
+      ${c.arredondamento ? `<div><dt>Arredondamento</dt><dd>${euro(c.arredondamento)}</dd></div>` : ''}
+      <div class="compras-resumo-destaque"><dt>Total pago</dt><dd>${euro(c.totalPago)}</dd></div>
+    </dl>
+    <h3 class="compras-subtitulo">Documentos</h3>
+    <div class="compras-documentos" id="documentos-detalhe-compra"><span class="dica-campo">Carregando…</span></div>`;
+  const podeCancelar = souAdminCompras && c.status === 'confirmed';
+  document.getElementById('botao-cancelar-compra').style.display = podeCancelar ? '' : 'none';
+  abrirModal('modal-overlay-detalhe-compra');
+
+  const alvo = document.getElementById('documentos-detalhe-compra');
+  try {
+    const docs = await buscarDocumentosCompraDoSupabase(c.id);
+    if (compraEmDetalheId !== compraId) return;
+    alvo.innerHTML = docs.length
+      ? docs.map((d, i) => `<button type="button" class="btn btn-secundario btn-pequeno" data-doc="${i}">${d.tipoMime === 'application/pdf' ? '📄' : '🧾'} ${esc(d.nomeArquivo || 'Documento ' + (i + 1))}</button>`).join('')
+      : '<span class="dica-campo">Nenhum documento anexado.</span>';
+    alvo.querySelectorAll('[data-doc]').forEach((b) => b.addEventListener('click', () => abrirDocumento(docs[Number(b.dataset.doc)])));
+  } catch (erro) {
+    alvo.innerHTML = `<span class="dica-campo">Não foi possível carregar os documentos. ${esc(erro.message)}</span>`;
+  }
+}
+
+function abrirModalCancelarCompra() {
+  document.getElementById('campo-motivo-cancelamento-compra').value = '';
+  document.getElementById('dica-cancelar-compra-erro').style.display = 'none';
+  abrirModal('modal-overlay-cancelar-compra');
+  document.getElementById('campo-motivo-cancelamento-compra').focus();
+}
+
+async function confirmarCancelamentoCompra() {
+  const motivo = document.getElementById('campo-motivo-cancelamento-compra').value.trim();
+  const dica = document.getElementById('dica-cancelar-compra-erro');
+  if (motivo.length < 3) {
+    dica.textContent = 'Informe o motivo do cancelamento.';
+    dica.style.display = '';
+    return;
+  }
+  const botao = document.getElementById('botao-confirmar-cancelar-compra');
+  botao.disabled = true;
+  try {
+    await cancelarCompraNoSupabase(compraEmDetalheId, motivo);
+  } catch (erro) {
+    dica.textContent = erro.message;
+    dica.style.display = '';
+    botao.disabled = false;
+    return;
+  }
+  botao.disabled = false;
+  fecharModal('modal-overlay-cancelar-compra');
+  mostrarToast('Compra cancelada e estoque estornado.', 'sucesso');
+  await recarregarDepoisDeGravar();
+  abrirDetalheCompra(compraEmDetalheId);
+}
+
+// ===================================================================== ITENS E ESTOQUE
+
+function ligarEventosItens() {
+  document.getElementById('botao-novo-item-compra').addEventListener('click', () => {
+    uidLinhaAguardandoNovoItem = null;
+    abrirModalNovoItemCompra('');
+  });
+  document.getElementById('botao-novo-item-compra').disabled = !souAdminCompras;
+  document.getElementById('dica-itens-compra-somente-admin').style.display = souAdminCompras ? 'none' : '';
+  ['filtro-itens-compra-busca', 'filtro-itens-compra-categoria', 'filtro-itens-compra-tipo'].forEach((id) => {
+    document.getElementById(id).addEventListener('input', renderizarTabelaItensCompra);
+  });
+  document.getElementById('botao-fechar-modal-item-compra').addEventListener('click', fecharModalItemCompra);
+  document.getElementById('botao-cancelar-item-compra').addEventListener('click', fecharModalItemCompra);
+  document.getElementById('campo-controla-estoque-item-compra').addEventListener('change', atualizarVisibilidadeTipoItemCompra);
+  document.getElementById('campo-tipo-vinculo-item-compra').addEventListener('change', () => popularOpcoesVinculoItemCompra(null));
+  document.getElementById('campo-categoria-item-compra').addEventListener('change', atualizarVisibilidadeVinculoItemCompra);
+  document.getElementById('form-item-compra').addEventListener('submit', salvarFormularioItemCompra);
+  document.getElementById('botao-fechar-modal-historico-item').addEventListener('click', () => fecharModal('modal-overlay-historico-item'));
+  document.getElementById('botao-fechar-historico-item').addEventListener('click', () => fecharModal('modal-overlay-historico-item'));
 }
 
 function textoVinculoItemCompra(item) {
@@ -276,160 +1096,241 @@ function textoVinculoItemCompra(item) {
   return '—';
 }
 
-/**
- * Etapa I4: filtro de categoria da tabela Itens de Compra. 'insumos_embalagens'
- * é um valor sintético (nunca gravado no banco) que agrupa category IN
- * ('supply','packaging') — é o mesmo filtro usado pelo atalho "Insumos e
- * Embalagens" do Hub Compras (ver abrirSecaoCompras). Qualquer outro valor é
- * uma categoria real de purchase_items.category, filtrada por igualdade.
- */
-function itemCompraPassaFiltroCategoria(item) {
-  if (!filtroItensCompraCategoria) return true;
-  if (filtroItensCompraCategoria === 'insumos_embalagens') {
-    return item.categoria === 'supply' || item.categoria === 'packaging';
+function estoqueECustoDoItem(item) {
+  if (!item.controlaEstoque) {
+    const cat = categoriaFinanceiraPorId(item.categoriaFinanceiraId);
+    return { estoque: 'Despesa', custo: cat ? cat.nome : '—' };
   }
-  return item.categoria === filtroItensCompraCategoria;
+  if (estoqueFicaNoProduto(item)) {
+    const produto = produtoDoItem(item);
+    const custo = custosProdutosCache.get(produto.id);
+    return { estoque: `${numeroTexto(produto.quantidadeEstoque, 0)} un <small>(no produto)</small>`, custo: custo !== null && custo !== undefined ? `${euroPreciso(custo)}/un` : '—' };
+  }
+  const q = quantidadeParaExibicaoCompra(item.estoque, item.unidadeBase);
+  const custo = custoParaExibicaoCompra(item.custoMedio, item.unidadeBase);
+  return {
+    estoque: `${numeroTexto(q.valor)} ${q.unidade}`,
+    custo: custo !== null ? `${euroPreciso(custo)}/${rotuloUnidadeExibicaoCompra(item.unidadeBase)}` : '—',
+  };
 }
 
 function renderizarTabelaItensCompra() {
   const corpo = document.getElementById('corpo-tabela-itens-compra');
   const vazio = document.getElementById('estado-vazio-itens-compra');
+  const busca = normalizarTextoCompra(document.getElementById('filtro-itens-compra-busca').value);
+  const categoria = document.getElementById('filtro-itens-compra-categoria').value;
+  const tipo = document.getElementById('filtro-itens-compra-tipo').value;
 
-  atualizarContadorPendentesItensCompra();
+  const pendentes = itensCompraCache.filter((i) => i.needsReview).length;
+  const contador = document.getElementById('texto-itens-compra-pendentes-contador');
+  contador.textContent = `${pendentes} pendente${pendentes === 1 ? '' : 's'}`;
+  contador.style.display = pendentes ? '' : 'none';
 
-  const itensFiltrados = itensCompraCache
-    .filter((i) => (filtroItensCompraSomentePendentes ? i.needsReview : true))
-    .filter(itemCompraPassaFiltroCategoria);
-
-  if (itensFiltrados.length === 0) {
-    corpo.innerHTML = '';
-    if (filtroItensCompraSomentePendentes) {
-      vazio.textContent = 'Nenhum item pendente de revisão.';
-    } else if (filtroItensCompraCategoria) {
-      vazio.textContent = 'Nenhum item de compra encontrado para esta categoria.';
-    } else {
-      vazio.textContent = 'Nenhum item de compra cadastrado ainda.';
+  const lista = itensCompraCache.filter((i) => {
+    if (categoria && i.categoria !== categoria) return false;
+    if (tipo === 'estoque' && !i.controlaEstoque) return false;
+    if (tipo === 'despesa' && i.controlaEstoque) return false;
+    if (tipo === 'pendentes' && !i.needsReview) return false;
+    if (busca) {
+      const nomes = [i.nome, ...apelidosCache.filter((a) => a.itemCompraId === i.id).map((a) => a.apelido)];
+      if (!nomes.some((n) => (normalizarTextoCompra(n) || '').includes(busca))) return false;
     }
+    return true;
+  });
+  if (!lista.length) {
+    corpo.innerHTML = '';
     vazio.style.display = 'block';
     return;
   }
   vazio.style.display = 'none';
-
-  corpo.innerHTML = itensFiltrados.map(linhaItemCompraHtml).join('');
-  corpo.querySelectorAll('[data-acao-editar-item-compra]').forEach((botao) => {
-    botao.addEventListener('click', () => abrirModalItemCompra(botao.dataset.acaoEditarItemCompra));
-  });
+  corpo.innerHTML = lista.map((item) => {
+    const ec = estoqueECustoDoItem(item);
+    const negativo = item.controlaEstoque && !estoqueFicaNoProduto(item) && item.estoque < 0;
+    const apelidos = apelidosCache.filter((a) => a.itemCompraId === item.id).length;
+    return `
+      <tr>
+        <td>${esc(item.nome)}${item.needsReview ? ' <span class="compras-badge-pendente">⚠ Revisar</span>' : ''}
+          ${apelidos ? `<br><small>${apelidos} nome(s) alternativo(s)</small>` : ''}</td>
+        <td>${CATEGORIAS_ITEM_COMPRA[item.categoria] || item.categoria}</td>
+        <td class="${negativo ? 'compras-negativo' : ''}">${ec.estoque}</td>
+        <td>${ec.custo}</td>
+        <td>${esc(textoVinculoItemCompra(item))}</td>
+        <td>${item.ativo ? 'Ativo' : 'Inativo'}</td>
+        <td class="compras-acoes-linha">
+          <button class="btn-icone" data-historico-item="${item.id}" title="Histórico de preços">📈</button>
+          <button class="btn-icone" data-editar-item="${item.id}" title="Editar" ${souAdminCompras ? '' : 'disabled'}>✏️</button>
+        </td>
+      </tr>`;
+  }).join('');
+  corpo.querySelectorAll('[data-editar-item]').forEach((b) => b.addEventListener('click', () => abrirModalItemCompra(b.dataset.editarItem)));
+  corpo.querySelectorAll('[data-historico-item]').forEach((b) => b.addEventListener('click', () => abrirHistoricoItem(b.dataset.historicoItem)));
 }
 
-/** Contador visível no cabeçalho da seção — nunca bloqueia nada, só sinaliza. */
-function atualizarContadorPendentesItensCompra() {
-  const contador = document.getElementById('texto-itens-compra-pendentes-contador');
-  const quantidade = itensCompraCache.filter((i) => i.needsReview).length;
-  if (quantidade > 0) {
-    contador.textContent = `${quantidade} pendente${quantidade === 1 ? '' : 's'}`;
-    contador.style.display = '';
-  } else {
-    contador.style.display = 'none';
+function historicoDePrecosDoItem(item) {
+  return linhasComprasCache
+    .filter((l) => l.itemCompraId === item.id && l.tipo === 'stock' && l.quantidadeBase)
+    .map((l) => {
+      const compra = comprasCache.find((c) => c.id === l.compraId);
+      if (!compra || compra.status !== 'confirmed') return null;
+      const fornecedor = fornecedorPorId(compra.fornecedorId);
+      return {
+        data: compra.compradoEm,
+        compraId: compra.id,
+        fornecedor: fornecedor ? fornecedor.nome : '—',
+        quantidadeBase: l.quantidadeBase,
+        custo: l.custo,
+        precoExibicao: custoParaExibicaoCompra(l.custoPorUnidadeBase, item.unidadeBase),
+        descricaoNota: l.descricaoNota,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.data < b.data ? 1 : -1));
+}
+
+async function abrirHistoricoItem(itemId) {
+  const item = itemCompraPorId(itemId);
+  if (!item) return;
+  document.getElementById('titulo-modal-historico-item').textContent = item.nome;
+  const corpo = document.getElementById('corpo-modal-historico-item');
+  const ec = estoqueECustoDoItem(item);
+  const unidadeExib = rotuloUnidadeExibicaoCompra(item.unidadeBase);
+  const historico = item.controlaEstoque ? historicoDePrecosDoItem(item) : [];
+  const precos = historico.map((h) => h.precoExibicao).filter((p) => p !== null);
+  const comparacao = compararFornecedoresCompra(historico);
+  const apelidos = apelidosCache.filter((a) => a.itemCompraId === item.id);
+
+  corpo.innerHTML = `
+    <dl class="compras-resumo-grade">
+      <div><dt>Estoque</dt><dd>${ec.estoque}</dd></div>
+      <div><dt>${item.controlaEstoque ? 'Custo médio' : 'Categoria'}</dt><dd>${ec.custo}</dd></div>
+      ${precos.length ? `
+      <div><dt>Último preço</dt><dd>${euroPreciso(precos[0])}/${unidadeExib}</dd></div>
+      <div><dt>Menor / maior</dt><dd>${euroPreciso(Math.min(...precos))} / ${euroPreciso(Math.max(...precos))}</dd></div>` : ''}
+    </dl>
+    ${item.controlaEstoque ? `
+      <h3 class="compras-subtitulo">Histórico de compras</h3>
+      ${historico.length ? `<div class="compras-tabela-wrap"><table class="tabela compras-tabela-compacta">
+        <thead><tr><th>Data</th><th>Fornecedor</th><th>Quantidade</th><th>Preço/${unidadeExib}</th><th>Total</th></tr></thead>
+        <tbody>${historico.map((h) => {
+          const q = quantidadeParaExibicaoCompra(h.quantidadeBase, item.unidadeBase);
+          return `<tr><td>${formatarDataCompra(h.data)}</td><td>${esc(h.fornecedor)}</td><td>${numeroTexto(q.valor)} ${q.unidade}</td>
+            <td>${euroPreciso(h.precoExibicao)}</td><td>${euro(h.custo)}</td></tr>`;
+        }).join('')}</tbody></table></div>` : '<p class="dica-campo">Nenhuma compra confirmada deste item ainda.</p>'}
+      ${comparacao.length > 1 ? `
+        <h3 class="compras-subtitulo">Comparação por fornecedor</h3>
+        <div class="compras-tabela-wrap"><table class="tabela compras-tabela-compacta">
+          <thead><tr><th>Fornecedor</th><th>Compras</th><th>Preço médio/${unidadeExib}</th><th>Último</th></tr></thead>
+          <tbody>${comparacao.map((g, i) => `<tr><td>${esc(g.fornecedor)}${i === 0 ? ' <span class="compras-status compras-status-ok">mais barato</span>' : ''}</td><td>${g.compras}</td>
+            <td>${euroPreciso(custoParaExibicaoCompra(g.precoMedioBase, item.unidadeBase))}</td><td>${euroPreciso(g.ultimoPreco)} <small>${formatarDataCompra(g.ultimaData)}</small></td></tr>`).join('')}</tbody>
+        </table></div>` : ''}
+      ${estoqueFicaNoProduto(item) ? '' : '<h3 class="compras-subtitulo">Movimentações de estoque</h3><div id="movimentos-historico-item"><span class="dica-campo">Carregando…</span></div>'}` : ''}
+    <h3 class="compras-subtitulo">Nomes alternativos</h3>
+    <p class="dica-campo">Descrições de notas reconhecidas automaticamente como este item.</p>
+    <div class="compras-apelidos">${apelidos.length ? apelidos.map((a) => `
+      <span class="compras-chip compras-chip-fixo">${esc(a.apelido)}${a.vezesUsado ? ` <small>${a.vezesUsado}×</small>` : ''}
+        ${souAdminCompras ? `<button type="button" data-remover-apelido="${a.id}" title="Remover" aria-label="Remover">✕</button>` : ''}</span>`).join('') : '<span class="dica-campo">Nenhum ainda.</span>'}</div>
+    ${souAdminCompras ? `<div class="compras-linha-item" style="margin-top:8px;">
+      <input type="text" class="input" id="campo-novo-apelido" placeholder="Ex.: Beef Striploin" maxlength="300" />
+      <button type="button" class="btn btn-secundario btn-pequeno" id="botao-adicionar-apelido">Adicionar</button>
+    </div><p class="compras-erro" id="dica-apelido-erro" style="display:none;"></p>` : ''}`;
+  abrirModal('modal-overlay-historico-item');
+
+  corpo.querySelectorAll('[data-remover-apelido]').forEach((b) => b.addEventListener('click', async () => {
+    try {
+      await excluirApelidoItemCompraNoSupabase(b.dataset.removerApelido);
+      apelidosCache = apelidosCache.filter((a) => a.id !== b.dataset.removerApelido);
+      abrirHistoricoItem(itemId);
+      renderizarTabelaItensCompra();
+    } catch (erro) {
+      mostrarToast(erro.message, 'erro');
+    }
+  }));
+  const botaoApelido = document.getElementById('botao-adicionar-apelido');
+  if (botaoApelido) {
+    botaoApelido.addEventListener('click', async () => {
+      const campo = document.getElementById('campo-novo-apelido');
+      const dica = document.getElementById('dica-apelido-erro');
+      try {
+        const novo = await salvarApelidoItemCompraNoSupabase(itemId, campo.value);
+        apelidosCache = [...apelidosCache.filter((a) => a.id !== novo.id), novo];
+        abrirHistoricoItem(itemId);
+        renderizarTabelaItensCompra();
+      } catch (erro) {
+        dica.textContent = erro.message;
+        dica.style.display = '';
+      }
+    });
+  }
+
+  const alvoMov = document.getElementById('movimentos-historico-item');
+  if (alvoMov) {
+    try {
+      const movs = await buscarMovimentosEstoqueItemDoSupabase(itemId);
+      const rotulos = { purchase_in: 'Entrada por compra', purchase_reversal: 'Estorno de compra', production_out: 'Saída para produção', production_reversal: 'Estorno de produção', adjustment_in: 'Ajuste (entrada)', adjustment_out: 'Ajuste (saída)', waste: 'Perda' };
+      alvoMov.innerHTML = movs.length ? `<div class="compras-tabela-wrap"><table class="tabela compras-tabela-compacta">
+        <thead><tr><th>Quando</th><th>Movimento</th><th>Qtd.</th><th>Saldo</th><th>Custo médio</th></tr></thead>
+        <tbody>${movs.slice(0, 30).map((m) => {
+          const q = quantidadeParaExibicaoCompra(m.quantidade, item.unidadeBase);
+          const s = quantidadeParaExibicaoCompra(m.saldoDepois, item.unidadeBase);
+          return `<tr><td>${formatarData(m.criadoEm)}</td><td>${rotulos[m.tipo] || m.tipo}${m.motivo ? `<br><small>${esc(m.motivo)}</small>` : ''}</td>
+            <td>${m.quantidade > 0 ? '+' : ''}${numeroTexto(q.valor)} ${q.unidade}</td><td>${numeroTexto(s.valor)} ${s.unidade}</td>
+            <td>${euroPreciso(custoParaExibicaoCompra(m.custoMedioAntes, item.unidadeBase))} → ${euroPreciso(custoParaExibicaoCompra(m.custoMedioDepois, item.unidadeBase))}</td></tr>`;
+        }).join('')}</tbody></table></div>` : '<p class="dica-campo">Sem movimentações.</p>';
+    } catch (erro) {
+      alvoMov.innerHTML = `<p class="dica-campo">Não foi possível carregar. ${esc(erro.message)}</p>`;
+    }
   }
 }
 
-function linhaItemCompraHtml(item) {
-  const badgePendente = item.needsReview ? ' <span class="compras-badge-pendente">⚠ Cadastro pendente</span>' : '';
-  return `
-    <tr>
-      <td>${escaparHtml(item.nome)}${badgePendente}</td>
-      <td>${CATEGORIAS_ITEM_COMPRA[item.categoria] || item.categoria}</td>
-      <td>${item.controlaEstoque ? 'Sim' : 'Não'}</td>
-      <td>${item.unidadeBase || '—'}</td>
-      <td>${textoVinculoItemCompra(item)}</td>
-      <td>${item.ativo ? 'Ativo' : 'Inativo'}</td>
-      <td>
-        <button class="btn-icone" data-acao-editar-item-compra="${item.id}" title="Editar" ${souAdminCompras ? '' : 'disabled'}>✏️</button>
-      </td>
-    </tr>`;
-}
+// --------------------------------------------------------------------- modal de item
 
-function ligarEventosModalItemCompra() {
-  document.getElementById('botao-novo-item-compra').addEventListener('click', abrirModalNovoItemCompra);
-  document.getElementById('botao-fechar-modal-item-compra').addEventListener('click', fecharModalItemCompra);
-  document.getElementById('botao-cancelar-item-compra').addEventListener('click', fecharModalItemCompra);
-  document.getElementById('campo-controla-estoque-item-compra').addEventListener('change', atualizarVisibilidadeUnidadeBaseItemCompra);
-  document.getElementById('campo-tipo-vinculo-item-compra').addEventListener('change', () => popularOpcoesVinculoItemCompra(null));
-  document.getElementById('campo-categoria-item-compra').addEventListener('change', atualizarVisibilidadeVinculoItemCompra);
-  document.getElementById('form-item-compra').addEventListener('submit', salvarFormularioItemCompra);
-  document.getElementById('filtro-itens-compra-pendentes').addEventListener('change', (evento) => {
-    filtroItensCompraSomentePendentes = evento.target.value === 'pendentes';
-    renderizarTabelaItensCompra();
-  });
-  document.getElementById('filtro-itens-compra-categoria').addEventListener('change', (evento) => {
-    filtroItensCompraCategoria = evento.target.value;
-    renderizarTabelaItensCompra();
-  });
-}
-
-function atualizarVisibilidadeUnidadeBaseItemCompra() {
+function atualizarVisibilidadeTipoItemCompra() {
   const controla = document.getElementById('campo-controla-estoque-item-compra').value === 'true';
+  document.getElementById('grupo-unidade-base-item-compra').style.display = controla ? '' : 'none';
   document.getElementById('campo-unidade-base-item-compra').required = controla;
+  document.getElementById('grupo-categoria-financeira-item-compra').style.display = controla ? 'none' : '';
+  document.getElementById('grupo-tipo-vinculo-item-compra').style.display = controla ? '' : 'none';
+  if (!controla) {
+    document.getElementById('grupo-referencia-vinculo-item-compra').style.display = 'none';
+    document.getElementById('dica-vinculo-supply-auto').style.display = 'none';
+    document.getElementById('grupo-vinculo-supply-existente').style.display = 'none';
+    document.getElementById('grupo-categoria-ingrediente-item-compra').style.display = 'none';
+  } else {
+    popularOpcoesVinculoItemCompra(document.getElementById('campo-referencia-vinculo-item-compra').value || null);
+    atualizarVisibilidadeVinculoItemCompra();
+  }
 }
 
-/** vinculoAtual (id) preserva a seleção ao editar um item já vinculado — mesmo padrão de "opção extra" já usado em Produção pra itens inativos/fora de filtro. */
 function popularOpcoesVinculoItemCompra(vinculoAtual) {
   const tipo = document.getElementById('campo-tipo-vinculo-item-compra').value;
   const grupo = document.getElementById('grupo-referencia-vinculo-item-compra');
   const select = document.getElementById('campo-referencia-vinculo-item-compra');
-
   if (!tipo) {
     grupo.style.display = 'none';
     select.innerHTML = '';
     return;
   }
   grupo.style.display = '';
-
   const todos = tipo === 'product' ? produtosCache : tipo === 'ingredient' ? ingredientesCache : insumosCache;
-  const ativos =
-    tipo === 'product'
-      ? todos.filter((p) => p.status === 'ativo')
-      : todos.filter((i) => i.ativo);
+  const ativos = tipo === 'product' ? todos.filter((p) => p.status === 'ativo') : todos.filter((i) => i.ativo);
   const ordenados = [...ativos].sort((a, b) => a.nome.localeCompare(b.nome));
-
-  let opcoesHtml = ordenados.map((o) => `<option value="${o.id}">${escaparHtml(o.nome)}</option>`).join('');
-
+  let opcoesHtml = ordenados.map((o) => `<option value="${o.id}">${esc(o.nome)}${tipo === 'product' && o.stockMode !== 'purchased' ? ' (não é de revenda)' : ''}</option>`).join('');
   if (vinculoAtual && !ordenados.some((o) => o.id === vinculoAtual)) {
     const achado = todos.find((o) => o.id === vinculoAtual);
-    const nomeAtual = achado ? `${achado.nome} (inativo)` : '(removido)';
-    opcoesHtml += `<option value="${vinculoAtual}">${escaparHtml(nomeAtual)}</option>`;
+    opcoesHtml += `<option value="${vinculoAtual}">${esc(achado ? `${achado.nome} (inativo)` : '(removido)')}</option>`;
   }
-
   select.innerHTML = opcoesHtml;
-  select.value = vinculoAtual || '';
+  select.value = vinculoAtual || (ordenados[0] ? ordenados[0].id : '');
 }
 
-/**
- * Etapa I2 — categorias Insumo ('supply')/Embalagem ('packaging') criam/
- * vinculam um Insumo de Produção automaticamente ao salvar. Etapa J3 —
- * category='ingredient' ganha o mesmo tratamento, criando/vinculando um
- * public.ingredients automaticamente (server-side, save_purchase_item/
- * finalize_purchase_item, helper _resolve_ingredient_link — nunca 'meat',
- * que continua usando o vínculo Produto pra carne principal). Enquanto o
- * item AINDA não tem vínculo (insumoId OU ingredienteId, conforme a
- * categoria): mantém o seletor de Vínculo disponível (permite apontar pra
- * um Insumo de Produção OU Ingrediente legado já existente, evitando
- * duplicar cadastro) + mostra a dica explicando a criação automática. Uma
- * vez vinculado (auto ou manual): esconde o seletor editável e mostra só o
- * nome, somente-leitura — nunca deixa desvincular/trocar por acidente
- * através deste formulário. Os ids '...-supply-auto'/'...-supply-existente'
- * são reaproveitados (texto trocado dinamicamente conforme a categoria) —
- * não renomeados, pra não aumentar o diff sem necessidade funcional.
- */
+/** Insumo/Embalagem e Ingrediente criam o vínculo automaticamente no servidor (save_purchase_item). */
 function atualizarVisibilidadeVinculoItemCompra() {
+  const controla = document.getElementById('campo-controla-estoque-item-compra').value === 'true';
   const categoria = document.getElementById('campo-categoria-item-compra').value;
   const id = document.getElementById('campo-id-item-compra').value;
   const itemAtual = id ? itemCompraPorId(id) : null;
-
   const elegivelSupply = categoria === 'supply' || categoria === 'packaging';
   const elegivelIngredient = categoria === 'ingredient';
-  const elegivel = elegivelSupply || elegivelIngredient;
-
   const jaVinculadoSupply = elegivelSupply && !!(itemAtual && itemAtual.insumoId);
   const jaVinculadoIngredient = elegivelIngredient && !!(itemAtual && itemAtual.ingredienteId);
   const jaVinculado = jaVinculadoSupply || jaVinculadoIngredient;
@@ -439,6 +1340,10 @@ function atualizarVisibilidadeVinculoItemCompra() {
   const grupoExistente = document.getElementById('grupo-vinculo-supply-existente');
   const textoExistente = document.getElementById('texto-vinculo-supply-existente');
 
+  if (!controla) {
+    document.getElementById('grupo-categoria-ingrediente-item-compra').style.display = 'none';
+    return;
+  }
   if (jaVinculado) {
     grupoTipo.style.display = 'none';
     document.getElementById('grupo-referencia-vinculo-item-compra').style.display = 'none';
@@ -454,305 +1359,192 @@ function atualizarVisibilidadeVinculoItemCompra() {
   } else {
     grupoTipo.style.display = '';
     grupoExistente.style.display = 'none';
-    dicaAuto.style.display = elegivel ? '' : 'none';
-    if (elegivelIngredient) {
-      dicaAuto.textContent = 'Se nenhum vínculo for selecionado acima, um Ingrediente será criado e vinculado automaticamente ao salvar.';
-    } else if (elegivelSupply) {
-      dicaAuto.textContent = 'Se nenhum vínculo for selecionado acima, um Insumo de Produção será criado e vinculado automaticamente ao salvar.';
-    }
-    // grupo-referencia-vinculo-item-compra continua controlado por
-    // popularOpcoesVinculoItemCompra (depende do Tipo de vínculo escolhido).
+    dicaAuto.style.display = elegivelSupply || elegivelIngredient ? '' : 'none';
+    dicaAuto.textContent = elegivelIngredient
+      ? 'Sem vínculo escolhido, um Ingrediente é criado e vinculado ao salvar — a ficha técnica passa a usar o custo médio das compras.'
+      : 'Sem vínculo escolhido, um Insumo de Produção é criado e vinculado ao salvar.';
   }
-
-  // Etapa J4: visível independente do sub-estado acima (auto-criação
-  // pendente OU já vinculado) — o valor em si é preenchido por
-  // abrirModalItemCompra/abrirModalNovoItemCompra, nunca aqui (esta função
-  // só alterna visibilidade, roda de novo a cada troca de Categoria).
   document.getElementById('grupo-categoria-ingrediente-item-compra').style.display = elegivelIngredient ? '' : 'none';
 }
 
-function abrirModalNovoItemCompra() {
+function abrirModalNovoItemCompra(nomeSugerido) {
   if (!souAdminCompras) return;
-
-  document.getElementById('titulo-modal-item-compra').textContent = 'Novo Item de Compra';
+  document.getElementById('titulo-modal-item-compra').textContent = 'Novo Item';
   document.getElementById('campo-id-item-compra').value = '';
-  document.getElementById('campo-nome-item-compra').value = '';
+  document.getElementById('campo-nome-item-compra').value = nomeSugerido || '';
   document.getElementById('campo-categoria-item-compra').value = 'ingredient';
   document.getElementById('campo-controla-estoque-item-compra').value = 'true';
   document.getElementById('campo-unidade-base-item-compra').value = '';
   document.getElementById('campo-tipo-vinculo-item-compra').value = '';
   document.getElementById('campo-categoria-ingrediente-item-compra').value = '';
+  document.getElementById('campo-categoria-financeira-item-compra').innerHTML = opcoesCategoriasDespesa(null);
   document.getElementById('campo-status-item-compra').value = 'ativo';
   document.getElementById('dica-item-compra-erro').style.display = 'none';
   document.getElementById('dica-item-compra-pendente').style.display = 'none';
-
-  atualizarVisibilidadeUnidadeBaseItemCompra();
+  document.getElementById('campo-unidade-base-item-compra').disabled = false;
   popularOpcoesVinculoItemCompra(null);
-  atualizarVisibilidadeVinculoItemCompra();
+  atualizarVisibilidadeTipoItemCompra();
   abrirModal('modal-overlay-item-compra');
+  document.getElementById('campo-nome-item-compra').focus();
 }
 
 function abrirModalItemCompra(id) {
   if (!souAdminCompras) return;
   const item = itemCompraPorId(id);
   if (!item) return;
-
-  document.getElementById('titulo-modal-item-compra').textContent = item.needsReview ? 'Concluir Cadastro do Item' : 'Editar Item de Compra';
+  uidLinhaAguardandoNovoItem = null;
+  document.getElementById('titulo-modal-item-compra').textContent = item.needsReview ? 'Revisar Item' : 'Editar Item';
   document.getElementById('campo-id-item-compra').value = item.id;
   document.getElementById('campo-nome-item-compra').value = item.nome;
   document.getElementById('campo-categoria-item-compra').value = item.categoria;
   document.getElementById('campo-controla-estoque-item-compra').value = item.controlaEstoque ? 'true' : 'false';
   document.getElementById('campo-unidade-base-item-compra').value = item.unidadeBase || '';
+  // Unidade não muda depois que o item já teve movimentação (o banco também bloqueia).
+  document.getElementById('campo-unidade-base-item-compra').disabled = item.estoque !== 0 || linhasComprasCache.some((l) => l.itemCompraId === item.id && l.tipo === 'stock');
+  document.getElementById('campo-categoria-financeira-item-compra').innerHTML = opcoesCategoriasDespesa(item.categoriaFinanceiraId);
   document.getElementById('campo-status-item-compra').value = item.ativo ? 'ativo' : 'inativo';
   document.getElementById('dica-item-compra-erro').style.display = 'none';
   document.getElementById('dica-item-compra-pendente').style.display = item.needsReview ? '' : 'none';
-
-  atualizarVisibilidadeUnidadeBaseItemCompra();
-
   const tipoVinculo = item.produtoId ? 'product' : item.ingredienteId ? 'ingredient' : item.insumoId ? 'supply' : '';
-  const vinculoId = item.produtoId || item.ingredienteId || item.insumoId || null;
   document.getElementById('campo-tipo-vinculo-item-compra').value = tipoVinculo;
-  popularOpcoesVinculoItemCompra(vinculoId);
-
-  // Etapa J4: se já há um Ingredient vinculado, carrega a categoria ATUAL
-  // dele (de ingredientesCache, já carregado — zero query nova) — cobre o
-  // caso de um Ingredient auto-criado antes da J4 (ex. "Cebola Teste J3"),
-  // cuja category ainda é NULL: o select fica no placeholder vazio,
-  // obrigando escolher antes de salvar de novo (validado no backend).
+  popularOpcoesVinculoItemCompra(item.produtoId || item.ingredienteId || item.insumoId || null);
   const ingredienteVinculado = item.ingredienteId ? ingredientesCache.find((i) => i.id === item.ingredienteId) : null;
   document.getElementById('campo-categoria-ingrediente-item-compra').value = ingredienteVinculado ? ingredienteVinculado.categoria || '' : '';
-
-  atualizarVisibilidadeVinculoItemCompra();
-
+  atualizarVisibilidadeTipoItemCompra();
   abrirModal('modal-overlay-item-compra');
 }
 
 function fecharModalItemCompra() {
+  uidLinhaAguardandoNovoItem = null;
   fecharModal('modal-overlay-item-compra');
 }
 
 async function salvarFormularioItemCompra(evento) {
   evento.preventDefault();
   if (!souAdminCompras) return;
-
   const id = document.getElementById('campo-id-item-compra').value;
   const nome = document.getElementById('campo-nome-item-compra').value.trim();
   const categoria = document.getElementById('campo-categoria-item-compra').value;
   const controlaEstoque = document.getElementById('campo-controla-estoque-item-compra').value === 'true';
-  const unidadeBase = document.getElementById('campo-unidade-base-item-compra').value || null;
-  const tipoVinculo = document.getElementById('campo-tipo-vinculo-item-compra').value;
+  const unidadeBase = controlaEstoque ? document.getElementById('campo-unidade-base-item-compra').value || null : null;
+  const tipoVinculo = controlaEstoque ? document.getElementById('campo-tipo-vinculo-item-compra').value : '';
   const referenciaVinculo = document.getElementById('campo-referencia-vinculo-item-compra').value || null;
   const ingredienteCategoria = document.getElementById('campo-categoria-ingrediente-item-compra').value || null;
+  const categoriaFinanceiraId = document.getElementById('campo-categoria-financeira-item-compra').value || null;
   const ativo = document.getElementById('campo-status-item-compra').value === 'ativo';
-
   const dicaErro = document.getElementById('dica-item-compra-erro');
+  const erro = (m) => { dicaErro.textContent = m; dicaErro.style.display = ''; };
 
-  if (!nome) {
-    dicaErro.textContent = 'Informe o nome do item.';
-    dicaErro.style.display = '';
-    return;
-  }
-  if (controlaEstoque && !unidadeBase) {
-    dicaErro.textContent = 'Selecione a unidade-base — obrigatória quando o item controla estoque.';
-    dicaErro.style.display = '';
-    return;
-  }
-  // Etapa J4: mesma mensagem exata da validação server-side
-  // (save_purchase_item/finalize_purchase_item) — feedback mais rápido, o
-  // backend continua sendo a barreira real.
-  if (categoria === 'ingredient' && !ingredienteCategoria) {
-    dicaErro.textContent = 'Selecione a categoria do ingrediente.';
-    dicaErro.style.display = '';
-    return;
-  }
+  if (!nome) return erro('Informe o nome do item.');
+  if (controlaEstoque && !unidadeBase) return erro('Escolha a unidade de estoque (peso, volume ou unidade).');
+  if (controlaEstoque && categoria === 'ingredient' && !ingredienteCategoria) return erro('Selecione a categoria do ingrediente.');
+  if (!controlaEstoque && !categoriaFinanceiraId) return erro('Escolha a categoria financeira da despesa.');
   dicaErro.style.display = 'none';
 
+  const itemAtual = id ? itemCompraPorId(id) : null;
   const dados = {
     nome,
     categoria,
     controlaEstoque,
-    unidadeBase,
+    unidadeBase: controlaEstoque ? unidadeBase : null,
     ativo,
     produtoId: tipoVinculo === 'product' ? referenciaVinculo : null,
-    ingredienteId: tipoVinculo === 'ingredient' ? referenciaVinculo : null,
-    insumoId: tipoVinculo === 'supply' ? referenciaVinculo : null,
-    ingredienteCategoria: categoria === 'ingredient' ? ingredienteCategoria : null,
+    ingredienteId: tipoVinculo === 'ingredient' ? referenciaVinculo : itemAtual && categoria === 'ingredient' ? itemAtual.ingredienteId : null,
+    insumoId: tipoVinculo === 'supply' ? referenciaVinculo : itemAtual && (categoria === 'supply' || categoria === 'packaging') ? itemAtual.insumoId : null,
+    ingredienteCategoria: controlaEstoque && categoria === 'ingredient' ? ingredienteCategoria : null,
   };
 
-  const itemAtual = id ? itemCompraPorId(id) : null;
-  const eraPendente = !!(itemAtual && itemAtual.needsReview);
-
-  const botaoSalvar = document.getElementById('botao-salvar-item-compra');
-  botaoSalvar.disabled = true;
-
-  let resultadoFinalizacao = null;
+  const botao = document.getElementById('botao-salvar-item-compra');
+  botao.disabled = true;
+  let salvo;
   try {
-    if (eraPendente) {
-      resultadoFinalizacao = await finalizarItemCompraNoSupabase(id, dados);
-      itensCompraCache = itensCompraCache.map((i) => (i.id === id ? resultadoFinalizacao.item : i));
-      if (resultadoFinalizacao.linhas.length > 0) {
-        linhasComprasCache = linhasComprasCache.map(
-          (l) => resultadoFinalizacao.linhas.find((nova) => nova.id === l.id) || l
-        );
-      }
-      if (resultadoFinalizacao.lotes.length > 0) {
-        lotesCache = [...lotesCache, ...resultadoFinalizacao.lotes];
-        movimentosLotesCache = [...movimentosLotesCache, ...resultadoFinalizacao.movimentos];
-      }
-    } else if (id) {
-      const atualizado = await atualizarItemCompraNoSupabase(id, dados);
-      itensCompraCache = itensCompraCache.map((i) => (i.id === id ? atualizado : i));
-    } else {
-      const criado = await criarItemCompraNoSupabase(dados);
-      itensCompraCache = [...itensCompraCache, criado];
-    }
-  } catch (erro) {
-    dicaErro.textContent = 'Não foi possível salvar o item. ' + erro.message;
-    dicaErro.style.display = '';
-    botaoSalvar.disabled = false;
-    return;
+    salvo = id ? await atualizarItemCompraNoSupabase(id, dados) : await criarItemCompraNoSupabase(dados);
+    if (!controlaEstoque) salvo = await definirCategoriaFinanceiraItemNoSupabase(salvo.id, categoriaFinanceiraId);
+    else if (salvo.needsReview) salvo = await marcarItemCompraRevisadoNoSupabase(salvo.id);
+  } catch (e) {
+    botao.disabled = false;
+    return erro('Não foi possível salvar o item. ' + e.message);
   }
-  botaoSalvar.disabled = false;
+  botao.disabled = false;
 
-  // Etapa I2: category IN ('supply','packaging') pode ter criado/vinculado
-  // um Insumo de Produção novo dentro da própria RPC — recarrega
-  // insumosCache pra refletir isso (ex. abrir o item de novo já mostra o
-  // vínculo). Etapa J3: category='ingredient' pode ter criado/vinculado um
-  // public.ingredients novo pelo mesmo caminho — recarrega ingredientesCache
-  // também. Melhor esforço nos dois casos: uma falha aqui não desfaz o save
-  // já concluído.
-  try {
-    insumosCache = await buscarInsumosProducaoDoSupabase();
-  } catch (erroRecarregarInsumos) {
-    console.error('Erro ao recarregar insumos de produção:', erroRecarregarInsumos);
-  }
-  try {
-    ingredientesCache = await buscarIngredientesDoSupabase();
-  } catch (erroRecarregarIngredientes) {
-    console.error('Erro ao recarregar ingredientes:', erroRecarregarIngredientes);
-  }
-
-  if (eraPendente) {
-    const qtdLotes = resultadoFinalizacao.lotes.length;
-    mostrarToast(
-      qtdLotes > 0
-        ? `Item concluído e ${qtdLotes} lote${qtdLotes === 1 ? '' : 's'} gerado${qtdLotes === 1 ? '' : 's'}.`
-        : 'Item concluído com sucesso.',
-      'sucesso'
-    );
-  } else {
-    mostrarToast('Item de compra salvo.', 'sucesso');
-  }
-
+  const uid = uidLinhaAguardandoNovoItem;
   fecharModalItemCompra();
-  renderizarTabelaItensCompra();
-  renderizarTabelaHistoricoCompras();
-  renderizarTabelaLotes();
-  popularFiltrosLotes();
+  mostrarToast('Item salvo.', 'sucesso');
+  await recarregarDepoisDeGravar();
+  if (uid) {
+    const linha = linhaPorUid(uid);
+    if (linha) {
+      associarItemNaLinha(linha, itemCompraPorId(salvo.id), 'manual');
+      salvarRascunhoLocal();
+    }
+  }
+  renderizarLinhasRascunho();
 }
 
-// ---------------------------------------------------------------------------
-// FORNECEDORES — suppliers, cadastro simples (GRANT direto, sem RPC)
-// ---------------------------------------------------------------------------
+// ===================================================================== FORNECEDORES
 
-function atualizarEstadoEdicaoFornecedores() {
+function ligarEventosFornecedores() {
   document.getElementById('botao-novo-fornecedor').disabled = !souAdminCompras;
   document.getElementById('dica-fornecedores-somente-admin').style.display = souAdminCompras ? 'none' : '';
-}
-
-function fornecedorPorId(id) {
-  return fornecedoresCache.find((f) => f.id === id);
+  document.getElementById('botao-novo-fornecedor').addEventListener('click', () => abrirModalFornecedor(null));
+  document.getElementById('botao-fechar-modal-fornecedor').addEventListener('click', () => fecharModal('modal-overlay-fornecedor'));
+  document.getElementById('botao-cancelar-fornecedor').addEventListener('click', () => fecharModal('modal-overlay-fornecedor'));
+  document.getElementById('form-fornecedor').addEventListener('submit', salvarFormularioFornecedor);
 }
 
 function renderizarTabelaFornecedores() {
   const corpo = document.getElementById('corpo-tabela-fornecedores');
   const vazio = document.getElementById('estado-vazio-fornecedores');
-
-  if (fornecedoresCache.length === 0) {
+  if (!fornecedoresCache.length) {
     corpo.innerHTML = '';
     vazio.style.display = 'block';
     return;
   }
   vazio.style.display = 'none';
-
-  corpo.innerHTML = fornecedoresCache.map(linhaFornecedorHtml).join('');
-  corpo.querySelectorAll('[data-acao-editar-fornecedor]').forEach((botao) => {
-    botao.addEventListener('click', () => abrirModalFornecedor(botao.dataset.acaoEditarFornecedor));
-  });
-}
-
-function linhaFornecedorHtml(fornecedor) {
-  return `
+  corpo.innerHTML = fornecedoresCache.map((f) => `
     <tr>
-      <td>${escaparHtml(fornecedor.nome)}</td>
-      <td>${escaparHtml(fornecedor.nomeContato || '—')}</td>
-      <td>${escaparHtml(fornecedor.telefone || '—')}</td>
-      <td>${escaparHtml(fornecedor.email || '—')}</td>
-      <td>${fornecedor.ativo ? 'Ativo' : 'Inativo'}</td>
-      <td>
-        <button class="btn-icone" data-acao-editar-fornecedor="${fornecedor.id}" title="Editar" ${souAdminCompras ? '' : 'disabled'}>✏️</button>
-      </td>
-    </tr>`;
-}
-
-function ligarEventosModalFornecedor() {
-  document.getElementById('botao-novo-fornecedor').addEventListener('click', abrirModalNovoFornecedor);
-  document.getElementById('botao-fechar-modal-fornecedor').addEventListener('click', fecharModalFornecedor);
-  document.getElementById('botao-cancelar-fornecedor').addEventListener('click', fecharModalFornecedor);
-  document.getElementById('form-fornecedor').addEventListener('submit', salvarFormularioFornecedor);
-}
-
-function abrirModalNovoFornecedor() {
-  if (!souAdminCompras) return;
-
-  document.getElementById('titulo-modal-fornecedor').textContent = 'Novo Fornecedor';
-  document.getElementById('campo-id-fornecedor').value = '';
-  document.getElementById('campo-nome-fornecedor').value = '';
-  document.getElementById('campo-contato-fornecedor').value = '';
-  document.getElementById('campo-telefone-fornecedor').value = '';
-  document.getElementById('campo-email-fornecedor').value = '';
-  document.getElementById('campo-observacoes-fornecedor').value = '';
-  document.getElementById('campo-status-fornecedor').value = 'ativo';
-  document.getElementById('dica-fornecedor-erro').style.display = 'none';
-  abrirModal('modal-overlay-fornecedor');
+      <td>${esc(f.nome)}</td>
+      <td>${esc(f.nomeContato || '—')}</td>
+      <td>${esc(f.telefone || '—')}</td>
+      <td>${esc(f.email || '—')}</td>
+      <td>${f.ativo ? 'Ativo' : 'Inativo'}</td>
+      <td><button class="btn-icone" data-editar-fornecedor="${f.id}" title="Editar" ${souAdminCompras ? '' : 'disabled'}>✏️</button></td>
+    </tr>`).join('');
+  corpo.querySelectorAll('[data-editar-fornecedor]').forEach((b) => b.addEventListener('click', () => abrirModalFornecedor(b.dataset.editarFornecedor)));
 }
 
 function abrirModalFornecedor(id) {
   if (!souAdminCompras) return;
-  const fornecedor = fornecedorPorId(id);
-  if (!fornecedor) return;
-
-  document.getElementById('titulo-modal-fornecedor').textContent = 'Editar Fornecedor';
-  document.getElementById('campo-id-fornecedor').value = fornecedor.id;
-  document.getElementById('campo-nome-fornecedor').value = fornecedor.nome;
-  document.getElementById('campo-contato-fornecedor').value = fornecedor.nomeContato || '';
-  document.getElementById('campo-telefone-fornecedor').value = fornecedor.telefone || '';
-  document.getElementById('campo-email-fornecedor').value = fornecedor.email || '';
-  document.getElementById('campo-observacoes-fornecedor').value = fornecedor.observacoes || '';
-  document.getElementById('campo-status-fornecedor').value = fornecedor.ativo ? 'ativo' : 'inativo';
+  const f = id ? fornecedorPorId(id) : null;
+  document.getElementById('titulo-modal-fornecedor').textContent = f ? 'Editar Fornecedor' : 'Novo Fornecedor';
+  document.getElementById('campo-id-fornecedor').value = f ? f.id : '';
+  document.getElementById('campo-nome-fornecedor').value = f ? f.nome : '';
+  document.getElementById('campo-contato-fornecedor').value = f ? f.nomeContato || '' : '';
+  document.getElementById('campo-telefone-fornecedor').value = f ? f.telefone || '' : '';
+  document.getElementById('campo-email-fornecedor').value = f ? f.email || '' : '';
+  document.getElementById('campo-observacoes-fornecedor').value = f ? f.observacoes || '' : '';
+  document.getElementById('campo-status-fornecedor').value = !f || f.ativo ? 'ativo' : 'inativo';
   document.getElementById('dica-fornecedor-erro').style.display = 'none';
   abrirModal('modal-overlay-fornecedor');
-}
-
-function fecharModalFornecedor() {
-  fecharModal('modal-overlay-fornecedor');
 }
 
 async function salvarFormularioFornecedor(evento) {
   evento.preventDefault();
   if (!souAdminCompras) return;
-
   const id = document.getElementById('campo-id-fornecedor').value;
   const nome = document.getElementById('campo-nome-fornecedor').value.trim();
-  const dicaErro = document.getElementById('dica-fornecedor-erro');
-
+  const dica = document.getElementById('dica-fornecedor-erro');
   if (!nome) {
-    dicaErro.textContent = 'Informe o nome do fornecedor.';
-    dicaErro.style.display = '';
+    dica.textContent = 'Informe o nome do fornecedor.';
+    dica.style.display = '';
     return;
   }
-  dicaErro.style.display = 'none';
-
+  const duplicado = fornecedoresCache.find((f) => f.id !== id && normalizarTextoCompra(f.nome) === normalizarTextoCompra(nome));
+  if (duplicado) {
+    dica.textContent = `Já existe o fornecedor "${duplicado.nome}".`;
+    dica.style.display = '';
+    return;
+  }
   const dados = {
     nome,
     nomeContato: document.getElementById('campo-contato-fornecedor').value.trim() || null,
@@ -761,858 +1553,15 @@ async function salvarFormularioFornecedor(evento) {
     observacoes: document.getElementById('campo-observacoes-fornecedor').value.trim() || null,
     ativo: document.getElementById('campo-status-fornecedor').value === 'ativo',
   };
-
   try {
-    if (id) {
-      const atualizado = await atualizarFornecedorNoSupabase(id, dados);
-      fornecedoresCache = fornecedoresCache.map((f) => (f.id === id ? atualizado : f));
-    } else {
-      const criado = await criarFornecedorNoSupabase(dados);
-      fornecedoresCache = [...fornecedoresCache, criado];
-    }
+    if (id) await atualizarFornecedorNoSupabase(id, dados);
+    else await criarFornecedorNoSupabase(dados);
   } catch (erro) {
-    dicaErro.textContent = 'Não foi possível salvar o fornecedor. ' + erro.message;
-    dicaErro.style.display = '';
+    dica.textContent = 'Não foi possível salvar o fornecedor. ' + erro.message;
+    dica.style.display = '';
     return;
   }
-
+  fecharModal('modal-overlay-fornecedor');
   mostrarToast('Fornecedor salvo.', 'sucesso');
-  fecharModalFornecedor();
-  renderizarTabelaFornecedores();
-  if (document.getElementById('campo-fornecedor-compra')) popularOpcoesFornecedorCompra();
-}
-
-// ---------------------------------------------------------------------------
-// LOTES EM ESTOQUE — só leitura (lots). Zero consumo/ajuste nesta etapa.
-// ---------------------------------------------------------------------------
-
-function calcularValorRestanteLote(lote) {
-  return lote.quantidadeRestante * lote.custoPorUnidadeBase;
-}
-
-function popularFiltrosLotes() {
-  const selectCategoria = document.getElementById('filtro-lotes-categoria');
-  const categoriaAtual = selectCategoria.value;
-  const categorias = [...new Set(itensCompraCache.map((i) => i.categoria))];
-  selectCategoria.innerHTML =
-    '<option value="">Todas</option>' + categorias.map((c) => `<option value="${c}">${CATEGORIAS_ITEM_COMPRA[c] || c}</option>`).join('');
-  selectCategoria.value = categoriaAtual;
-
-  const selectItem = document.getElementById('filtro-lotes-item');
-  const itemAtual = selectItem.value;
-  const itensComEstoque = itensCompraCache.filter((i) => i.controlaEstoque).sort((a, b) => a.nome.localeCompare(b.nome));
-  selectItem.innerHTML = '<option value="">Todos</option>' + itensComEstoque.map((i) => `<option value="${i.id}">${escaparHtml(i.nome)}</option>`).join('');
-  selectItem.value = itemAtual;
-}
-
-function ligarEventosFiltrosLotes() {
-  document.getElementById('filtro-lotes-categoria').addEventListener('change', renderizarTabelaLotes);
-  document.getElementById('filtro-lotes-status').addEventListener('change', renderizarTabelaLotes);
-  document.getElementById('filtro-lotes-item').addEventListener('change', renderizarTabelaLotes);
-  document.getElementById('botao-lotes-ver-historico-completo').addEventListener('click', () => {
-    lotesMostrandoHistoricoCompleto = !lotesMostrandoHistoricoCompleto;
-    document.getElementById('botao-lotes-ver-historico-completo').textContent = lotesMostrandoHistoricoCompleto
-      ? 'Ver só ativos'
-      : 'Ver histórico completo';
-    renderizarTabelaLotes();
-  });
-}
-
-/** Só aviso visual (⚠ Vencido / ⚠ Vence em X dias) — sem nenhuma regra de bloqueio automático, conforme pedido. */
-function textoValidadeLote(lote) {
-  if (!lote.validade) return '—';
-  const dataTexto = formatarDataCompra(lote.validade);
-  const diffDias = Math.floor((new Date(lote.validade + 'T00:00:00') - new Date(dataHojeLocal() + 'T00:00:00')) / 86400000);
-  if (diffDias < 0) return `${dataTexto} ⚠ Vencido`;
-  if (diffDias <= 7) return `${dataTexto} ⚠ Vence em ${diffDias} dia${diffDias === 1 ? '' : 's'}`;
-  return dataTexto;
-}
-
-/**
- * Visão principal (sem "Ver histórico completo" e sem filtro de status
- * explícito): todos os available + só os 5 depleted mais recentes;
- * archived nunca aparece. Regra só de UI — nenhum dado é apagado, o
- * histórico completo continua uma consulta/clique de distância.
- */
-function renderizarTabelaLotes() {
-  const corpo = document.getElementById('corpo-tabela-lotes');
-  const vazio = document.getElementById('estado-vazio-lotes');
-
-  const categoriaFiltro = document.getElementById('filtro-lotes-categoria').value;
-  const statusFiltro = document.getElementById('filtro-lotes-status').value;
-  const itemFiltro = document.getElementById('filtro-lotes-item').value;
-
-  let lotes = lotesCache.filter((lote) => {
-    const item = itemCompraPorId(lote.itemCompraId);
-    if (categoriaFiltro && (!item || item.categoria !== categoriaFiltro)) return false;
-    if (itemFiltro && lote.itemCompraId !== itemFiltro) return false;
-    if (statusFiltro && lote.status !== statusFiltro) return false;
-    return true;
-  });
-
-  if (!lotesMostrandoHistoricoCompleto) {
-    if (statusFiltro) {
-      // Filtro explícito de status já decide o que mostrar — sem recorte adicional.
-    } else {
-      const disponiveis = lotes.filter((l) => l.status === 'available');
-      const esgotados = lotes
-        .filter((l) => l.status === 'depleted')
-        .sort((a, b) => new Date(b.atualizadoEm) - new Date(a.atualizadoEm))
-        .slice(0, 5);
-      lotes = [...disponiveis, ...esgotados];
-    }
-  }
-
-  lotes = [...lotes].sort((a, b) => new Date(b.recebidoEm) - new Date(a.recebidoEm));
-
-  if (lotes.length === 0) {
-    corpo.innerHTML = '';
-    vazio.style.display = 'block';
-    return;
-  }
-  vazio.style.display = 'none';
-  corpo.innerHTML = lotes.map(linhaLoteHtml).join('');
-}
-
-function linhaLoteHtml(lote) {
-  const item = itemCompraPorId(lote.itemCompraId);
-  const nomeItem = item ? item.nome : '(item removido)';
-
-  return `
-    <tr>
-      <td>${escaparHtml(nomeItem)}</td>
-      <td>${formatarDataCompra(lote.recebidoEm)}</td>
-      <td>${textoValidadeLote(lote)}</td>
-      <td>${formatarQuantidadeCompra(lote.quantidadeInicial)} ${lote.unidadeBase}</td>
-      <td>${formatarQuantidadeCompra(lote.quantidadeRestante)} ${lote.unidadeBase}</td>
-      <td>${lote.unidadeBase}</td>
-      <td>${formatarCustoPorBaseCompra(lote.custoPorUnidadeBase, lote.unidadeBase)}</td>
-      <td>${formatarMoeda(calcularValorRestanteLote(lote))}</td>
-      <td>${ROTULOS_STATUS_LOTE[lote.status] || lote.status}</td>
-    </tr>`;
-}
-
-// ---------------------------------------------------------------------------
-// HISTÓRICO DE COMPRAS — purchases+purchase_lines+lots agrupados em
-// memória, zero N+1.
-// ---------------------------------------------------------------------------
-
-function linhasDaCompra(compraId) {
-  return linhasComprasCache.filter((l) => l.compraId === compraId);
-}
-
-function lotesDaCompra(compraId) {
-  const idsLinhas = linhasDaCompra(compraId).map((l) => l.id);
-  return lotesCache.filter((lote) => idsLinhas.includes(lote.linhaCompraId));
-}
-
-/** Consumo real = qualquer movimento além do 'purchase' inicial, em qualquer lote desta compra — mesma detecção já implementada em save_purchase, aqui só sobre os caches já carregados. */
-function compraTemConsumoReal(compraId) {
-  const idsLotes = lotesDaCompra(compraId).map((l) => l.id);
-  return movimentosLotesCache.some((m) => idsLotes.includes(m.loteId) && m.tipo !== 'purchase');
-}
-
-function renderizarTabelaHistoricoCompras() {
-  const corpo = document.getElementById('corpo-tabela-historico-compras');
-  const vazio = document.getElementById('estado-vazio-historico-compras');
-
-  if (comprasCache.length === 0) {
-    corpo.innerHTML = '';
-    vazio.style.display = 'block';
-    return;
-  }
-  vazio.style.display = 'none';
-
-  corpo.innerHTML = comprasCache.map(linhaHistoricoCompraHtml).join('');
-  corpo.querySelectorAll('[data-acao-editar-compra]').forEach((botao) => {
-    botao.addEventListener('click', () => abrirCompraParaEdicao(botao.dataset.acaoEditarCompra));
-  });
-  corpo.querySelectorAll('[data-acao-excluir-compra]').forEach((botao) => {
-    botao.addEventListener('click', () => excluirCompraModal(botao.dataset.acaoExcluirCompra));
-  });
-}
-
-/** Qualquer linha desta compra referenciando um item ainda needsReview=true — badge some sozinho na próxima renderização assim que o item for finalizado. */
-function compraTemItemPendente(compraId) {
-  return linhasDaCompra(compraId).some((linha) => {
-    const item = itemCompraPorId(linha.itemCompraId);
-    return item && item.needsReview;
-  });
-}
-
-function linhaHistoricoCompraHtml(compra) {
-  const linhas = linhasDaCompra(compra.id);
-  const total = linhas.reduce((soma, l) => soma + l.precoTotal, 0);
-  const qtdLotes = lotesDaCompra(compra.id).length;
-  const fornecedor = compra.fornecedorId ? fornecedorPorId(compra.fornecedorId) : null;
-  const badgePendente = compraTemItemPendente(compra.id) ? ' <span class="compras-badge-pendente">⚠ Item pendente</span>' : '';
-
-  return `
-    <tr>
-      <td>${formatarDataCompra(compra.compradoEm)}</td>
-      <td>${fornecedor ? escaparHtml(fornecedor.nome) : '—'}</td>
-      <td>${linhas.length}${badgePendente}</td>
-      <td>${formatarMoeda(total)}</td>
-      <td>${qtdLotes}</td>
-      <td>${escaparHtml(compra.referencia || '—')}</td>
-      <td>
-        <button class="btn-icone" data-acao-editar-compra="${compra.id}" title="Editar" ${souAdminCompras ? '' : 'disabled'}>✏️</button>
-        <button class="btn-icone" data-acao-excluir-compra="${compra.id}" title="Excluir" ${souAdminCompras ? '' : 'disabled'}>🗑️</button>
-      </td>
-    </tr>`;
-}
-
-/**
- * Exclusão passa pela RPC delete_purchase (via excluirCompraNoSupabase) —
- * só permitida se nenhum lote gerado por esta compra já teve movimentação
- * real. Confirmação explícita antes; se a RPC rejeitar (compra já
- * movimentada), a mensagem exata dela é mostrada, nada é fechado nem
- * recarregado — mesmo padrão de erro já usado em salvarFormularioCompra.
- */
-async function excluirCompraModal(id) {
-  if (!souAdminCompras) return;
-  if (!confirm('Excluir esta compra? Esta ação apagará também os lotes ainda não utilizados gerados por ela.')) {
-    return;
-  }
-
-  try {
-    await excluirCompraNoSupabase(id);
-  } catch (erro) {
-    mostrarToast('Não foi possível excluir a compra. ' + erro.message, 'erro');
-    return;
-  }
-
-  mostrarToast('Compra excluída com sucesso.', 'sucesso');
-
-  try {
-    const [itens, compras, linhas, lotes, movimentos] = await Promise.all([
-      buscarItensCompraDoSupabase(),
-      buscarComprasDoSupabase(),
-      buscarLinhasComprasDoSupabase(),
-      buscarLotesDoSupabase(),
-      buscarMovimentosLotesDoSupabase(),
-    ]);
-    itensCompraCache = itens;
-    comprasCache = compras;
-    linhasComprasCache = linhas;
-    lotesCache = lotes;
-    movimentosLotesCache = movimentos;
-  } catch (erroRecarregar) {
-    console.error('Erro ao recarregar compras após exclusão:', erroRecarregar);
-  }
-
-  renderizarTabelaHistoricoCompras();
-  renderizarTabelaItensCompra();
-  popularFiltrosLotes();
-  renderizarTabelaLotes();
-}
-
-// ---------------------------------------------------------------------------
-// REGISTRAR COMPRA — cabeçalho + linhas, salva via save_purchase (única
-// porta de escrita). componentesCompraEmEdicao é estado só de memória até
-// "Salvar Compra".
-// ---------------------------------------------------------------------------
-
-function atualizarEstadoEdicaoRegistrarCompra() {
-  document.getElementById('dica-compras-somente-admin').style.display = souAdminCompras ? 'none' : '';
-}
-
-function popularOpcoesFornecedorCompra() {
-  const select = document.getElementById('campo-fornecedor-compra');
-  const atual = select.value;
-  const ativos = fornecedoresCache.filter((f) => f.ativo).sort((a, b) => a.nome.localeCompare(b.nome));
-  select.innerHTML = '<option value="">— Nenhum —</option>' + ativos.map((f) => `<option value="${f.id}">${escaparHtml(f.nome)}</option>`).join('');
-  if (atual && ativos.some((f) => f.id === atual)) select.value = atual;
-}
-
-/**
- * Espelha a normalização usada no banco (purchase_items.normalized_name /
- * RPCs save_purchase e finalize_purchase_item) — trim, colapsa espaços,
- * lowercase, remove acentos comuns. Só usada aqui para SUGERIR/filtrar no
- * client; quem decide de verdade se reaproveita ou cria um item é sempre
- * a RPC save_purchase — nunca reproduzimos essa decisão no client.
- */
-function normalizarNomeItemCompra(texto) {
-  return (texto || '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLowerCase()
-    .replace(/[áàãâä]/g, 'a')
-    .replace(/[éèêë]/g, 'e')
-    .replace(/[íìîï]/g, 'i')
-    .replace(/[óòõôö]/g, 'o')
-    .replace(/[úùûü]/g, 'u')
-    .replace(/ç/g, 'c')
-    .replace(/ñ/g, 'n');
-}
-
-/** Prefixo primeiro, contains depois — só sobre itens ativos, até 8 sugestões. */
-function obterSugestoesItemLinhaCompra(texto) {
-  const normalizado = normalizarNomeItemCompra(texto);
-  if (!normalizado) return [];
-  const ativos = itensCompraCache.filter((i) => i.ativo);
-  const porPrefixo = [];
-  const porConteudo = [];
-  ativos.forEach((item) => {
-    const nomeNormalizado = normalizarNomeItemCompra(item.nome);
-    if (nomeNormalizado.startsWith(normalizado)) porPrefixo.push(item);
-    else if (nomeNormalizado.includes(normalizado)) porConteudo.push(item);
-  });
-  const ordenar = (lista) => [...lista].sort((a, b) => a.nome.localeCompare(b.nome));
-  return [...ordenar(porPrefixo), ...ordenar(porConteudo)].slice(0, 8);
-}
-
-function renderizarSugestoesItemLinhaCompra(sugestoes) {
-  const lista = document.getElementById('lista-sugestoes-item-linha-compra');
-  const campoTexto = document.getElementById('campo-item-linha-compra-texto');
-  indiceSugestaoItemLinhaCompraAtiva = -1;
-
-  if (sugestoes.length === 0) {
-    lista.innerHTML = '';
-    lista.style.display = 'none';
-    campoTexto.setAttribute('aria-expanded', 'false');
-    return;
-  }
-
-  lista.innerHTML = sugestoes
-    .map(
-      (item, indice) => `
-      <li role="option" id="sugestao-item-linha-compra-${indice}" data-id="${item.id}">
-        <span>${escaparHtml(item.nome)}</span>
-        <span class="compras-autocomplete-opcao-categoria">${CATEGORIAS_ITEM_COMPRA[item.categoria] || item.categoria}</span>
-      </li>`
-    )
-    .join('');
-  lista.style.display = '';
-  campoTexto.setAttribute('aria-expanded', 'true');
-
-  lista.querySelectorAll('li').forEach((li) => {
-    // mousedown (não click) + preventDefault — impede o input de perder
-    // foco (blur) antes do clique ser processado, sem precisar de timeout.
-    li.addEventListener('mousedown', (evento) => {
-      evento.preventDefault();
-      selecionarItemLinhaCompra(li.dataset.id);
-    });
-  });
-}
-
-function fecharSugestoesItemLinhaCompra() {
-  const lista = document.getElementById('lista-sugestoes-item-linha-compra');
-  lista.innerHTML = '';
-  lista.style.display = 'none';
-  document.getElementById('campo-item-linha-compra-texto').setAttribute('aria-expanded', 'false');
-  indiceSugestaoItemLinhaCompraAtiva = -1;
-}
-
-function selecionarItemLinhaCompra(id) {
-  const item = itemCompraPorId(id);
-  if (!item) return;
-  itemLinhaCompraSelecionadoId = id;
-  document.getElementById('campo-item-linha-compra-texto').value = item.nome;
-  fecharSugestoesItemLinhaCompra();
-  atualizarUnidadeLinhaCompra();
-  atualizarPreviewLinhaCompra();
-}
-
-/** Editar o texto depois de selecionar limpa o id — nunca envia itemCompraId de um item com nome divergente do digitado. */
-function aoDigitarItemLinhaCompra() {
-  const texto = document.getElementById('campo-item-linha-compra-texto').value;
-  if (itemLinhaCompraSelecionadoId) {
-    const itemSelecionado = itemCompraPorId(itemLinhaCompraSelecionadoId);
-    if (!itemSelecionado || itemSelecionado.nome !== texto) {
-      itemLinhaCompraSelecionadoId = null;
-    }
-  }
-  renderizarSugestoesItemLinhaCompra(obterSugestoesItemLinhaCompra(texto));
-  atualizarUnidadeLinhaCompra();
-  atualizarPreviewLinhaCompra();
-}
-
-/** ArrowDown/ArrowUp/Enter/Escape — teclado básico, nunca fecha a seção/modal. */
-function aoTeclarItemLinhaCompra(evento) {
-  const opcoes = document.getElementById('lista-sugestoes-item-linha-compra').querySelectorAll('li');
-  if (opcoes.length === 0) return;
-
-  if (evento.key === 'ArrowDown') {
-    evento.preventDefault();
-    indiceSugestaoItemLinhaCompraAtiva = Math.min(indiceSugestaoItemLinhaCompraAtiva + 1, opcoes.length - 1);
-    destacarSugestaoAtivaItemLinhaCompra(opcoes);
-  } else if (evento.key === 'ArrowUp') {
-    evento.preventDefault();
-    indiceSugestaoItemLinhaCompraAtiva = Math.max(indiceSugestaoItemLinhaCompraAtiva - 1, 0);
-    destacarSugestaoAtivaItemLinhaCompra(opcoes);
-  } else if (evento.key === 'Enter') {
-    if (indiceSugestaoItemLinhaCompraAtiva >= 0 && opcoes[indiceSugestaoItemLinhaCompraAtiva]) {
-      evento.preventDefault();
-      selecionarItemLinhaCompra(opcoes[indiceSugestaoItemLinhaCompraAtiva].dataset.id);
-    }
-  } else if (evento.key === 'Escape') {
-    fecharSugestoesItemLinhaCompra();
-  }
-}
-
-function destacarSugestaoAtivaItemLinhaCompra(opcoes) {
-  opcoes.forEach((li, indice) => li.classList.toggle('compras-autocomplete-opcao-ativa', indice === indiceSugestaoItemLinhaCompraAtiva));
-  const ativa = opcoes[indiceSugestaoItemLinhaCompraAtiva];
-  if (ativa) ativa.scrollIntoView({ block: 'nearest' });
-}
-
-/**
- * Item existente selecionado: unidade travada nas opções coerentes com o
- * base_unit dele (mesma tabela que a RPC save_purchase usa server-side;
- * quando o item não tem base_unit definido, trava em 'un' só). Item novo
- * digitado (sem itemLinhaCompraSelecionadoId): unidade livre (g/kg/ml/l/
- * un) — ainda não existe base_unit pra travar nada — e validade sempre
- * desabilitada.
- */
-function atualizarUnidadeLinhaCompra() {
-  const selectUnidade = document.getElementById('campo-unidade-linha-compra');
-  const dicaSemBase = document.getElementById('dica-validade-linha-compra');
-  const dicaNovo = document.getElementById('dica-item-linha-compra-novo');
-  const campoValidade = document.getElementById('campo-validade-linha-compra');
-  const texto = document.getElementById('campo-item-linha-compra-texto').value.trim();
-
-  if (itemLinhaCompraSelecionadoId && !itemCompraPorId(itemLinhaCompraSelecionadoId)) {
-    itemLinhaCompraSelecionadoId = null;
-  }
-
-  if (itemLinhaCompraSelecionadoId) {
-    const item = itemCompraPorId(itemLinhaCompraSelecionadoId);
-    const opcoesUnidade = item.unidadeBase ? UNIDADES_COMPRA_POR_BASE[item.unidadeBase] : ['un'];
-    selectUnidade.innerHTML = opcoesUnidade.map((u) => `<option value="${u}">${u}</option>`).join('');
-    dicaSemBase.style.display = item.unidadeBase ? 'none' : '';
-    dicaNovo.style.display = 'none';
-    campoValidade.disabled = compraTemConsumo || !item.controlaEstoque;
-    if (!item.controlaEstoque) campoValidade.value = '';
-  } else {
-    selectUnidade.innerHTML = ['g', 'kg', 'ml', 'l', 'un'].map((u) => `<option value="${u}">${u}</option>`).join('');
-    dicaSemBase.style.display = 'none';
-    dicaNovo.style.display = texto ? '' : 'none';
-    campoValidade.disabled = true;
-    campoValidade.value = '';
-  }
-}
-
-/** Mesma tabela de conversão usada server-side em save_purchase — só pra exibição, o banco recalcula de verdade. */
-function calcularBaseQuantityPreview(item, quantidade, unidade) {
-  if (!item || !Number.isFinite(quantidade) || quantidade <= 0) return null;
-  const baseUnit = item.unidadeBase || 'un';
-  if (baseUnit === 'g') {
-    if (unidade === 'g') return quantidade;
-    if (unidade === 'kg') return quantidade * FATORES_CONVERSAO_UNIDADE_COMPRA.kg;
-    return null;
-  }
-  if (baseUnit === 'ml') {
-    if (unidade === 'ml') return quantidade;
-    if (unidade === 'l') return quantidade * FATORES_CONVERSAO_UNIDADE_COMPRA.l;
-    return null;
-  }
-  return unidade === 'un' ? quantidade : null;
-}
-
-function atualizarPreviewLinhaCompra() {
-  const preview = document.getElementById('preview-linha-compra');
-  const quantidade = Number(document.getElementById('campo-quantidade-linha-compra').value);
-  const unidade = document.getElementById('campo-unidade-linha-compra').value;
-  const preco = Number(document.getElementById('campo-preco-linha-compra').value);
-
-  if (!Number.isFinite(quantidade) || quantidade <= 0) {
-    preview.textContent = '';
-    return;
-  }
-
-  if (!itemLinhaCompraSelecionadoId) {
-    // Item novo — sem base_unit ainda, nunca mostra conversão/custo por
-    // base: só "preço por unidade de compra" (ex. €1,60/kg).
-    if (!Number.isFinite(preco) || preco < 0 || !unidade) {
-      preview.textContent = '';
-      return;
-    }
-    preview.textContent = `${formatarMoeda(preco / quantidade)}/${unidade}`;
-    return;
-  }
-
-  const item = itemCompraPorId(itemLinhaCompraSelecionadoId);
-  const baseQuantity = calcularBaseQuantityPreview(item, quantidade, unidade);
-  if (baseQuantity === null) {
-    preview.textContent = '';
-    return;
-  }
-  const baseUnit = item.unidadeBase || 'un';
-  let texto = `${formatarQuantidadeCompra(quantidade)} ${unidade} → ${formatarQuantidadeCompra(baseQuantity)} ${baseUnit}`;
-
-  if (Number.isFinite(preco) && preco >= 0) {
-    const custoBase = preco / baseQuantity;
-    texto += ` · ${formatarMoeda(preco)} / ${formatarQuantidadeCompra(baseQuantity)}${baseUnit} = ${formatarCustoPorBaseCompra(custoBase, baseUnit)}`;
-    if (baseUnit === 'g' || baseUnit === 'ml') {
-      const unidadeGrande = baseUnit === 'g' ? 'kg' : 'l';
-      texto += ` (${formatarMoeda(custoBase * 1000)}/${unidadeGrande})`;
-    }
-  }
-  preview.textContent = texto;
-}
-
-function adicionarLinhaCompra() {
-  if (!souAdminCompras || compraTemConsumo) return;
-  const dicaErro = document.getElementById('dica-linha-compra-erro');
-  const textoDigitado = document.getElementById('campo-item-linha-compra-texto').value.trim();
-  const quantidade = Number(document.getElementById('campo-quantidade-linha-compra').value);
-  const unidade = document.getElementById('campo-unidade-linha-compra').value;
-  const preco = Number(document.getElementById('campo-preco-linha-compra').value);
-  const validade = document.getElementById('campo-validade-linha-compra').value || null;
-
-  const item = itemLinhaCompraSelecionadoId ? itemCompraPorId(itemLinhaCompraSelecionadoId) : null;
-
-  if (!item && !textoDigitado) {
-    dicaErro.textContent = 'Selecione ou digite um item.';
-    dicaErro.style.display = '';
-    return;
-  }
-  if (!Number.isFinite(quantidade) || quantidade <= 0) {
-    dicaErro.textContent = 'Informe uma quantidade maior que zero.';
-    dicaErro.style.display = '';
-    return;
-  }
-  if (!Number.isFinite(preco) || preco < 0) {
-    dicaErro.textContent = 'Informe um preço válido (não pode ser negativo).';
-    dicaErro.style.display = '';
-    return;
-  }
-  if (validade && (!item || !item.controlaEstoque)) {
-    dicaErro.textContent = 'Item sem controle de estoque não pode ter validade.';
-    dicaErro.style.display = '';
-    return;
-  }
-  dicaErro.style.display = 'none';
-
-  if (indiceLinhaCompraEmEdicao !== null) {
-    // Etapa K3.2: atualiza a linha existente NO MESMO índice — preserva
-    // linhaId/itemCompraId/nome (item imutável durante a edição, campo
-    // travado abaixo em editarLinhaCompra()). Nunca splice+push (isso
-    // equivaleria a remover+adicionar, gerando uma purchase_line nova no
-    // backend e perdendo a reconciliação de estoque da linha original).
-    const linhaExistente = linhasCompraEmEdicao[indiceLinhaCompraEmEdicao];
-    linhaExistente.quantidade = quantidade;
-    linhaExistente.unidade = unidade;
-    linhaExistente.precoTotal = preco;
-    linhaExistente.validade = item ? validade : null;
-    cancelarEdicaoLinhaCompra();
-  } else {
-    linhasCompraEmEdicao.push({
-      linhaId: null,
-      itemCompraId: item ? item.id : null,
-      itemNome: item ? null : textoDigitado,
-      nome: item ? item.nome : textoDigitado,
-      quantidade,
-      unidade,
-      precoTotal: preco,
-      validade: item ? validade : null,
-    });
-  }
-
-  document.getElementById('campo-item-linha-compra-texto').value = '';
-  itemLinhaCompraSelecionadoId = null;
-  document.getElementById('campo-quantidade-linha-compra').value = '';
-  document.getElementById('campo-preco-linha-compra').value = '';
-  document.getElementById('campo-validade-linha-compra').value = '';
-  document.getElementById('preview-linha-compra').textContent = '';
-  atualizarUnidadeLinhaCompra();
-  renderizarListaLinhasCompra();
-}
-
-function renderizarListaLinhasCompra() {
-  const lista = document.getElementById('lista-linhas-compra');
-  const vazio = document.getElementById('estado-vazio-linhas-compra');
-
-  if (linhasCompraEmEdicao.length === 0) {
-    lista.innerHTML = '';
-    vazio.style.display = 'block';
-  } else {
-    vazio.style.display = 'none';
-    lista.innerHTML = linhasCompraEmEdicao.map(linhaLinhaCompraHtml).join('');
-    lista.querySelectorAll('[data-acao-editar-linha-compra]').forEach((botao) => {
-      botao.addEventListener('click', () => editarLinhaCompra(Number(botao.dataset.acaoEditarLinhaCompra)));
-    });
-    lista.querySelectorAll('[data-acao-remover-linha-compra]').forEach((botao) => {
-      botao.addEventListener('click', () => removerLinhaCompra(Number(botao.dataset.acaoRemoverLinhaCompra)));
-    });
-  }
-
-  atualizarTotalCompra();
-}
-
-function linhaLinhaCompraHtml(linha) {
-  const indice = linhasCompraEmEdicao.indexOf(linha);
-  const podeEditar = souAdminCompras && !compraTemConsumo;
-  const badgeNovo = linha.itemCompraId ? '' : ' <span class="compras-badge-novo-item">Novo item</span>';
-
-  return `
-    <div class="compras-linha-linha-compra">
-      <span class="compras-linha-linha-compra-nome">${escaparHtml(linha.nome)}${badgeNovo}</span>
-      <span class="compras-linha-linha-compra-quantidade">${formatarQuantidadeCompra(linha.quantidade)} ${linha.unidade}</span>
-      <span class="compras-linha-linha-compra-preco">${formatarMoeda(linha.precoTotal)}</span>
-      <span class="compras-linha-linha-compra-validade">${linha.validade ? formatarDataCompra(linha.validade) : ''}</span>
-      <button type="button" class="btn-icone" data-acao-editar-linha-compra="${indice}" title="Editar" ${podeEditar ? '' : 'disabled'}>✏️</button>
-      <button type="button" class="btn-icone" data-acao-remover-linha-compra="${indice}" title="Remover" ${podeEditar ? '' : 'disabled'}>🗑️</button>
-    </div>`;
-}
-
-/**
- * Etapa K3.2: carrega uma linha já adicionada nos campos do formulário
- * pra edição em lugar — nunca remove a linha do array (só marca o índice
- * em edição). Item travado (disabled) durante a edição: o backend já
- * proíbe trocar purchase_item_id de uma linha existente (save_purchase),
- * então trocar de item aqui exigiria remover a linha e adicionar outra,
- * nunca editar.
- */
-function editarLinhaCompra(indice) {
-  if (!souAdminCompras || compraTemConsumo) return;
-  const linha = linhasCompraEmEdicao[indice];
-  if (!linha) return;
-
-  indiceLinhaCompraEmEdicao = indice;
-  itemLinhaCompraSelecionadoId = linha.itemCompraId || null;
-
-  const campoTexto = document.getElementById('campo-item-linha-compra-texto');
-  campoTexto.value = linha.nome;
-  campoTexto.disabled = true;
-  fecharSugestoesItemLinhaCompra();
-
-  document.getElementById('campo-quantidade-linha-compra').value = linha.quantidade;
-  atualizarUnidadeLinhaCompra();
-  document.getElementById('campo-unidade-linha-compra').value = linha.unidade;
-  document.getElementById('campo-preco-linha-compra').value = linha.precoTotal;
-  document.getElementById('campo-validade-linha-compra').value = linha.validade || '';
-  atualizarPreviewLinhaCompra();
-
-  document.getElementById('botao-adicionar-linha-compra').textContent = 'Salvar alteração';
-  document.getElementById('botao-cancelar-edicao-linha-compra').style.display = '';
-}
-
-/** Só limpa o estado de "modo edição" — quem chama decide se também limpa os campos do formulário (ver aoClicarCancelarEdicaoLinhaCompra). */
-function cancelarEdicaoLinhaCompra() {
-  indiceLinhaCompraEmEdicao = null;
-  document.getElementById('campo-item-linha-compra-texto').disabled = false;
-  document.getElementById('botao-adicionar-linha-compra').textContent = '+ Adicionar item';
-  document.getElementById('botao-cancelar-edicao-linha-compra').style.display = 'none';
-}
-
-function aoClicarCancelarEdicaoLinhaCompra() {
-  cancelarEdicaoLinhaCompra();
-  document.getElementById('campo-item-linha-compra-texto').value = '';
-  itemLinhaCompraSelecionadoId = null;
-  document.getElementById('campo-quantidade-linha-compra').value = '';
-  document.getElementById('campo-preco-linha-compra').value = '';
-  document.getElementById('campo-validade-linha-compra').value = '';
-  document.getElementById('preview-linha-compra').textContent = '';
-  atualizarUnidadeLinhaCompra();
-}
-
-function removerLinhaCompra(indice) {
-  if (!souAdminCompras || compraTemConsumo) return;
-  // Remover qualquer linha enquanto uma edição está em andamento invalidaria
-  // o índice guardado em indiceLinhaCompraEmEdicao — mais seguro cancelar a
-  // edição (usuário pode reabrir depois) do que arriscar salvar por cima da
-  // linha errada.
-  if (indiceLinhaCompraEmEdicao !== null) {
-    aoClicarCancelarEdicaoLinhaCompra();
-  }
-  linhasCompraEmEdicao.splice(indice, 1);
-  renderizarListaLinhasCompra();
-}
-
-function atualizarTotalCompra() {
-  const total = linhasCompraEmEdicao.reduce((soma, linha) => soma + linha.precoTotal, 0);
-  document.getElementById('texto-total-compra').textContent = formatarMoeda(total);
-}
-
-/** Desabilita Data + todo o bloco de linhas quando a compra em edição já teve consumo real — só metadados (fornecedor/referência/observações) continuam editáveis, mesma regra já implementada em save_purchase. */
-function aplicarTravaConsumoFormularioCompra() {
-  document.getElementById('dica-compra-com-consumo').style.display = compraTemConsumo ? '' : 'none';
-
-  document.getElementById('campo-data-compra').disabled = compraTemConsumo;
-  document.getElementById('campo-item-linha-compra-texto').disabled = compraTemConsumo;
-  document.getElementById('campo-quantidade-linha-compra').disabled = compraTemConsumo;
-  document.getElementById('campo-unidade-linha-compra').disabled = compraTemConsumo;
-  document.getElementById('campo-preco-linha-compra').disabled = compraTemConsumo;
-  document.getElementById('campo-validade-linha-compra').disabled = compraTemConsumo;
-  document.getElementById('botao-adicionar-linha-compra').disabled = compraTemConsumo || !souAdminCompras;
-}
-
-function prepararNovaCompra() {
-  compraEmEdicaoId = null;
-  compraTemConsumo = false;
-  linhasCompraEmEdicao = [];
-  itemLinhaCompraSelecionadoId = null;
-  cancelarEdicaoLinhaCompra();
-
-  document.getElementById('titulo-secao-registrar-compra').textContent = 'Registrar Compra';
-  popularOpcoesFornecedorCompra();
-  document.getElementById('campo-fornecedor-compra').value = '';
-  document.getElementById('campo-data-compra').value = dataHojeLocal();
-  document.getElementById('campo-referencia-compra').value = '';
-  document.getElementById('campo-observacoes-compra').value = '';
-  document.getElementById('dica-registrar-compra-erro').style.display = 'none';
-  document.getElementById('dica-linha-compra-erro').style.display = 'none';
-
-  document.getElementById('campo-item-linha-compra-texto').value = '';
-  fecharSugestoesItemLinhaCompra();
-  document.getElementById('campo-quantidade-linha-compra').value = '';
-  document.getElementById('campo-preco-linha-compra').value = '';
-  document.getElementById('campo-validade-linha-compra').value = '';
-  document.getElementById('preview-linha-compra').textContent = '';
-  atualizarUnidadeLinhaCompra();
-
-  aplicarTravaConsumoFormularioCompra();
-  renderizarListaLinhasCompra();
-}
-
-function abrirCompraParaEdicao(compraId) {
-  if (!souAdminCompras) return;
-  const compra = comprasCache.find((c) => c.id === compraId);
-  if (!compra) return;
-
-  compraEmEdicaoId = compraId;
-  compraTemConsumo = compraTemConsumoReal(compraId);
-  itemLinhaCompraSelecionadoId = null;
-  cancelarEdicaoLinhaCompra();
-  linhasCompraEmEdicao = linhasDaCompra(compraId).map((linha) => {
-    const lote = lotesCache.find((l) => l.linhaCompraId === linha.id);
-    return {
-      linhaId: linha.id,
-      itemCompraId: linha.itemCompraId,
-      itemNome: null,
-      nome: linha.nomeSnapshot,
-      quantidade: linha.quantidade,
-      unidade: linha.unidade,
-      precoTotal: linha.precoTotal,
-      validade: lote ? lote.validade : null,
-    };
-  });
-
-  document.getElementById('titulo-secao-registrar-compra').textContent = 'Editar Compra';
-  popularOpcoesFornecedorCompra();
-  document.getElementById('campo-fornecedor-compra').value = compra.fornecedorId || '';
-  document.getElementById('campo-data-compra').value = compra.compradoEm;
-  document.getElementById('campo-referencia-compra').value = compra.referencia || '';
-  document.getElementById('campo-observacoes-compra').value = compra.observacoes || '';
-  document.getElementById('dica-registrar-compra-erro').style.display = 'none';
-  document.getElementById('dica-linha-compra-erro').style.display = 'none';
-
-  document.getElementById('campo-item-linha-compra-texto').value = '';
-  fecharSugestoesItemLinhaCompra();
-  document.getElementById('campo-quantidade-linha-compra').value = '';
-  document.getElementById('campo-preco-linha-compra').value = '';
-  document.getElementById('campo-validade-linha-compra').value = '';
-  document.getElementById('preview-linha-compra').textContent = '';
-  atualizarUnidadeLinhaCompra();
-
-  aplicarTravaConsumoFormularioCompra();
-  renderizarListaLinhasCompra();
-  abrirSecaoCompras('registrar');
-}
-
-/**
- * Único ponto de escrita real: chama salvarCompraNoSupabase (RPC
- * save_purchase). Sucesso: toast usando o retorno da RPC (nunca contado
- * no client antes de salvar), recarrega compras/linhas/lotes/movimentos
- * em background e re-renderiza Histórico/Lotes sem recarregar a página;
- * se estava criando, reseta o formulário pra uma compra nova (pronta pro
- * próximo lançamento); se estava editando, volta pro Histórico. Erro:
- * mensagem no formulário, nada é descartado, nunca finge sucesso.
- */
-async function salvarFormularioCompra() {
-  if (!souAdminCompras) return;
-
-  const fornecedorId = document.getElementById('campo-fornecedor-compra').value || null;
-  const compradoEm = document.getElementById('campo-data-compra').value;
-  const referencia = document.getElementById('campo-referencia-compra').value.trim() || null;
-  const observacoes = document.getElementById('campo-observacoes-compra').value.trim() || null;
-
-  const dicaErro = document.getElementById('dica-registrar-compra-erro');
-
-  if (!compradoEm) {
-    dicaErro.textContent = 'Informe a data da compra.';
-    dicaErro.style.display = '';
-    return;
-  }
-  if (linhasCompraEmEdicao.length === 0) {
-    dicaErro.textContent = 'Adicione pelo menos um item à compra.';
-    dicaErro.style.display = '';
-    return;
-  }
-  dicaErro.style.display = 'none';
-
-  const payload = { fornecedorId, compradoEm, referencia, observacoes, linhas: linhasCompraEmEdicao };
-
-  const botaoSalvar = document.getElementById('botao-salvar-compra');
-  botaoSalvar.disabled = true;
-
-  let resultado;
-  try {
-    resultado = await salvarCompraNoSupabase(compraEmEdicaoId, payload);
-  } catch (erro) {
-    dicaErro.textContent = 'Não foi possível salvar a compra. ' + erro.message;
-    dicaErro.style.display = '';
-    botaoSalvar.disabled = false;
-    return;
-  }
-  botaoSalvar.disabled = false;
-
-  const foiEdicao = !!compraEmEdicaoId;
-  const qtdLotes = resultado.lotes.length;
-  mostrarToast(
-    qtdLotes > 0
-      ? `Compra salva com sucesso. ${qtdLotes} lote${qtdLotes === 1 ? '' : 's'} gerado${qtdLotes === 1 ? '' : 's'}.`
-      : 'Compra salva com sucesso.',
-    'sucesso'
-  );
-
-  try {
-    const [itens, compras, linhas, lotes, movimentos] = await Promise.all([
-      buscarItensCompraDoSupabase(),
-      buscarComprasDoSupabase(),
-      buscarLinhasComprasDoSupabase(),
-      buscarLotesDoSupabase(),
-      buscarMovimentosLotesDoSupabase(),
-    ]);
-    itensCompraCache = itens;
-    comprasCache = compras;
-    linhasComprasCache = linhas;
-    lotesCache = lotes;
-    movimentosLotesCache = movimentos;
-  } catch (erroRecarregar) {
-    console.error('Erro ao recarregar compras:', erroRecarregar);
-  }
-
-  renderizarTabelaHistoricoCompras();
-  renderizarTabelaItensCompra();
-  popularFiltrosLotes();
-  renderizarTabelaLotes();
-
-  if (foiEdicao) {
-    abrirSecaoCompras('historico');
-  } else {
-    prepararNovaCompra();
-  }
-}
-
-function ligarEventosRegistrarCompra() {
-  const campoTexto = document.getElementById('campo-item-linha-compra-texto');
-  campoTexto.addEventListener('input', aoDigitarItemLinhaCompra);
-  campoTexto.addEventListener('keydown', aoTeclarItemLinhaCompra);
-  campoTexto.addEventListener('blur', fecharSugestoesItemLinhaCompra);
-  campoTexto.addEventListener('focus', () => {
-    if (campoTexto.value.trim()) renderizarSugestoesItemLinhaCompra(obterSugestoesItemLinhaCompra(campoTexto.value));
-  });
-  document.getElementById('campo-quantidade-linha-compra').addEventListener('input', atualizarPreviewLinhaCompra);
-  document.getElementById('campo-unidade-linha-compra').addEventListener('change', atualizarPreviewLinhaCompra);
-  document.getElementById('campo-preco-linha-compra').addEventListener('input', atualizarPreviewLinhaCompra);
-  document.getElementById('botao-adicionar-linha-compra').addEventListener('click', adicionarLinhaCompra);
-  document.getElementById('botao-cancelar-edicao-linha-compra').addEventListener('click', aoClicarCancelarEdicaoLinhaCompra);
-  document.getElementById('botao-cancelar-registrar-compra').addEventListener('click', () => {
-    prepararNovaCompra();
-    fecharSecaoCompras();
-  });
-  document.getElementById('botao-salvar-compra').addEventListener('click', salvarFormularioCompra);
+  await recarregarDepoisDeGravar();
 }

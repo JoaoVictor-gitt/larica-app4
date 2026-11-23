@@ -168,7 +168,8 @@ function renderizarResultado(dados) {
   }
 
   document.getElementById('status-atual-pedido').innerHTML = formatarTextoStatus(dados);
-  renderizarTimeline(dados.status);
+  // Pedidos não têm mais etapas de atendimento: sem linha do tempo, só o estado e a previsão.
+  document.getElementById('timeline-pedido').innerHTML = '';
   renderizarPrevisao(dados);
 }
 
@@ -181,7 +182,7 @@ function formatarTextoStatus(dados) {
     case 'aguardando_pagamento':
       return '<strong>Aguardando confirmação de pagamento.</strong>';
     case 'solicitado':
-      return '<strong>Pedido solicitado.</strong> Em instantes começamos o preparo.';
+      return '<strong>Pedido recebido.</strong> Já estamos preparando.';
     case 'em_preparo':
       return '<strong>Seu pedido está em preparo.</strong>';
     case 'pronto':

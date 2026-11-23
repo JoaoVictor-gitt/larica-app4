@@ -23,6 +23,75 @@
   flex-wrap: wrap;
 }
 
+/* Filtros do Histórico: período, datas personalizadas, busca e situação */
+.filtros-historico {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espaco-md);
+  margin-bottom: var(--espaco-md);
+}
+
+.filtros-historico .form-grupo {
+  margin-bottom: 0;
+  min-width: 150px;
+}
+
+.filtros-historico .filtro-historico-busca {
+  flex: 1;
+  min-width: 220px;
+}
+
+.resumo-historico {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--espaco-sm);
+  margin-bottom: var(--espaco-md);
+}
+
+.resumo-historico-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--espaco-sm) var(--espaco-md);
+}
+
+.resumo-historico-item span {
+  font-size: 0.75rem;
+  color: var(--cor-texto-secundario);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.resumo-historico-item strong {
+  font-size: 1.15rem;
+}
+
+.linha-historico-cancelada td {
+  color: var(--cor-texto-secundario);
+}
+
+.tabela-historico th:nth-child(1),
+.tabela-historico td:nth-child(1) {
+  font-weight: 700;
+}
+
+.tabela-historico th:nth-child(6),
+.tabela-historico td:nth-child(6) {
+  text-align: right;
+}
+
+.tabela-historico td:nth-child(6) {
+  font-weight: 700;
+  color: var(--cor-terracota);
+}
+
+.tabela-historico td:nth-child(2),
+.tabela-historico td:nth-child(4),
+.tabela-historico td:nth-child(5) {
+  color: var(--cor-texto-secundario);
+  font-size: 0.85rem;
+}
+
 .tabela-pedidos-finalizados-wrap {
   padding: 0;
   overflow-x: auto;
