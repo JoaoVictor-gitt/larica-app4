@@ -38,7 +38,8 @@ export function escolherIa(env: PurchaseOcrEnv): Ia | null {
   return null;
 }
 
-type Leitura = { ok: true; nota: NotaLida } | { ok: false; motivo: string };
+// modelo: preenchido quando a leitura saiu de um modelo diferente do configurado (reserva).
+type Leitura = { ok: true; nota: NotaLida; modelo?: string } | { ok: false; motivo: string };
 
 // Converte o texto devolvido pela IA em nota validada (aceita cercas ```json por segurança).
 function interpretarTextoNota(texto: string): Leitura {
@@ -65,11 +66,14 @@ async function postarComPrazo(url: string, headers: Record<string, string>, body
   }
 }
 
+// Modelo reserva: segundo a documentação do Google, continua sendo servido "até novo aviso".
+export const GEMINI_MODELO_RESERVA = 'gemini-2.5-flash-lite';
+
 export async function chamarGeminiNota(env: PurchaseOcrEnv, mime: string, base64: string, modelo: string): Promise<Leitura> {
   if (!MODELO_RE.test(modelo)) return { ok: false, motivo: 'Nome de modelo do Gemini inválido em GEMINI_OCR_MODEL.' };
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelo)}:generateContent`;
   // A chave vai no cabeçalho (nunca na URL, para não aparecer em logs).
   const headers = { 'x-goog-api-key': env.GEMINI_API_KEY || '', 'Content-Type': 'application/json' };
+  const urlDo = (m: string) => `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`;
   const montar = (comEsquema: boolean) => JSON.stringify({
     systemInstruction: { parts: [{ text: PROMPT_SISTEMA }] },
     contents: [{
@@ -84,42 +88,56 @@ export async function chamarGeminiNota(env: PurchaseOcrEnv, mime: string, base64
       : { responseMimeType: 'application/json' },
   });
 
-  let r = await postarComPrazo(url, headers, montar(true));
-  if (!r) return { ok: false, motivo: 'A leitura demorou demais ou a IA está indisponível.' };
+  // Tentativas, em ordem: modelo configurado com esquema → mesmo modelo sem esquema
+  // (o Gemini às vezes responde 400/500 a esquemas) → modelo reserva sem esquema.
+  // Só se passa à seguinte em erro de esquema, 5xx/sobrecarga, falha de rede ou
+  // modelo inexistente (que pula direto para o reserva). Chave/cota não insistem.
+  const tentativas: Array<{ modelo: string; comEsquema: boolean }> = [
+    { modelo, comEsquema: true },
+    { modelo, comEsquema: false },
+  ];
+  if (modelo !== GEMINI_MODELO_RESERVA) tentativas.push({ modelo: GEMINI_MODELO_RESERVA, comEsquema: false });
+
+  let r: Response | null = null;
   let corpoErro = '';
-  if (r.status === 400) {
+  let usado = modelo;
+  for (let i = 0; i < tentativas.length; i++) {
+    const t = tentativas[i];
+    if (i > 0) await new Promise((ok) => setTimeout(ok, 800));
+    usado = t.modelo;
+    corpoErro = '';
+    r = await postarComPrazo(urlDo(t.modelo), headers, montar(t.comEsquema));
+    if (!r) continue;
+    if (r.ok) break;
     corpoErro = await r.text().catch(() => '');
-    // Se o modelo não aceitar o esquema, tenta de novo pedindo o JSON pelo texto
-    // (a validação abaixo continua descartando qualquer coisa fora do formato).
-    if (/schema/i.test(corpoErro) && !/api.?key/i.test(corpoErro)) {
-      r = await postarComPrazo(url, headers, montar(false));
-      if (!r) return { ok: false, motivo: 'A leitura demorou demais ou a IA está indisponível.' };
-      corpoErro = '';
-    }
+    const erroDeEsquema = r.status === 400 && /schema/i.test(corpoErro) && !/api.?key/i.test(corpoErro);
+    if (r.status === 404 && t.modelo !== GEMINI_MODELO_RESERVA) { i = tentativas.length - 2; continue; }
+    if (!(erroDeEsquema || r.status >= 500)) break;
   }
+  if (!r) return { ok: false, motivo: 'A leitura demorou demais ou o Gemini está indisponível.' };
+  if (!r.ok) return { ok: false, motivo: `${classificarErroGemini(r.status, corpoErro, usado)} [${usado}, HTTP ${r.status}]` };
+  const leitura = await lerRespostaGemini(r);
+  return leitura.ok ? { ...leitura, modelo: usado } : leitura;
+}
 
-  if (!r.ok) {
-    if (!corpoErro) corpoErro = await r.text().catch(() => '');
-    // Só a classificação do erro é usada; o corpo nunca é repassado.
-    if (r.status === 401 || (r.status === 400 && /api.?key/i.test(corpoErro))) {
-      return { ok: false, motivo: 'A chave do Gemini (GEMINI_API_KEY no Worker) foi recusada. Confira o valor no Cloudflare.' };
-    }
-    if (r.status === 403) {
-      return { ok: false, motivo: 'O Google recusou a chave do Gemini (chave inválida, bloqueada ou projeto precisando de verificação em aistudio.google.com).' };
-    }
-    if (r.status === 404) {
-      return { ok: false, motivo: `O modelo "${modelo}" não existe ou não está disponível para esta chave. Configure GEMINI_OCR_MODEL no Cloudflare.` };
-    }
-    if (r.status === 429) {
-      return { ok: false, motivo: 'Limite gratuito do Gemini atingido (por minuto ou por dia). Aguarde um pouco e tente de novo.' };
-    }
-    if (r.status === 400 && /mime|unsupported|inline/i.test(corpoErro)) {
-      return { ok: false, motivo: 'O Gemini não aceitou este tipo de arquivo. Tente uma foto JPG/PNG.' };
-    }
-    if (r.status >= 500) return { ok: false, motivo: 'O Gemini está indisponível no momento. Tente de novo em instantes.' };
-    return { ok: false, motivo: 'A IA não conseguiu processar o documento.' };
+// Só a classificação do erro é usada; o corpo devolvido pelo Google nunca é repassado.
+function classificarErroGemini(status: number, corpoErro: string, modelo: string): string {
+  if (status === 401 || (status === 400 && /api.?key/i.test(corpoErro))) {
+    return 'A chave do Gemini (GEMINI_API_KEY no Worker) foi recusada. Confira o valor no Cloudflare.';
   }
+  if (status === 403) {
+    return 'O Google recusou a chave do Gemini (chave inválida, bloqueada ou projeto precisando de verificação em aistudio.google.com).';
+  }
+  if (status === 404) {
+    return `O modelo "${modelo}" não existe ou não está disponível para esta chave. Configure GEMINI_OCR_MODEL no Cloudflare.`;
+  }
+  if (status === 429) return 'Limite gratuito do Gemini atingido (por minuto ou por dia). Aguarde um pouco e tente de novo.';
+  if (status === 400 && /mime|unsupported|inline/i.test(corpoErro)) return 'O Gemini não aceitou este tipo de arquivo. Tente uma foto JPG/PNG.';
+  if (status >= 500) return 'O Gemini está indisponível no momento. Tente de novo em instantes.';
+  return 'A IA não conseguiu processar o documento.';
+}
 
+async function lerRespostaGemini(r: Response): Promise<Leitura> {
   const corpo = await r.json().catch(() => null) as {
     promptFeedback?: { blockReason?: unknown };
     candidates?: Array<{ finishReason?: unknown; content?: { parts?: Array<{ text?: unknown; thought?: unknown }> } }>;
@@ -376,7 +394,7 @@ async function registrarStatus(env: PurchaseOcrEnv, id: string, status: 'process
   }
 }
 
-export async function chamarOpenAiNota(env: PurchaseOcrEnv, mime: string, base64: string, modelo: string): Promise<{ ok: true; nota: NotaLida } | { ok: false; motivo: string }> {
+export async function chamarOpenAiNota(env: PurchaseOcrEnv, mime: string, base64: string, modelo: string): Promise<Leitura> {
   const conteudoArquivo = mime === 'application/pdf'
     ? { type: 'file', file: { filename: 'nota.pdf', file_data: `data:application/pdf;base64,${base64}` } }
     : { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}`, detail: 'high' } };
@@ -508,6 +526,7 @@ export async function tratarOcrCompra(request: Request, env: PurchaseOcrEnv, cor
     return json({ error: `${leitura.motivo} Você pode preencher a compra manualmente.` }, 502);
   }
 
-  await registrarStatus(env, doc.id, 'done', leitura.nota, modelo, null);
-  return json({ ok: true, document_id: doc.id, model: modelo, result: leitura.nota }, 200);
+  const modeloUsado = leitura.modelo || modelo;
+  await registrarStatus(env, doc.id, 'done', leitura.nota, modeloUsado, null);
+  return json({ ok: true, document_id: doc.id, model: modeloUsado, result: leitura.nota }, 200);
 }
