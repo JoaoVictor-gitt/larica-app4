@@ -230,14 +230,20 @@ async function exigirAdmin(request: Request, env: PurchaseOcrEnv): Promise<Resul
   return { ok: true, value: null };
 }
 
+// Cabeçalhos da chave de serviço. Chave nova do Supabase ("sb_secret_...") não é JWT:
+// vai só no cabeçalho apikey (mandá-la como Authorization: Bearer faz o Supabase
+// responder 401). Chave antiga (JWT service_role) continua indo nos dois.
+export function cabecalhosServico(env: PurchaseOcrEnv): Record<string, string> {
+  const chave = env.SUPABASE_SERVICE_ROLE_KEY;
+  return chave.startsWith('sb_') ? { 'apikey': chave } : { 'apikey': chave, 'Authorization': `Bearer ${chave}` };
+}
+
+const ERRO_CHAVE_SERVICO = 'Configuração do servidor: a chave de serviço do Supabase (SUPABASE_SERVICE_ROLE_KEY no Worker) foi recusada. Confira o valor no Cloudflare.';
+
 async function chamarRpcServico(env: PurchaseOcrEnv, nome: string, args: unknown): Promise<Response> {
   return fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${nome}`, {
     method: 'POST',
-    headers: {
-      'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
-      'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { ...cabecalhosServico(env), 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
 }
@@ -325,9 +331,17 @@ export async function tratarOcrCompra(request: Request, env: PurchaseOcrEnv, cor
   let doc: { id: string; storage_path: string; mime_type: string; size_bytes: number } | undefined;
   try {
     const r = await fetch(`${env.SUPABASE_URL}/rest/v1/purchase_documents?id=eq.${documentId}&select=id,storage_path,mime_type,size_bytes`, {
-      headers: { 'apikey': env.SUPABASE_SERVICE_ROLE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` },
+      headers: cabecalhosServico(env),
     });
-    const linhas = r.ok ? await r.json() as Array<typeof doc> : [];
+    if (r.status === 401 || r.status === 403) {
+      await r.text().catch(() => undefined);
+      return json({ error: ERRO_CHAVE_SERVICO, code: 'service_key_rejected' }, 500);
+    }
+    if (!r.ok) {
+      await r.text().catch(() => undefined);
+      return json({ error: 'Falha ao buscar o documento.' }, 502);
+    }
+    const linhas = await r.json() as Array<typeof doc>;
     doc = linhas[0];
   } catch {
     return json({ error: 'Falha ao buscar o documento.' }, 502);
@@ -342,8 +356,12 @@ export async function tratarOcrCompra(request: Request, env: PurchaseOcrEnv, cor
   let arquivo: ArrayBuffer;
   try {
     const r = await fetch(`${env.SUPABASE_URL}/storage/v1/object/purchase-documents/${doc.storage_path}`, {
-      headers: { 'apikey': env.SUPABASE_SERVICE_ROLE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` },
+      headers: cabecalhosServico(env),
     });
+    if (r.status === 401 || r.status === 403) {
+      await r.text().catch(() => undefined);
+      return json({ error: ERRO_CHAVE_SERVICO, code: 'service_key_rejected' }, 500);
+    }
     if (!r.ok) {
       await r.text().catch(() => undefined);
       await registrarStatus(env, doc.id, 'failed', null, modelo, 'arquivo indisponível');
