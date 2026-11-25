@@ -770,7 +770,9 @@ function abrirFormularioAdicional(id) {
     )
     .join('');
 
+  // Só a categoria Bebidas (lista curta); uma já marcada de outra categoria continua, para não sumir ao salvar.
   document.getElementById('adicional-lista-bebidas').innerHTML = candidatosItemAdicional([...acrescimo.keys()])
+    .filter((p) => p.categoria === 'Bebidas' || acrescimo.has(p.id))
     .sort(ordenar(acrescimo, 'Bebidas'))
     .map(
       (p) => `
