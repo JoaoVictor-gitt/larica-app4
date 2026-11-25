@@ -916,12 +916,20 @@ function renderizarListaComposicao(produtoAtual) {
     return;
   }
 
+  // Só espetos (categoria Espetinhos — o Pão de Alho é um deles), para a lista ficar curta. Um item já
+  // gravado de outra categoria continua aparecendo, para nunca sumir da composição ao salvar.
   const candidatos = obterProdutos()
-    .filter((p) => p.id !== idAtual && p.categoria !== 'Combos' && (p.composicao || []).length === 0 && (p.status === 'ativo' || atual.has(p.id)))
+    .filter(
+      (p) =>
+        p.id !== idAtual &&
+        p.categoria !== 'Combos' &&
+        (p.composicao || []).length === 0 &&
+        (atual.has(p.id) || (p.categoria === 'Espetinhos' && p.status === 'ativo'))
+    )
     .sort((a, b) => (atual.has(b.id) ? 1 : 0) - (atual.has(a.id) ? 1 : 0) || a.nome.localeCompare(b.nome));
 
   if (candidatos.length === 0) {
-    lista.innerHTML = '<p class="dica-campo">Nenhum produto ativo para usar como item.</p>';
+    lista.innerHTML = '<p class="dica-campo">Nenhum espeto ativo para usar como item.</p>';
     return;
   }
   lista.innerHTML = candidatos
