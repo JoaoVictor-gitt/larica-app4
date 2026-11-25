@@ -43,8 +43,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
   carregando.style.display = 'none';
-  // Botão "Adicionais" só com a migration de adicionais aplicada.
-  document.getElementById('botao-adicionais').style.display = adicionaisProdutosDisponivel() ? '' : 'none';
 
   preencherFiltroCategorias();
   renderizarLista();
@@ -574,7 +572,7 @@ function abrirModalCriacao() {
   document.getElementById('campo-custo').placeholder = 'Não cadastrado';
   resetarEstadoFoto('');
   renderizarListaComposicao(null);
-  renderizarListaAdicionaisProduto(null);
+  renderizarListaAdicionaisProduto([]);
   atualizarVisibilidadeCamposPorCategoria();
   atualizarDicaOrigemEstoque();
   abrirModal();
@@ -618,7 +616,7 @@ function abrirModalEdicao(id) {
   document.getElementById('campo-qtd-acompanhamentos').value = combo ? combo.allowedSides : 1;
 
   renderizarListaComposicao(produto);
-  renderizarListaAdicionaisProduto(produto);
+  renderizarListaAdicionaisProduto(produto.adicionaisIds);
   atualizarVisibilidadeCamposPorCategoria();
   atualizarDicaOrigemEstoque();
   renderizarListaItensInclusos(combo ? combo.includedItems : []);
@@ -677,36 +675,40 @@ function atualizarVisibilidadeCamposPorCategoria() {
   atualizarEstadoCampoCusto(ehCombo, ehEspetinho);
   // Combos já baixam pelos itens escolhidos — não usam composição. Sem a migration, a seção não aparece.
   document.getElementById('grupo-composicao').style.display = !ehCombo && composicaoProdutosDisponivel() ? '' : 'none';
-  // Adicionais (ex.: + Batata + Refri): idem — combos não usam; sem a migration, escondido.
-  document.getElementById('grupo-adicionais-produto').style.display = !ehCombo && adicionaisProdutosDisponivel() ? '' : 'none';
+  // A seção "Combos (adicionais)" depende da composição: atualizarCamposPorComposicao() decide.
   atualizarCamposPorComposicao();
 }
 
 // ---------------------------------------------------------------------------
-// Adicionais — oferecidos por produto (formulário) e cadastro (modal "Adicionais")
+// Combos (adicionais) do produto montado — ex.: sanduíche + Batata + Refri.
+// Cadastrados e marcados DENTRO do formulário do produto; o editor abre por cima dele.
+// Um combo é compartilhado entre os produtos que o oferecem (mesmo preço/itens).
 // ---------------------------------------------------------------------------
 
-/** Checklist dos adicionais cadastrados, marcando os que o produto oferece. */
-function renderizarListaAdicionaisProduto(produtoAtual) {
+/** Checklist dos combos cadastrados (marcados = ids), cada um com botão de editar. */
+function renderizarListaAdicionaisProduto(idsMarcados) {
   const lista = document.getElementById('lista-adicionais-produto');
   if (!adicionaisProdutosDisponivel()) {
     lista.innerHTML = '';
     return;
   }
-  const marcados = new Set((produtoAtual && produtoAtual.adicionaisIds) || []);
+  const marcados = new Set(idsMarcados || []);
   const adicionais = obterAdicionais();
   if (adicionais.length === 0) {
-    lista.innerHTML = '<p class="dica-campo">Nenhum adicional cadastrado ainda.</p>';
+    lista.innerHTML = '<p class="dica-campo">Nenhum combo cadastrado ainda. Use "+ Novo combo".</p>';
     return;
   }
   const moeda = obterConfiguracoes().moeda;
   lista.innerHTML = adicionais
     .map(
       (a) => `
-        <label class="linha-item-incluso ${a.ativo ? '' : 'linha-item-incluso-indisponivel'}">
-          <input type="checkbox" class="campo-adicional-produto" value="${a.id}" ${marcados.has(a.id) ? 'checked' : ''} />
-          <span>${escaparHtml(a.nome)} (+${formatarMoeda(a.preco, moeda)})${a.ativo ? '' : ' <em>(inativo)</em>'}</span>
-        </label>`
+        <div class="linha-acrescimo-espeto ${a.ativo ? '' : 'linha-item-incluso-indisponivel'}">
+          <label class="linha-checkbox-adicional">
+            <input type="checkbox" class="campo-adicional-produto" value="${a.id}" ${marcados.has(a.id) ? 'checked' : ''} />
+            <span>${escaparHtml(a.nome)} (+${formatarMoeda(a.preco, moeda)})${a.ativo ? '' : ' <em>(inativo)</em>'}</span>
+          </label>
+          <button type="button" class="btn-icone" data-acao="editar-adicional" data-id="${a.id}" title="Editar combo">✏️</button>
+        </div>`
     )
     .join('');
 }
@@ -723,56 +725,23 @@ function candidatosItemAdicional(idsJaUsados) {
   );
 }
 
-function abrirModalAdicionais() {
-  mostrarListaAdicionais();
-  document.getElementById('modal-overlay-adicionais').classList.add('modal-visivel');
-}
-
 function fecharModalAdicionais() {
   document.getElementById('modal-overlay-adicionais').classList.remove('modal-visivel');
 }
 
-function mostrarListaAdicionais() {
-  document.getElementById('adicionais-titulo').textContent = 'Adicionais';
-  document.getElementById('adicionais-visao-lista').style.display = '';
-  document.getElementById('form-adicional').style.display = 'none';
-  renderizarListaAdicionais();
+/** Redesenha a lista de combos do formulário do produto mantendo o que já estava marcado (+ extras). */
+function atualizarListaAdicionaisNoFormulario(idsParaMarcar, idsParaDesmarcar) {
+  const marcados = new Set(lerAdicionaisDoProdutoNoFormulario().concat(idsParaMarcar || []));
+  (idsParaDesmarcar || []).forEach((id) => marcados.delete(id));
+  renderizarListaAdicionaisProduto([...marcados]);
 }
 
-function renderizarListaAdicionais() {
-  const container = document.getElementById('lista-adicionais');
-  const adicionais = obterAdicionais();
-  if (adicionais.length === 0) {
-    container.innerHTML = '<p class="dica-campo">Nenhum adicional cadastrado ainda.</p>';
-    return;
-  }
-  const moeda = obterConfiguracoes().moeda;
-  const nomeDe = (id) => (obterProdutoPorId(id) || {}).nome || 'produto removido';
-  container.innerHTML = adicionais
-    .map((a) => {
-      const itens = a.itens.map((i) => `${nomeDe(i.produtoId)} × ${i.quantidade}`).join(', ');
-      const bebidas = a.escolhas.length ? `${a.escolhas.length} bebida(s) à escolha` : 'sem escolha de bebida';
-      const produtos = a.produtosIds.length ? `oferecido em ${a.produtosIds.length} produto(s)` : 'não oferecido em nenhum produto';
-      return `
-        <div class="linha-adicional ${a.ativo ? '' : 'linha-adicional-inativo'}">
-          <div class="linha-adicional-info">
-            <strong>${escaparHtml(a.nome)}</strong> · +${formatarMoeda(a.preco, moeda)}${a.ativo ? '' : ' · <em>inativo</em>'}
-            <small>${escaparHtml([itens, bebidas, produtos].filter(Boolean).join(' · '))}</small>
-          </div>
-          <div class="acoes-linha">
-            <button type="button" class="btn-icone" data-acao="editar-adicional" data-id="${a.id}" title="Editar">✏️</button>
-            <button type="button" class="btn-icone" data-acao="excluir-adicional" data-id="${a.id}" title="Excluir">🗑️</button>
-          </div>
-        </div>`;
-    })
-    .join('');
-}
-
+/** Abre o editor de combo (novo ou existente) por cima do formulário do produto. */
 function abrirFormularioAdicional(id) {
   const adicional = id ? obterAdicionais().find((a) => a.id === id) : null;
-  document.getElementById('adicionais-titulo').textContent = adicional ? 'Editar adicional' : 'Novo adicional';
-  document.getElementById('adicionais-visao-lista').style.display = 'none';
-  document.getElementById('form-adicional').style.display = '';
+  document.getElementById('adicionais-titulo').textContent = adicional ? 'Editar combo' : 'Novo combo';
+  document.getElementById('botao-excluir-adicional').style.display = adicional ? '' : 'none';
+  document.getElementById('modal-overlay-adicionais').classList.add('modal-visivel');
   document.getElementById('adicional-erro').style.display = 'none';
   document.getElementById('adicional-id').value = adicional ? adicional.id : '';
   document.getElementById('adicional-nome').value = adicional ? adicional.nome : '';
@@ -825,7 +794,7 @@ function lerFormularioAdicional() {
   const nome = document.getElementById('adicional-nome').value.trim().replace(/\s+/g, ' ');
   const precoBruto = document.getElementById('adicional-preco').value;
   const preco = Number(precoBruto);
-  if (!nome) return { erro: 'Informe o nome do adicional.' };
+  if (!nome) return { erro: 'Informe o nome do combo.' };
   if (precoBruto === '' || !Number.isFinite(preco) || preco < 0 || preco > 999) return { erro: 'Informe um preço válido (0 a 999).' };
 
   const itens = [];
@@ -873,12 +842,14 @@ async function salvarFormularioAdicional(evento) {
   botao.disabled = true;
   botao.textContent = 'Salvando…';
   try {
-    await salvarAdicionalNoSupabase(adicional);
+    const salvo = await salvarAdicionalNoSupabase(adicional);
     await carregarProdutosCache();
-    mostrarToast(`Adicional "${adicional.nome}" salvo.`, 'sucesso');
-    mostrarListaAdicionais();
+    mostrarToast(`Combo "${adicional.nome}" salvo.`, 'sucesso');
+    fecharModalAdicionais();
+    // Combo novo já fica marcado no produto em edição (a ligação é gravada ao salvar o produto).
+    atualizarListaAdicionaisNoFormulario(!adicional.id && salvo && salvo.id ? [salvo.id] : []);
   } catch (e) {
-    erro.textContent = e.message || 'Não foi possível salvar o adicional.';
+    erro.textContent = e.message || 'Não foi possível salvar o combo.';
     erro.style.display = '';
   } finally {
     _salvandoAdicional = false;
@@ -887,35 +858,35 @@ async function salvarFormularioAdicional(evento) {
   }
 }
 
-async function excluirAdicionalComConfirmacao(id) {
+async function excluirAdicionalComConfirmacao() {
+  const id = document.getElementById('adicional-id').value;
   const adicional = obterAdicionais().find((a) => a.id === id);
   if (!adicional) return;
   const aviso = adicional.produtosIds.length ? ` Ele deixa de ser oferecido em ${adicional.produtosIds.length} produto(s).` : '';
-  if (!confirm(`Excluir o adicional "${adicional.nome}"?${aviso} Pedidos já feitos não mudam.`)) return;
+  if (!confirm(`Excluir o combo "${adicional.nome}"?${aviso} Pedidos já feitos não mudam.`)) return;
   try {
     await excluirAdicionalNoSupabase(id);
     await carregarProdutosCache();
-    mostrarToast('Adicional excluído.', 'sucesso');
+    mostrarToast('Combo excluído.', 'sucesso');
+    fecharModalAdicionais();
+    atualizarListaAdicionaisNoFormulario([], [id]);
   } catch (e) {
-    mostrarToast('Não foi possível excluir o adicional. ' + e.message, 'erro');
+    mostrarToast('Não foi possível excluir o combo. ' + e.message, 'erro');
   }
-  renderizarListaAdicionais();
 }
 
 function ligarEventosAdicionais() {
-  document.getElementById('botao-adicionais').addEventListener('click', abrirModalAdicionais);
   document.getElementById('botao-fechar-adicionais').addEventListener('click', fecharModalAdicionais);
+  document.getElementById('botao-voltar-adicionais').addEventListener('click', fecharModalAdicionais);
   document.getElementById('modal-overlay-adicionais').addEventListener('click', (evento) => {
     if (evento.target.id === 'modal-overlay-adicionais') fecharModalAdicionais();
   });
   document.getElementById('botao-novo-adicional').addEventListener('click', () => abrirFormularioAdicional(null));
-  document.getElementById('botao-voltar-adicionais').addEventListener('click', mostrarListaAdicionais);
+  document.getElementById('botao-excluir-adicional').addEventListener('click', excluirAdicionalComConfirmacao);
   document.getElementById('form-adicional').addEventListener('submit', salvarFormularioAdicional);
-  document.getElementById('lista-adicionais').addEventListener('click', (evento) => {
-    const botao = evento.target.closest('[data-acao]');
-    if (!botao) return;
-    if (botao.dataset.acao === 'editar-adicional') abrirFormularioAdicional(botao.dataset.id);
-    if (botao.dataset.acao === 'excluir-adicional') excluirAdicionalComConfirmacao(botao.dataset.id);
+  document.getElementById('lista-adicionais-produto').addEventListener('click', (evento) => {
+    const botao = evento.target.closest('[data-acao="editar-adicional"]');
+    if (botao) abrirFormularioAdicional(botao.dataset.id);
   });
 }
 
@@ -997,6 +968,8 @@ function atualizarCamposPorComposicao() {
   origem.disabled = composto;
   atualizarDicaOrigemEstoque();
   document.getElementById('dica-origem-composicao').style.display = composto ? '' : 'none';
+  // Combos (Batata + Refri...) só para produto montado (os sanduíches) e com a migration aplicada.
+  document.getElementById('grupo-adicionais-produto').style.display = composto && adicionaisProdutosDisponivel() ? '' : 'none';
 }
 
 /**
@@ -1281,9 +1254,10 @@ async function salvarFormularioProduto(evento) {
   }
   const composicaoAnterior = id ? ((obterProdutoPorId(id) || {}).composicao || []) : [];
   const ehComposto = composicao.length > 0;
-  // Adicionais oferecidos (ex.: + Batata + Refri). Combo nunca oferece.
+  // Combos/adicionais oferecidos (ex.: + Batata + Refri): só produto montado (sanduíche). Sem
+  // composição (ou combo), a lista vai vazia — e um produto que deixou de ser montado perde os combos.
   const usaAdicionais = adicionaisProdutosDisponivel();
-  const adicionaisIds = !usaAdicionais || ehCombo ? [] : lerAdicionaisDoProdutoNoFormulario();
+  const adicionaisIds = !usaAdicionais || ehCombo || !ehComposto ? [] : lerAdicionaisDoProdutoNoFormulario();
   const adicionaisAnteriores = id ? ((obterProdutoPorId(id) || {}).adicionaisIds || []) : [];
 
   // Foto: decide o valor final de image_url ANTES de tocar no produto. Se houver arquivo

@@ -302,37 +302,6 @@
   display: block;
 }
 
-.lista-adicionais {
-  display: flex;
-  flex-direction: column;
-  gap: var(--espaco-sm);
-  margin: var(--espaco-md) 0;
-}
-
-.linha-adicional {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--espaco-sm);
-  padding: var(--espaco-sm) var(--espaco-md);
-  border: 1px solid var(--cor-borda);
-  border-radius: var(--raio-sm);
-}
-
-.linha-adicional-info {
-  min-width: 0;
-}
-
-.linha-adicional-info small {
-  display: block;
-  color: var(--cor-texto-secundario);
-  font-size: 0.82rem;
-}
-
-.linha-adicional-inativo {
-  opacity: 0.6;
-}
-
 .linha-checkbox-adicional {
   display: flex;
   align-items: center;

@@ -13,7 +13,7 @@
   </script>
   <title>Produtos | Larica Food Truck</title>
   <link rel="stylesheet" href="css/style.css" />
-  <link rel="stylesheet" href="css/produtos.css?v=20261125d" />
+  <link rel="stylesheet" href="css/produtos.css?v=20261125e" />
   <link rel="stylesheet" href="css/responsive.css" />
 </head>
 <body data-pagina="produtos" data-area="admin">
@@ -26,7 +26,6 @@
           <span aria-hidden="true">🔍</span><span class="rotulo-lupa">Pesquisar</span>
           <span class="badge-filtros-ativos" id="badge-filtros-ativos" style="display:none;"></span>
         </button>
-        <button type="button" class="btn btn-secundario" id="botao-adicionais" style="display:none;" title="Cadastrar adicionais (ex.: Batata + Refri)">Adicionais</button>
         <button class="btn btn-primario" id="botao-novo-produto">+ Novo Produto</button>
       </div>
     </div>
@@ -193,11 +192,13 @@
               <div id="lista-composicao" class="lista-checklist-combo"></div>
             </div>
 
-            <!-- Adicionais oferecidos (ex.: + Batata + Refri) — js/produtos.js; escondida para Combos e sem a migration -->
+            <!-- Combos do produto montado (ex.: sanduíche + Batata + Refri) — js/produtos.js. Só aparece em
+                 produto com "Consome do estoque" (os sanduíches); escondida sem a migration de adicionais. -->
             <div class="form-grupo" id="grupo-adicionais-produto" style="display:none;">
-              <label>Adicionais oferecidos</label>
-              <p class="dica-campo">Ao pedir este produto, o cliente pode escolher um destes adicionais. Cadastre-os no botão "Adicionais", no topo da página.</p>
+              <label>Combos (adicionais)</label>
+              <p class="dica-campo">Opções que o cliente pode escolher junto com este produto (ex.: + Batata + Refri). Marque as que este produto oferece. Um combo é compartilhado: alterar aqui vale para todos os produtos que o oferecem.</p>
               <div id="lista-adicionais-produto" class="lista-checklist-combo"></div>
+              <button type="button" class="btn btn-secundario" id="botao-novo-adicional" style="margin-top:8px;">+ Novo combo</button>
             </div>
 
             <div class="form-grupo">
@@ -261,21 +262,15 @@
     </div>
   </div>
 
-  <!-- Modal de adicionais (lista + formulário) — js/produtos.js, seção "Adicionais" -->
+  <!-- Editor de combo (adicional), aberto por cima do formulário do produto — js/produtos.js, seção "Adicionais" -->
   <div class="modal-overlay" id="modal-overlay-adicionais">
     <div class="modal">
       <div class="modal-cabecalho">
-        <h2 id="adicionais-titulo">Adicionais</h2>
+        <h2 id="adicionais-titulo">Novo combo</h2>
         <button type="button" class="btn-icone" id="botao-fechar-adicionais" aria-label="Fechar">✕</button>
       </div>
 
-      <div class="modal-corpo modal-corpo-adicionais" id="adicionais-visao-lista">
-        <p class="dica-campo">Opções que o cliente escolhe junto com um produto (ex.: sanduíche + Batata + Refri). Depois de cadastrar, marque em cada produto quais adicionais ele oferece.</p>
-        <div id="lista-adicionais" class="lista-adicionais"></div>
-        <button type="button" class="btn btn-primario" id="botao-novo-adicional">+ Novo adicional</button>
-      </div>
-
-      <form id="form-adicional" style="display:none;">
+      <form id="form-adicional">
         <input type="hidden" id="adicional-id" />
         <div class="modal-corpo modal-corpo-adicionais">
           <div style="display:flex; gap:12px;">
@@ -304,8 +299,9 @@
           <p class="dica-campo erro-nova-categoria" id="adicional-erro" style="display:none;"></p>
         </div>
         <div class="modal-rodape">
-          <button type="button" class="btn btn-secundario" id="botao-voltar-adicionais">Voltar</button>
-          <button type="submit" class="btn btn-primario" id="botao-salvar-adicional">Salvar adicional</button>
+          <button type="button" class="btn btn-secundario" id="botao-excluir-adicional" style="display:none; margin-right:auto;">Excluir combo</button>
+          <button type="button" class="btn btn-secundario" id="botao-voltar-adicionais">Cancelar</button>
+          <button type="submit" class="btn btn-primario" id="botao-salvar-adicional">Salvar combo</button>
         </div>
       </form>
     </div>
@@ -319,6 +315,6 @@
   <script src="js/services/products-service.js?v=20261125d"></script>
   <script src="js/services/product-costs-service.js"></script>
   <script src="js/app.js"></script>
-  <script src="js/produtos.js?v=20261125d"></script>
+  <script src="js/produtos.js?v=20261125e"></script>
 </body>
 </html>
