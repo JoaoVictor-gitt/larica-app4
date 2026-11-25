@@ -203,8 +203,14 @@ async function criarCategoriaPeloFormulario() {
   }
 
   const botao = document.getElementById('botao-criar-categoria');
+  const botaoCancelar = document.getElementById('botao-cancelar-nova-categoria');
+  const textoBotao = botao.textContent;
   _criandoCategoria = true;
   botao.disabled = true;
+  botaoCancelar.disabled = true;
+  campo.disabled = true;
+  botao.textContent = 'Criando…';
+  botao.setAttribute('aria-busy', 'true');
   try {
     const criada = await criarCategoriaPersonalizadaNoSupabase(nome);
     const idEmEdicao = document.getElementById('campo-id').value;
@@ -221,6 +227,10 @@ async function criarCategoriaPeloFormulario() {
   } finally {
     _criandoCategoria = false;
     botao.disabled = false;
+    botaoCancelar.disabled = false;
+    campo.disabled = false;
+    botao.textContent = textoBotao;
+    botao.removeAttribute('aria-busy');
   }
 }
 

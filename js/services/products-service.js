@@ -91,8 +91,18 @@ function _categoriaPersonalizadaPorId(id) {
 async function criarCategoriaPersonalizadaNoSupabase(nome) {
   const { data, error } = await supabaseClient.rpc('admin_create_product_category', { p_name: nome });
   if (error) throw new Error(error.message);
-  await buscarCategoriasPersonalizadasDoSupabase();
-  return { id: data.id, nome: data.name };
+  const criada = { id: data.id, nome: data.name };
+  try {
+    await buscarCategoriasPersonalizadasDoSupabase();
+  } catch (erroLeitura) {
+    // A categoria JÁ foi gravada: falhar aqui faria o usuário tentar de novo e receber "Já existe".
+    // Acrescenta localmente; a próxima carga da página traz a lista completa do banco.
+    console.warn('[CATEGORIAS] Categoria criada, mas a lista não pôde ser recarregada:', erroLeitura.message);
+    if (!_categoriaPersonalizadaPorId(criada.id)) {
+      _categoriasPersonalizadas.push({ id: criada.id, nome: criada.nome, ordem: 0, ativa: true });
+    }
+  }
+  return criada;
 }
 
 function _linhaSupabaseParaProduto(linha) {
