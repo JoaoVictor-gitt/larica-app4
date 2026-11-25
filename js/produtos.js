@@ -68,7 +68,30 @@ async function carregarCustosProdutos() {
  */
 function custoUnitarioDoProduto(produto) {
   if (produto.categoria === 'Combos') return null;
+  const proprio = custoProprioDoProduto(produto);
+  if (proprio !== null) return proprio;
+  return custoPelaComposicao(produto);
+}
+
+/** Custo cadastrado no próprio produto (product_costs), ou null. É o único que o formulário edita. */
+function custoProprioDoProduto(produto) {
   return mapaCustos.has(produto.id) ? mapaCustos.get(produto.id) : null;
+}
+
+/**
+ * Produto composto (sanduíche) sem custo próprio: soma custo × quantidade dos itens — mesma regra do
+ * create_customer_order. null se não for composto ou se algum item não tiver custo (nunca inventa).
+ */
+function custoPelaComposicao(produto) {
+  const itens = produto.composicao || [];
+  if (itens.length === 0) return null;
+  let total = 0;
+  for (const item of itens) {
+    const custo = mapaCustos.has(item.produtoId) ? mapaCustos.get(item.produtoId) : null;
+    if (custo === null) return null;
+    total += custo * item.quantidade;
+  }
+  return total;
 }
 
 /**
@@ -378,9 +401,13 @@ function linhaProdutoHtml(produto) {
 
   const status = calcularStatusEstoque(produto.quantidadeEstoque);
   // Combos não têm estoque próprio (ver comboConfig) — não faz sentido mostrar o badge de estoque pra eles.
+  // Produto composto (sanduíche): mostra quantos dá para montar com o estoque dos itens.
+  const ehComposto = (produto.composicao || []).length > 0;
   const colunaEstoque = produto.comboConfig
     ? '—'
-    : `<span class="badge badge-${status}">${produto.quantidadeEstoque}</span>`;
+    : ehComposto
+      ? `<span class="badge badge-${status}" title="Quantos dá para montar com o estoque dos itens">${produto.quantidadeEstoque}</span> <span class="texto-custo-indisponivel">pelos itens</span>`
+      : `<span class="badge badge-${status}">${produto.quantidadeEstoque}</span>`;
 
   let avisoCombo = '';
   if (produto.comboConfig) {
@@ -501,6 +528,7 @@ function ligarEventosModal() {
 
   document.getElementById('form-produto').addEventListener('submit', salvarFormularioProduto);
   document.getElementById('campo-origem-estoque').addEventListener('change', atualizarDicaOrigemEstoque);
+  document.getElementById('lista-composicao').addEventListener('input', atualizarCamposPorComposicao);
   ligarEventoCategoria();
 
   document.getElementById('botao-criar-categoria').addEventListener('click', criarCategoriaPeloFormulario);
@@ -528,7 +556,9 @@ function abrirModalCriacao() {
   document.getElementById('campo-ordem').value = 0;
   document.getElementById('campo-qtd-espetos').value = 1;
   document.getElementById('campo-qtd-acompanhamentos').value = 1;
+  document.getElementById('campo-custo').placeholder = 'Não cadastrado';
   resetarEstadoFoto('');
+  renderizarListaComposicao(null);
   atualizarVisibilidadeCamposPorCategoria();
   atualizarDicaOrigemEstoque();
   abrirModal();
@@ -557,8 +587,13 @@ function abrirModalEdicao(id) {
   // Custo (Etapa 2): combo nunca mostra valor aqui (ver custoUnitarioDoProduto) —
   // atualizarVisibilidadeCamposPorCategoria(), chamada mais abaixo, cuida de
   // desabilitar/limpar o campo pra combo e pra quem não é admin.
-  const custoAtual = custoUnitarioDoProduto(produto);
+  // Só o custo PRÓPRIO entra no campo (o calculado pelos itens aparece como dica) — senão salvar o
+  // formulário congelaria a soma dos itens como custo fixo do produto composto.
+  const custoAtual = custoProprioDoProduto(produto);
   document.getElementById('campo-custo').value = custoAtual === null ? '' : custoAtual;
+  const custoItens = custoPelaComposicao(produto);
+  document.getElementById('campo-custo').placeholder =
+    custoItens === null ? 'Não cadastrado' : 'Pelos itens: ' + formatarMoeda(custoItens, obterConfiguracoes().moeda);
   resetarEstadoFoto(produto.foto || '');
 
   const combo = produto.comboConfig;
@@ -566,6 +601,7 @@ function abrirModalEdicao(id) {
   document.getElementById('campo-qtd-espetos').value = combo ? combo.allowedSkewers : 1;
   document.getElementById('campo-qtd-acompanhamentos').value = combo ? combo.allowedSides : 1;
 
+  renderizarListaComposicao(produto);
   atualizarVisibilidadeCamposPorCategoria();
   atualizarDicaOrigemEstoque();
   renderizarListaItensInclusos(combo ? combo.includedItems : []);
@@ -576,10 +612,12 @@ function abrirModalEdicao(id) {
 
 /** Mostra só a dica correspondente à origem de estoque selecionada — Etapa K2, mesmo padrão de atualizarEstadoCampoCusto(). */
 function atualizarDicaOrigemEstoque() {
-  const origem = document.getElementById('campo-origem-estoque').value;
+  const campo = document.getElementById('campo-origem-estoque');
+  const origem = campo.value;
+  // Travado = produto montado (composição): quem explica é a dica-origem-composicao.
   document.getElementById('dica-origem-purchased').style.display = origem === 'purchased' ? '' : 'none';
   document.getElementById('dica-origem-produced').style.display = origem === 'produced' ? '' : 'none';
-  document.getElementById('dica-origem-untracked').style.display = origem === 'untracked' ? '' : 'none';
+  document.getElementById('dica-origem-untracked').style.display = origem === 'untracked' && !campo.disabled ? '' : 'none';
 }
 
 // ---------------------------------------------------------------------------
@@ -620,6 +658,89 @@ function atualizarVisibilidadeCamposPorCategoria() {
   document.getElementById('campo-qtd-espetos').required = ehCombo;
   document.getElementById('campo-qtd-acompanhamentos').required = ehCombo;
   atualizarEstadoCampoCusto(ehCombo, ehEspetinho);
+  // Combos já baixam pelos itens escolhidos — não usam composição. Sem a migration, a seção não aparece.
+  document.getElementById('grupo-composicao').style.display = !ehCombo && composicaoProdutosDisponivel() ? '' : 'none';
+  atualizarCamposPorComposicao();
+}
+
+// ---------------------------------------------------------------------------
+// Composição fixa ("Consome do estoque") — ex.: sanduíche = 1 espeto + 1 pão
+// ---------------------------------------------------------------------------
+
+/**
+ * Uma linha por produto que pode ser item (ativo, não combo, sem composição própria, não o próprio
+ * produto), com a quantidade por venda (0 = não entra). Itens já gravados aparecem primeiro, mesmo
+ * inativos. Produto que é item de outro não pode ter composição (o banco também recusa).
+ */
+function renderizarListaComposicao(produtoAtual) {
+  const lista = document.getElementById('lista-composicao');
+  const aviso = document.getElementById('aviso-composicao');
+  aviso.style.display = 'none';
+  lista.innerHTML = '';
+  if (!composicaoProdutosDisponivel()) return;
+
+  const idAtual = produtoAtual ? produtoAtual.id : '';
+  const atual = new Map(((produtoAtual && produtoAtual.composicao) || []).map((c) => [c.produtoId, c.quantidade]));
+
+  const usadoEm = idAtual ? obterProdutos().filter((p) => (p.composicao || []).some((c) => c.produtoId === idAtual)) : [];
+  if (usadoEm.length > 0) {
+    aviso.textContent = `Este produto é item de ${usadoEm.map((p) => p.nome).join(', ')}, por isso não pode consumir outros itens.`;
+    aviso.style.display = '';
+    return;
+  }
+
+  const candidatos = obterProdutos()
+    .filter((p) => p.id !== idAtual && p.categoria !== 'Combos' && (p.composicao || []).length === 0 && (p.status === 'ativo' || atual.has(p.id)))
+    .sort((a, b) => (atual.has(b.id) ? 1 : 0) - (atual.has(a.id) ? 1 : 0) || a.nome.localeCompare(b.nome));
+
+  if (candidatos.length === 0) {
+    lista.innerHTML = '<p class="dica-campo">Nenhum produto ativo para usar como item.</p>';
+    return;
+  }
+  lista.innerHTML = candidatos
+    .map(
+      (p) => `
+        <div class="linha-acrescimo-espeto">
+          <span>${escaparHtml(p.nome)}${p.status !== 'ativo' ? ' <em>(inativo)</em>' : ''}</span>
+          <div class="campo-acrescimo">
+            <span>×</span>
+            <input type="number" class="input campo-acrescimo-espeto campo-qtd-composicao" data-produto-id="${p.id}" min="0" max="99" step="1" inputmode="numeric" value="${atual.get(p.id) || 0}" aria-label="Quantidade de ${escaparHtml(p.nome)} por venda" />
+          </div>
+        </div>`
+    )
+    .join('');
+}
+
+/** [{ produtoId, quantidade }] das linhas com quantidade > 0; null se alguma quantidade for inválida. */
+function lerComposicaoDoFormulario() {
+  const itens = [];
+  for (const campo of document.querySelectorAll('.campo-qtd-composicao')) {
+    const bruto = String(campo.value).trim();
+    if (bruto === '' || bruto === '0') continue;
+    const quantidade = Number(bruto);
+    if (!Number.isInteger(quantidade) || quantidade < 0 || quantidade > 99) return null;
+    if (quantidade > 0) itens.push({ produtoId: campo.dataset.produtoId, quantidade });
+  }
+  return itens;
+}
+
+function mesmaComposicao(a, b) {
+  const chave = (lista) => (lista || []).map((i) => i.produtoId + ':' + i.quantidade).sort().join('|');
+  return chave(a) === chave(b);
+}
+
+/** Com itens marcados: some o estoque próprio e a origem fica "sem controle" (o estoque é o dos itens). */
+function atualizarCamposPorComposicao() {
+  const ehCombo = document.getElementById('campo-categoria').value.trim() === 'Combos';
+  const itens = lerComposicaoDoFormulario();
+  const composto = !ehCombo && composicaoProdutosDisponivel() && (itens === null || itens.length > 0);
+  const origem = document.getElementById('campo-origem-estoque');
+  document.getElementById('grupo-estoque').style.display = ehCombo || composto ? 'none' : '';
+  document.getElementById('campo-estoque').required = !ehCombo && !composto;
+  if (composto) origem.value = 'untracked';
+  origem.disabled = composto;
+  atualizarDicaOrigemEstoque();
+  document.getElementById('dica-origem-composicao').style.display = composto ? '' : 'none';
 }
 
 /**
@@ -895,6 +1016,16 @@ async function salvarFormularioProduto(evento) {
     return;
   }
 
+  // Composição ("Consome do estoque"): lida e validada antes de qualquer gravação. Combo nunca tem.
+  const usaComposicao = composicaoProdutosDisponivel();
+  const composicao = !usaComposicao || ehCombo ? [] : lerComposicaoDoFormulario();
+  if (composicao === null) {
+    mostrarToast('Quantidade inválida em "Consome do estoque" (use números inteiros de 0 a 99).', 'erro');
+    return;
+  }
+  const composicaoAnterior = id ? ((obterProdutoPorId(id) || {}).composicao || []) : [];
+  const ehComposto = composicao.length > 0;
+
   // Foto: decide o valor final de image_url ANTES de tocar no produto. Se houver arquivo
   // novo, faz o upload primeiro (produto/foto antiga continuam intactos se isso falhar);
   // só avança pro salvarProduto() depois do upload confirmado.
@@ -919,11 +1050,12 @@ async function salvarFormularioProduto(evento) {
     categoria,
     categoriaPersonalizadaId,
     preco: Number(document.getElementById('campo-preco').value) || 0,
-    quantidadeEstoque: ehCombo ? 0 : Math.max(0, Number(document.getElementById('campo-estoque').value) || 0),
+    // Produto composto não tem estoque próprio (a venda baixa os itens): nasce com 0.
+    quantidadeEstoque: ehCombo || ehComposto ? 0 : Math.max(0, Number(document.getElementById('campo-estoque').value) || 0),
     descricao: document.getElementById('campo-descricao').value.trim(),
     foto: fotoParaSalvar,
     status: document.getElementById('campo-status').value,
-    stockMode: document.getElementById('campo-origem-estoque').value,
+    stockMode: ehComposto ? 'untracked' : document.getElementById('campo-origem-estoque').value,
     comboConfig: ehCombo
       ? {
           ordem: Math.max(0, Number(document.getElementById('campo-ordem').value) || 0),
@@ -996,6 +1128,22 @@ async function salvarFormularioProduto(evento) {
   // não precisa criar linha nenhuma; editando um produto existente, sempre grava —
   // inclusive vazio, pra realmente limpar um custo que já estava cadastrado (senão o
   // valor antigo ficaria "preso" no banco enquanto a tela mostraria "Não cadastrado").
+  // Composição: RPC própria (set_product_components), só quando mudou. Falha aqui não desfaz o
+  // produto já salvo; avisa (o produto fica com a composição anterior, que é a verdade no banco).
+  let avisoComposicao = '';
+  if (usaComposicao && salvo && salvo.id && !mesmaComposicao(composicaoAnterior, composicao)) {
+    try {
+      await salvarComposicaoProdutoNoSupabase(salvo.id, composicao);
+    } catch (erroComposicao) {
+      avisoComposicao = 'Produto salvo, mas "Consome do estoque" não foi gravado. ' + erroComposicao.message;
+    }
+    try {
+      await carregarProdutosCache();
+    } catch (erroRecarregar) {
+      console.error('Erro ao recarregar produtos após gravar a composição:', erroRecarregar);
+    }
+  }
+
   let avisoCusto = '';
   if (!ehCombo && !ehEspetinho && souAdmin) {
     const custoDigitado = lerCustoUnitarioDoFormulario();
@@ -1017,7 +1165,8 @@ async function salvarFormularioProduto(evento) {
     }
   }
 
-  mostrarToast(avisoCusto || (id ? 'Produto atualizado.' : 'Produto cadastrado.'), avisoCusto ? 'erro' : 'sucesso');
+  const aviso = avisoComposicao || avisoCusto;
+  mostrarToast(aviso || (id ? 'Produto atualizado.' : 'Produto cadastrado.'), aviso ? 'erro' : 'sucesso');
   fecharModal();
   renderizarLista();
 }

@@ -51,7 +51,8 @@
     const p = item.produtoId ? st.produtos.find((x) => x.id === item.produtoId) : null;
     return !!(p && p.stockMode === 'purchased');
   }
-  const produtosEstoque = () => st.produtos.filter((p) => p.categoria !== 'Combos' && p.status === 'ativo');
+  // Produto montado (composição, ex.: sanduíche) não tem estoque próprio — o estoque é o dos itens.
+  const produtosEstoque = () => st.produtos.filter((p) => p.categoria !== 'Combos' && p.status === 'ativo' && !(p.composicao || []).length);
   const insumosEstoque = () => st.itens.filter((i) => i.ativo && i.controlaEstoque && !estoqueNoProduto(i));
 
   function situacao(saldo, minimo) {

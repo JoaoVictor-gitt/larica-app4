@@ -105,6 +105,71 @@ async function criarCategoriaPersonalizadaNoSupabase(nome) {
   return criada;
 }
 
+// ---------------------------------------------------------------------------
+// Composição fixa (migration 20261125120000_product_components.sql)
+//
+// Produto montado com itens do cardápio (ex.: Sanduíche de Coração = 2 espetos Coração + 1 Pão de
+// Alho). Na venda, create_customer_order baixa os ITENS, não o estoque próprio do produto. Aqui:
+// produto.composicao = [{ produtoId, quantidade }] e, para produto composto, quantidadeEstoque passa
+// a ser o quanto dá para montar com o estoque dos itens (o cardápio, o carrinho e a lista usam esse
+// número). O saldo próprio (sem uso) fica em estoqueProprio. Sem a migration, nada muda.
+// ---------------------------------------------------------------------------
+
+let _composicaoProdutosDisponivel = false;
+
+/** Linhas de product_components, ou null se a tabela não existir / a leitura falhar (nunca lança). */
+async function _buscarComposicoesSemLancar() {
+  try {
+    const { data, error } = await supabaseClient.from('product_components').select('product_id, component_product_id, quantity');
+    if (error) throw new Error(error.message);
+    _composicaoProdutosDisponivel = true;
+    return data || [];
+  } catch (erro) {
+    console.warn('[COMPOSIÇÃO] Não foi possível carregar a composição dos produtos:', erro.message);
+    return null;
+  }
+}
+
+function composicaoProdutosDisponivel() {
+  return _composicaoProdutosDisponivel;
+}
+
+/** Preenche produto.composicao e, nos compostos, recalcula quantidadeEstoque pelos itens. */
+function _aplicarComposicoesAosProdutos(produtos, linhas) {
+  const porId = new Map(produtos.map((p) => [p.id, p]));
+  const porProduto = new Map();
+  (linhas || []).forEach((l) => {
+    if (!porProduto.has(l.product_id)) porProduto.set(l.product_id, []);
+    porProduto.get(l.product_id).push({ produtoId: l.component_product_id, quantidade: Number(l.quantity) || 1 });
+  });
+  produtos.forEach((produto) => {
+    produto.composicao = porProduto.get(produto.id) || [];
+    if (produto.composicao.length === 0) return;
+    produto.estoqueProprio = produto.quantidadeEstoque;
+    produto.quantidadeEstoque = Math.min(
+      ...produto.composicao.map((c) => {
+        const item = porId.get(c.produtoId);
+        // Item fora da lista (inativo para o público), inativo ou indisponível: não dá para montar.
+        if (!item || item.status !== 'ativo' || item.disponivel === false) return 0;
+        return Math.max(0, Math.floor(item.quantidadeEstoque / c.quantidade));
+      })
+    );
+  });
+}
+
+/**
+ * Grava a composição inteira de um produto (RPC set_product_components — staff; [] remove).
+ * itens: [{ produtoId, quantidade }]. Com itens, o banco passa o produto para "sem controle de estoque".
+ */
+async function salvarComposicaoProdutoNoSupabase(produtoId, itens) {
+  const { data, error } = await supabaseClient.rpc('set_product_components', {
+    p_product_id: produtoId,
+    p_components: (itens || []).map((i) => ({ product_id: i.produtoId, quantity: i.quantidade })),
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 function _linhaSupabaseParaProduto(linha) {
   const idPersonalizada = linha.category === 'other' && linha.custom_category_id ? linha.custom_category_id : null;
   const personalizada = idPersonalizada ? _categoriaPersonalizadaPorId(idPersonalizada) : null;
@@ -334,13 +399,14 @@ async function _salvarComboConfigNoSupabase(produtoId, comboConfig) {
 /** Busca todos os produtos, remontando comboConfig (combo_configs + combo_skewer_options + combo_included_products) pros combos */
 async function buscarProdutosDoSupabase() {
   // Categorias em paralelo e sem lançar: uma falha nelas nunca derruba a lista de produtos.
-  const [{ data: linhas, error }] = await Promise.all([
+  const [{ data: linhas, error }, , linhasComposicao] = await Promise.all([
     supabaseClient
       .from('products')
       .select('*')
       .order('display_order', { ascending: true })
       .order('name', { ascending: true }),
     _carregarCategoriasPersonalizadasSemLancar(),
+    _buscarComposicoesSemLancar(),
   ]);
   if (error) throw new Error(error.message);
   if ((linhas || []).length > 0 && Object.prototype.hasOwnProperty.call(linhas[0], 'custom_category_id')) {
@@ -348,6 +414,7 @@ async function buscarProdutosDoSupabase() {
   }
 
   const produtos = (linhas || []).map(_linhaSupabaseParaProduto);
+  _aplicarComposicoesAosProdutos(produtos, linhasComposicao);
   const idsCombos = produtos.filter((p) => p.categoria === 'Combos').map((p) => p.id);
   if (idsCombos.length === 0) return produtos;
 

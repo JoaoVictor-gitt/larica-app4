@@ -1140,7 +1140,7 @@ function renderizarTabelaItensCompra() {
   // Produtos já cadastrados no estoque (mesmo critério da página Estoque) que ainda não
   // têm item de compra: aparecem junto, para a lista mostrar tudo o que tem estoque.
   const produtosSoltos = (categoria || (tipo && tipo !== 'estoque')) ? [] : produtosCache
-    .filter((p) => p.status === 'ativo' && p.categoria !== 'Combos')
+    .filter((p) => p.status === 'ativo' && p.categoria !== 'Combos' && !(p.composicao || []).length)
     .filter((p) => !itensCompraCache.some((i) => i.produtoId === p.id))
     .filter((p) => !busca || (normalizarTextoCompra(p.nome) || '').includes(busca))
     .sort((a, b) => a.nome.localeCompare(b.nome));
