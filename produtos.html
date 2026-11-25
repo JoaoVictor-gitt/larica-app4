@@ -13,7 +13,7 @@
   </script>
   <title>Produtos | Larica Food Truck</title>
   <link rel="stylesheet" href="css/style.css" />
-  <link rel="stylesheet" href="css/produtos.css" />
+  <link rel="stylesheet" href="css/produtos.css?v=20261125d" />
   <link rel="stylesheet" href="css/responsive.css" />
 </head>
 <body data-pagina="produtos" data-area="admin">
@@ -26,6 +26,7 @@
           <span aria-hidden="true">🔍</span><span class="rotulo-lupa">Pesquisar</span>
           <span class="badge-filtros-ativos" id="badge-filtros-ativos" style="display:none;"></span>
         </button>
+        <button type="button" class="btn btn-secundario" id="botao-adicionais" style="display:none;" title="Cadastrar adicionais (ex.: Batata + Refri)">Adicionais</button>
         <button class="btn btn-primario" id="botao-novo-produto">+ Novo Produto</button>
       </div>
     </div>
@@ -192,6 +193,13 @@
               <div id="lista-composicao" class="lista-checklist-combo"></div>
             </div>
 
+            <!-- Adicionais oferecidos (ex.: + Batata + Refri) — js/produtos.js; escondida para Combos e sem a migration -->
+            <div class="form-grupo" id="grupo-adicionais-produto" style="display:none;">
+              <label>Adicionais oferecidos</label>
+              <p class="dica-campo">Ao pedir este produto, o cliente pode escolher um destes adicionais. Cadastre-os no botão "Adicionais", no topo da página.</p>
+              <div id="lista-adicionais-produto" class="lista-checklist-combo"></div>
+            </div>
+
             <div class="form-grupo">
               <label for="campo-descricao">Descrição</label>
               <textarea id="campo-descricao" class="input" rows="3"></textarea>
@@ -253,14 +261,64 @@
     </div>
   </div>
 
+  <!-- Modal de adicionais (lista + formulário) — js/produtos.js, seção "Adicionais" -->
+  <div class="modal-overlay" id="modal-overlay-adicionais">
+    <div class="modal">
+      <div class="modal-cabecalho">
+        <h2 id="adicionais-titulo">Adicionais</h2>
+        <button type="button" class="btn-icone" id="botao-fechar-adicionais" aria-label="Fechar">✕</button>
+      </div>
+
+      <div class="modal-corpo modal-corpo-adicionais" id="adicionais-visao-lista">
+        <p class="dica-campo">Opções que o cliente escolhe junto com um produto (ex.: sanduíche + Batata + Refri). Depois de cadastrar, marque em cada produto quais adicionais ele oferece.</p>
+        <div id="lista-adicionais" class="lista-adicionais"></div>
+        <button type="button" class="btn btn-primario" id="botao-novo-adicional">+ Novo adicional</button>
+      </div>
+
+      <form id="form-adicional" style="display:none;">
+        <input type="hidden" id="adicional-id" />
+        <div class="modal-corpo modal-corpo-adicionais">
+          <div style="display:flex; gap:12px;">
+            <div class="form-grupo" style="flex:2;">
+              <label for="adicional-nome">Nome *</label>
+              <input type="text" id="adicional-nome" class="input" maxlength="60" required placeholder="Ex.: Batata + Refri" />
+            </div>
+            <div class="form-grupo" style="flex:1;">
+              <label for="adicional-preco">Preço (+€) *</label>
+              <input type="number" id="adicional-preco" class="input" min="0" max="999" step="0.01" required />
+            </div>
+          </div>
+          <div class="form-grupo">
+            <label class="linha-checkbox-adicional"><input type="checkbox" id="adicional-ativo" checked /> Ativo (aparece no cardápio)</label>
+          </div>
+          <div class="form-grupo">
+            <label>Itens que saem do estoque</label>
+            <p class="dica-campo">Quantas unidades de cada produto saem a cada adicional vendido (ex.: Batata Frita × 1). Deixe 0 nos que não entram.</p>
+            <div id="adicional-lista-itens" class="lista-checklist-combo"></div>
+          </div>
+          <div class="form-grupo">
+            <label>Bebida à escolha</label>
+            <p class="dica-campo">Marque as bebidas que o cliente pode escolher (1 por adicional). Acréscimo: valor a mais para aquela bebida (ex.: Guaraná). Sem nenhuma marcada, não há escolha.</p>
+            <div id="adicional-lista-bebidas" class="lista-checklist-combo"></div>
+          </div>
+          <p class="dica-campo erro-nova-categoria" id="adicional-erro" style="display:none;"></p>
+        </div>
+        <div class="modal-rodape">
+          <button type="button" class="btn btn-secundario" id="botao-voltar-adicionais">Voltar</button>
+          <button type="submit" class="btn btn-primario" id="botao-salvar-adicional">Salvar adicional</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="js/utils.js"></script>
   <script src="js/storage.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="js/supabase.js"></script>
   <script src="js/services/permissions-service.js"></script>
-  <script src="js/services/products-service.js?v=20261125b"></script>
+  <script src="js/services/products-service.js?v=20261125d"></script>
   <script src="js/services/product-costs-service.js"></script>
   <script src="js/app.js"></script>
-  <script src="js/produtos.js?v=20261125c"></script>
+  <script src="js/produtos.js?v=20261125d"></script>
 </body>
 </html>

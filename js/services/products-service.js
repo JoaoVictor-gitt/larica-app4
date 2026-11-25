@@ -170,6 +170,102 @@ async function salvarComposicaoProdutoNoSupabase(produtoId, itens) {
   return data;
 }
 
+// ---------------------------------------------------------------------------
+// Adicionais (migration 20261125150000_product_addons.sql)
+//
+// Ex.: sanduíche + "Batata + Refri" (+€5): itens fixos que saem do estoque (Batata Frita × 1) e uma
+// bebida à escolha, com acréscimo por bebida (Guaraná). produto.adicionais = adicionais ATIVOS que o
+// produto oferece, na ordem cadastrada. obterAdicionais() = todos (para a tela Produtos).
+// Sem a migration, a leitura falha em silêncio e nada muda.
+// ---------------------------------------------------------------------------
+
+let _adicionaisProdutos = []; // [{ id, nome, preco, ativo, ordem, itens:[{produtoId, quantidade}], escolhas:[{produtoId, acrescimo}] }]
+let _ligacoesAdicionais = []; // [{ produtoId, adicionalId, ordem }]
+let _adicionaisDisponivel = false;
+
+async function _buscarAdicionaisSemLancar() {
+  try {
+    const ler = (tabela, colunas) => supabaseClient.from(tabela).select(colunas);
+    const [a, i, e, l] = await Promise.all([
+      ler('product_addons', 'id, name, price, active, display_order'),
+      ler('product_addon_items', 'addon_id, product_id, quantity'),
+      ler('product_addon_choices', 'addon_id, product_id, extra_price'),
+      ler('product_addon_links', 'product_id, addon_id, display_order'),
+    ]);
+    const erro = a.error || i.error || e.error || l.error;
+    if (erro) throw new Error(erro.message);
+    _adicionaisProdutos = (a.data || [])
+      .map((x) => ({
+        id: x.id,
+        nome: x.name,
+        preco: Number(x.price) || 0,
+        ativo: x.active !== false,
+        ordem: Number(x.display_order) || 0,
+        itens: (i.data || []).filter((y) => y.addon_id === x.id).map((y) => ({ produtoId: y.product_id, quantidade: Number(y.quantity) || 1 })),
+        escolhas: (e.data || []).filter((y) => y.addon_id === x.id).map((y) => ({ produtoId: y.product_id, acrescimo: Number(y.extra_price) || 0 })),
+      }))
+      .sort((x, y) => x.ordem - y.ordem || x.nome.localeCompare(y.nome));
+    _ligacoesAdicionais = (l.data || []).map((x) => ({ produtoId: x.product_id, adicionalId: x.addon_id, ordem: Number(x.display_order) || 0 }));
+    _adicionaisDisponivel = true;
+  } catch (erro) {
+    console.warn('[ADICIONAIS] Não foi possível carregar os adicionais:', erro.message);
+  }
+}
+
+function adicionaisProdutosDisponivel() {
+  return _adicionaisDisponivel;
+}
+
+/** Todos os adicionais cadastrados (cópia), com ids dos produtos que oferecem cada um. */
+function obterAdicionais() {
+  return _adicionaisProdutos.map((a) => ({
+    ...a,
+    itens: a.itens.map((x) => ({ ...x })),
+    escolhas: a.escolhas.map((x) => ({ ...x })),
+    produtosIds: _ligacoesAdicionais.filter((l) => l.adicionalId === a.id).map((l) => l.produtoId),
+  }));
+}
+
+function _aplicarAdicionaisAosProdutos(produtos) {
+  produtos.forEach((produto) => {
+    produto.adicionaisIds = _ligacoesAdicionais
+      .filter((l) => l.produtoId === produto.id)
+      .sort((x, y) => x.ordem - y.ordem)
+      .map((l) => l.adicionalId);
+    produto.adicionais = produto.adicionaisIds
+      .map((id) => _adicionaisProdutos.find((a) => a.id === id))
+      .filter((a) => a && a.ativo)
+      .map((a) => ({ ...a, itens: a.itens.map((x) => ({ ...x })), escolhas: a.escolhas.map((x) => ({ ...x })) }));
+  });
+}
+
+/** Cria/edita um adicional (RPC save_product_addon — staff). adicional: { id?, nome, preco, ativo, itens, escolhas }. */
+async function salvarAdicionalNoSupabase(adicional) {
+  const { data, error } = await supabaseClient.rpc('save_product_addon', {
+    p_addon: {
+      id: adicional.id || null,
+      name: adicional.nome,
+      price: Number(adicional.preco) || 0,
+      active: adicional.ativo !== false,
+      items: (adicional.itens || []).map((i) => ({ product_id: i.produtoId, quantity: i.quantidade })),
+      choices: (adicional.escolhas || []).map((e) => ({ product_id: e.produtoId, extra_price: Number(e.acrescimo) || 0 })),
+    },
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function excluirAdicionalNoSupabase(id) {
+  const { error } = await supabaseClient.rpc('delete_product_addon', { p_id: id });
+  if (error) throw new Error(error.message);
+}
+
+/** Troca a lista de adicionais oferecidos pelo produto (ordem = ordem do array; [] = nenhum). */
+async function salvarAdicionaisDoProdutoNoSupabase(produtoId, idsAdicionais) {
+  const { error } = await supabaseClient.rpc('set_product_addon_links', { p_product_id: produtoId, p_addon_ids: idsAdicionais || [] });
+  if (error) throw new Error(error.message);
+}
+
 function _linhaSupabaseParaProduto(linha) {
   const idPersonalizada = linha.category === 'other' && linha.custom_category_id ? linha.custom_category_id : null;
   const personalizada = idPersonalizada ? _categoriaPersonalizadaPorId(idPersonalizada) : null;
@@ -407,6 +503,7 @@ async function buscarProdutosDoSupabase() {
       .order('name', { ascending: true }),
     _carregarCategoriasPersonalizadasSemLancar(),
     _buscarComposicoesSemLancar(),
+    _buscarAdicionaisSemLancar(),
   ]);
   if (error) throw new Error(error.message);
   if ((linhas || []).length > 0 && Object.prototype.hasOwnProperty.call(linhas[0], 'custom_category_id')) {
@@ -415,6 +512,7 @@ async function buscarProdutosDoSupabase() {
 
   const produtos = (linhas || []).map(_linhaSupabaseParaProduto);
   _aplicarComposicoesAosProdutos(produtos, linhasComposicao);
+  _aplicarAdicionaisAosProdutos(produtos);
   const idsCombos = produtos.filter((p) => p.categoria === 'Combos').map((p) => p.id);
   if (idsCombos.length === 0) return produtos;
 

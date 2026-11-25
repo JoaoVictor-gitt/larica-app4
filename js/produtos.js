@@ -43,6 +43,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
   carregando.style.display = 'none';
+  // Botão "Adicionais" só com a migration de adicionais aplicada.
+  document.getElementById('botao-adicionais').style.display = adicionaisProdutosDisponivel() ? '' : 'none';
 
   preencherFiltroCategorias();
   renderizarLista();
@@ -541,6 +543,7 @@ function ligarEventosModal() {
   document.getElementById('form-produto').addEventListener('submit', salvarFormularioProduto);
   document.getElementById('campo-origem-estoque').addEventListener('change', atualizarDicaOrigemEstoque);
   document.getElementById('lista-composicao').addEventListener('input', atualizarCamposPorComposicao);
+  ligarEventosAdicionais();
   ligarEventoCategoria();
 
   document.getElementById('botao-criar-categoria').addEventListener('click', criarCategoriaPeloFormulario);
@@ -571,6 +574,7 @@ function abrirModalCriacao() {
   document.getElementById('campo-custo').placeholder = 'Não cadastrado';
   resetarEstadoFoto('');
   renderizarListaComposicao(null);
+  renderizarListaAdicionaisProduto(null);
   atualizarVisibilidadeCamposPorCategoria();
   atualizarDicaOrigemEstoque();
   abrirModal();
@@ -614,6 +618,7 @@ function abrirModalEdicao(id) {
   document.getElementById('campo-qtd-acompanhamentos').value = combo ? combo.allowedSides : 1;
 
   renderizarListaComposicao(produto);
+  renderizarListaAdicionaisProduto(produto);
   atualizarVisibilidadeCamposPorCategoria();
   atualizarDicaOrigemEstoque();
   renderizarListaItensInclusos(combo ? combo.includedItems : []);
@@ -672,7 +677,246 @@ function atualizarVisibilidadeCamposPorCategoria() {
   atualizarEstadoCampoCusto(ehCombo, ehEspetinho);
   // Combos já baixam pelos itens escolhidos — não usam composição. Sem a migration, a seção não aparece.
   document.getElementById('grupo-composicao').style.display = !ehCombo && composicaoProdutosDisponivel() ? '' : 'none';
+  // Adicionais (ex.: + Batata + Refri): idem — combos não usam; sem a migration, escondido.
+  document.getElementById('grupo-adicionais-produto').style.display = !ehCombo && adicionaisProdutosDisponivel() ? '' : 'none';
   atualizarCamposPorComposicao();
+}
+
+// ---------------------------------------------------------------------------
+// Adicionais — oferecidos por produto (formulário) e cadastro (modal "Adicionais")
+// ---------------------------------------------------------------------------
+
+/** Checklist dos adicionais cadastrados, marcando os que o produto oferece. */
+function renderizarListaAdicionaisProduto(produtoAtual) {
+  const lista = document.getElementById('lista-adicionais-produto');
+  if (!adicionaisProdutosDisponivel()) {
+    lista.innerHTML = '';
+    return;
+  }
+  const marcados = new Set((produtoAtual && produtoAtual.adicionaisIds) || []);
+  const adicionais = obterAdicionais();
+  if (adicionais.length === 0) {
+    lista.innerHTML = '<p class="dica-campo">Nenhum adicional cadastrado ainda.</p>';
+    return;
+  }
+  const moeda = obterConfiguracoes().moeda;
+  lista.innerHTML = adicionais
+    .map(
+      (a) => `
+        <label class="linha-item-incluso ${a.ativo ? '' : 'linha-item-incluso-indisponivel'}">
+          <input type="checkbox" class="campo-adicional-produto" value="${a.id}" ${marcados.has(a.id) ? 'checked' : ''} />
+          <span>${escaparHtml(a.nome)} (+${formatarMoeda(a.preco, moeda)})${a.ativo ? '' : ' <em>(inativo)</em>'}</span>
+        </label>`
+    )
+    .join('');
+}
+
+function lerAdicionaisDoProdutoNoFormulario() {
+  return Array.from(document.querySelectorAll('.campo-adicional-produto:checked')).map((c) => c.value);
+}
+
+/** Produtos que podem ser item/bebida de adicional: não combo, sem composição; ativos (ou já usados). */
+function candidatosItemAdicional(idsJaUsados) {
+  const usados = new Set(idsJaUsados || []);
+  return obterProdutos().filter(
+    (p) => p.categoria !== 'Combos' && (p.composicao || []).length === 0 && (p.status === 'ativo' || usados.has(p.id))
+  );
+}
+
+function abrirModalAdicionais() {
+  mostrarListaAdicionais();
+  document.getElementById('modal-overlay-adicionais').classList.add('modal-visivel');
+}
+
+function fecharModalAdicionais() {
+  document.getElementById('modal-overlay-adicionais').classList.remove('modal-visivel');
+}
+
+function mostrarListaAdicionais() {
+  document.getElementById('adicionais-titulo').textContent = 'Adicionais';
+  document.getElementById('adicionais-visao-lista').style.display = '';
+  document.getElementById('form-adicional').style.display = 'none';
+  renderizarListaAdicionais();
+}
+
+function renderizarListaAdicionais() {
+  const container = document.getElementById('lista-adicionais');
+  const adicionais = obterAdicionais();
+  if (adicionais.length === 0) {
+    container.innerHTML = '<p class="dica-campo">Nenhum adicional cadastrado ainda.</p>';
+    return;
+  }
+  const moeda = obterConfiguracoes().moeda;
+  const nomeDe = (id) => (obterProdutoPorId(id) || {}).nome || 'produto removido';
+  container.innerHTML = adicionais
+    .map((a) => {
+      const itens = a.itens.map((i) => `${nomeDe(i.produtoId)} × ${i.quantidade}`).join(', ');
+      const bebidas = a.escolhas.length ? `${a.escolhas.length} bebida(s) à escolha` : 'sem escolha de bebida';
+      const produtos = a.produtosIds.length ? `oferecido em ${a.produtosIds.length} produto(s)` : 'não oferecido em nenhum produto';
+      return `
+        <div class="linha-adicional ${a.ativo ? '' : 'linha-adicional-inativo'}">
+          <div class="linha-adicional-info">
+            <strong>${escaparHtml(a.nome)}</strong> · +${formatarMoeda(a.preco, moeda)}${a.ativo ? '' : ' · <em>inativo</em>'}
+            <small>${escaparHtml([itens, bebidas, produtos].filter(Boolean).join(' · '))}</small>
+          </div>
+          <div class="acoes-linha">
+            <button type="button" class="btn-icone" data-acao="editar-adicional" data-id="${a.id}" title="Editar">✏️</button>
+            <button type="button" class="btn-icone" data-acao="excluir-adicional" data-id="${a.id}" title="Excluir">🗑️</button>
+          </div>
+        </div>`;
+    })
+    .join('');
+}
+
+function abrirFormularioAdicional(id) {
+  const adicional = id ? obterAdicionais().find((a) => a.id === id) : null;
+  document.getElementById('adicionais-titulo').textContent = adicional ? 'Editar adicional' : 'Novo adicional';
+  document.getElementById('adicionais-visao-lista').style.display = 'none';
+  document.getElementById('form-adicional').style.display = '';
+  document.getElementById('adicional-erro').style.display = 'none';
+  document.getElementById('adicional-id').value = adicional ? adicional.id : '';
+  document.getElementById('adicional-nome').value = adicional ? adicional.nome : '';
+  document.getElementById('adicional-preco').value = adicional ? adicional.preco : '';
+  document.getElementById('adicional-ativo').checked = adicional ? adicional.ativo : true;
+
+  const qtdItem = new Map(((adicional && adicional.itens) || []).map((i) => [i.produtoId, i.quantidade]));
+  const acrescimo = new Map(((adicional && adicional.escolhas) || []).map((e) => [e.produtoId, e.acrescimo]));
+  const ordenar = (marcados, primeiroCategoria) => (a, b) =>
+    (marcados.has(b.id) ? 1 : 0) - (marcados.has(a.id) ? 1 : 0) ||
+    (b.categoria === primeiroCategoria ? 1 : 0) - (a.categoria === primeiroCategoria ? 1 : 0) ||
+    a.nome.localeCompare(b.nome);
+  const inativo = (p) => (p.status !== 'ativo' ? ' <em>(inativo)</em>' : '');
+
+  document.getElementById('adicional-lista-itens').innerHTML = candidatosItemAdicional([...qtdItem.keys()])
+    .sort(ordenar(qtdItem, 'Acompanhamentos'))
+    .map(
+      (p) => `
+        <div class="linha-acrescimo-espeto">
+          <span>${escaparHtml(p.nome)}${inativo(p)}</span>
+          <div class="campo-acrescimo">
+            <span>×</span>
+            <input type="number" class="input campo-acrescimo-espeto campo-item-adicional" data-produto-id="${p.id}" min="0" max="99" step="1" inputmode="numeric" value="${qtdItem.get(p.id) || 0}" aria-label="Quantidade de ${escaparHtml(p.nome)}" />
+          </div>
+        </div>`
+    )
+    .join('');
+
+  document.getElementById('adicional-lista-bebidas').innerHTML = candidatosItemAdicional([...acrescimo.keys()])
+    .sort(ordenar(acrescimo, 'Bebidas'))
+    .map(
+      (p) => `
+        <div class="linha-acrescimo-espeto">
+          <label class="linha-checkbox-adicional">
+            <input type="checkbox" class="campo-bebida-adicional" value="${p.id}" ${acrescimo.has(p.id) ? 'checked' : ''} />
+            <span>${escaparHtml(p.nome)}${inativo(p)}</span>
+          </label>
+          <div class="campo-acrescimo">
+            <span>+ €</span>
+            <input type="number" class="input campo-acrescimo-espeto campo-acrescimo-bebida" data-produto-id="${p.id}" min="0" step="0.5" value="${acrescimo.get(p.id) || 0}" aria-label="Acréscimo de ${escaparHtml(p.nome)}" />
+          </div>
+        </div>`
+    )
+    .join('');
+  document.getElementById('adicional-nome').focus();
+}
+
+/** Lê o formulário do adicional; devolve { adicional } ou { erro }. */
+function lerFormularioAdicional() {
+  const nome = document.getElementById('adicional-nome').value.trim().replace(/\s+/g, ' ');
+  const precoBruto = document.getElementById('adicional-preco').value;
+  const preco = Number(precoBruto);
+  if (!nome) return { erro: 'Informe o nome do adicional.' };
+  if (precoBruto === '' || !Number.isFinite(preco) || preco < 0 || preco > 999) return { erro: 'Informe um preço válido (0 a 999).' };
+
+  const itens = [];
+  for (const campo of document.querySelectorAll('.campo-item-adicional')) {
+    const q = Number(campo.value || 0);
+    if (!Number.isInteger(q) || q < 0 || q > 99) return { erro: 'Quantidade inválida em "Itens que saem do estoque" (0 a 99).' };
+    if (q > 0) itens.push({ produtoId: campo.dataset.produtoId, quantidade: q });
+  }
+  const escolhas = [];
+  for (const caixa of document.querySelectorAll('.campo-bebida-adicional:checked')) {
+    const campo = document.querySelector(`.campo-acrescimo-bebida[data-produto-id="${caixa.value}"]`);
+    const x = Number(campo ? campo.value || 0 : 0);
+    if (!Number.isFinite(x) || x < 0 || x > 999) return { erro: 'Acréscimo de bebida inválido.' };
+    escolhas.push({ produtoId: caixa.value, acrescimo: Math.round(x * 100) / 100 });
+  }
+  if (itens.length === 0 && escolhas.length === 0) return { erro: 'Marque ao menos um item que sai do estoque ou uma bebida.' };
+
+  return {
+    adicional: {
+      id: document.getElementById('adicional-id').value || null,
+      nome,
+      preco: Math.round(preco * 100) / 100,
+      ativo: document.getElementById('adicional-ativo').checked,
+      itens,
+      escolhas,
+    },
+  };
+}
+
+let _salvandoAdicional = false;
+
+async function salvarFormularioAdicional(evento) {
+  evento.preventDefault();
+  if (_salvandoAdicional) return;
+  const erro = document.getElementById('adicional-erro');
+  const { adicional, erro: mensagem } = lerFormularioAdicional();
+  if (mensagem) {
+    erro.textContent = mensagem;
+    erro.style.display = '';
+    return;
+  }
+  const botao = document.getElementById('botao-salvar-adicional');
+  const texto = botao.textContent;
+  _salvandoAdicional = true;
+  botao.disabled = true;
+  botao.textContent = 'Salvando…';
+  try {
+    await salvarAdicionalNoSupabase(adicional);
+    await carregarProdutosCache();
+    mostrarToast(`Adicional "${adicional.nome}" salvo.`, 'sucesso');
+    mostrarListaAdicionais();
+  } catch (e) {
+    erro.textContent = e.message || 'Não foi possível salvar o adicional.';
+    erro.style.display = '';
+  } finally {
+    _salvandoAdicional = false;
+    botao.disabled = false;
+    botao.textContent = texto;
+  }
+}
+
+async function excluirAdicionalComConfirmacao(id) {
+  const adicional = obterAdicionais().find((a) => a.id === id);
+  if (!adicional) return;
+  const aviso = adicional.produtosIds.length ? ` Ele deixa de ser oferecido em ${adicional.produtosIds.length} produto(s).` : '';
+  if (!confirm(`Excluir o adicional "${adicional.nome}"?${aviso} Pedidos já feitos não mudam.`)) return;
+  try {
+    await excluirAdicionalNoSupabase(id);
+    await carregarProdutosCache();
+    mostrarToast('Adicional excluído.', 'sucesso');
+  } catch (e) {
+    mostrarToast('Não foi possível excluir o adicional. ' + e.message, 'erro');
+  }
+  renderizarListaAdicionais();
+}
+
+function ligarEventosAdicionais() {
+  document.getElementById('botao-adicionais').addEventListener('click', abrirModalAdicionais);
+  document.getElementById('botao-fechar-adicionais').addEventListener('click', fecharModalAdicionais);
+  document.getElementById('modal-overlay-adicionais').addEventListener('click', (evento) => {
+    if (evento.target.id === 'modal-overlay-adicionais') fecharModalAdicionais();
+  });
+  document.getElementById('botao-novo-adicional').addEventListener('click', () => abrirFormularioAdicional(null));
+  document.getElementById('botao-voltar-adicionais').addEventListener('click', mostrarListaAdicionais);
+  document.getElementById('form-adicional').addEventListener('submit', salvarFormularioAdicional);
+  document.getElementById('lista-adicionais').addEventListener('click', (evento) => {
+    const botao = evento.target.closest('[data-acao]');
+    if (!botao) return;
+    if (botao.dataset.acao === 'editar-adicional') abrirFormularioAdicional(botao.dataset.id);
+    if (botao.dataset.acao === 'excluir-adicional') excluirAdicionalComConfirmacao(botao.dataset.id);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1037,6 +1281,10 @@ async function salvarFormularioProduto(evento) {
   }
   const composicaoAnterior = id ? ((obterProdutoPorId(id) || {}).composicao || []) : [];
   const ehComposto = composicao.length > 0;
+  // Adicionais oferecidos (ex.: + Batata + Refri). Combo nunca oferece.
+  const usaAdicionais = adicionaisProdutosDisponivel();
+  const adicionaisIds = !usaAdicionais || ehCombo ? [] : lerAdicionaisDoProdutoNoFormulario();
+  const adicionaisAnteriores = id ? ((obterProdutoPorId(id) || {}).adicionaisIds || []) : [];
 
   // Foto: decide o valor final de image_url ANTES de tocar no produto. Se houver arquivo
   // novo, faz o upload primeiro (produto/foto antiga continuam intactos se isso falhar);
@@ -1156,6 +1404,21 @@ async function salvarFormularioProduto(evento) {
     }
   }
 
+  // Adicionais oferecidos: RPC própria (set_product_addon_links), só quando mudou.
+  let avisoAdicionais = '';
+  if (usaAdicionais && salvo && salvo.id && adicionaisIds.slice().sort().join('|') !== adicionaisAnteriores.slice().sort().join('|')) {
+    try {
+      await salvarAdicionaisDoProdutoNoSupabase(salvo.id, adicionaisIds);
+    } catch (erroAdicionais) {
+      avisoAdicionais = 'Produto salvo, mas os adicionais não foram gravados. ' + erroAdicionais.message;
+    }
+    try {
+      await carregarProdutosCache();
+    } catch (erroRecarregar) {
+      console.error('Erro ao recarregar produtos após gravar os adicionais:', erroRecarregar);
+    }
+  }
+
   let avisoCusto = '';
   if (!ehCombo && !ehEspetinho && souAdmin) {
     const custoDigitado = lerCustoUnitarioDoFormulario();
@@ -1177,7 +1440,7 @@ async function salvarFormularioProduto(evento) {
     }
   }
 
-  const aviso = avisoComposicao || avisoCusto;
+  const aviso = avisoComposicao || avisoAdicionais || avisoCusto;
   mostrarToast(aviso || (id ? 'Produto atualizado.' : 'Produto cadastrado.'), aviso ? 'erro' : 'sucesso');
   fecharModal();
   preencherFiltroCategorias(); // ex.: o último produto saiu de "Outro" -> some do filtro

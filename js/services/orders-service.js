@@ -99,7 +99,9 @@ function _linhaSupabaseParaPedido(o) {
 function _itemSupabaseParaItemPedido(item) {
   const base = {
     produtoId: item.product_id,
-    nome: item.product_name,
+    // Adicional (migration 20261125150000): o rótulo entra no nome — assim a tela de pedidos, a comanda
+    // da cozinha, a via do cliente e o histórico mostram "Sanduiche de Carne + Batata + Refri (Coca Cola)".
+    nome: item.addon_label ? `${item.product_name} + ${item.addon_label}` : item.product_name,
     quantidade: item.quantity,
     valorUnitario: Number(item.unit_price) || 0,
     valorTotal: Number(item.total_price) || 0,
@@ -301,7 +303,13 @@ async function createOrder(pedido, itensPedido, turnstileToken) {
           },
         };
       }
-      return { item_type: 'product', product_id: item.produtoId, quantity: item.quantidade };
+      const linha = { item_type: 'product', product_id: item.produtoId, quantity: item.quantidade };
+      // Adicional escolhido (preço/estoque recalculados no banco — aqui só os ids).
+      if (item.adicional) {
+        linha.addon_id = item.adicional.id;
+        if (item.adicional.escolhaId) linha.addon_choice_id = item.adicional.escolhaId;
+      }
+      return linha;
     }),
   };
 

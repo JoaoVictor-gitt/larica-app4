@@ -777,6 +777,7 @@ function ligarEventosGerais() {
   ligarEventosDadosEntrega();
   ligarEventosPagamento();
   ligarEventosModalCombo();
+  ligarEventosModalAdicional();
   ligarEventosCupom();
   document.getElementById('botao-confirmar-pedido').addEventListener('click', confirmarPedido);
   document.getElementById('botao-novo-pedido').addEventListener('click', reiniciarPedido);
@@ -1030,6 +1031,12 @@ function adicionarProdutoAoPedido(produtoId) {
   let quantidade = Math.floor(Number(campoQtd.value)) || 1;
   quantidade = Math.max(1, Math.min(quantidade, produto.quantidadeEstoque));
 
+  // Produto com adicional (ex.: sanduíche + Batata + Refri): pergunta antes de pôr no carrinho.
+  if (adicionaisDoProdutoNoCardapio(produto).length > 0) {
+    abrirModalAdicional(produto, quantidade);
+    return;
+  }
+
   adicionarAoCarrinho(produtoId, quantidade);
   atualizarContadorCarrinho();
   atualizarBarraCarrinhoFixa();
@@ -1091,12 +1098,15 @@ const ICONE_LIXEIRA_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" fill=
 
 function linhaCarrinhoPedidoHtml(item, moeda) {
   const produto = obterProdutoPorId(item.produtoId);
-  const nome = produto ? produto.nome : '(product removed)';
-  const estoqueMaximo = produto ? produto.quantidadeEstoque : item.quantidade;
+  const nome = nomeItemCarrinho(item);
+  const estoqueMaximo = maximoItemCarrinho(item);
   const foto = produto && produto.foto
     ? `<img class="miniatura-carrinho" src="${produto.foto}" alt="${escaparHtml(nome)}" />`
     : `<div class="miniatura-carrinho-vazia">🍢</div>`;
   const subtotalItem = item.precoUnitario * item.quantidade;
+  // Linha com adicional é identificada pelo itemId (o mesmo produto pode estar em linhas diferentes).
+  const alvo = item.adicional ? `data-item-id="${item.itemId}"` : `data-id="${item.produtoId}"`;
+  const sufixo = item.adicional ? '-adicional' : '';
 
   return `
     <tr>
@@ -1105,14 +1115,33 @@ function linhaCarrinhoPedidoHtml(item, moeda) {
       <td>${formatarMoedaCliente(item.precoUnitario, moeda)}</td>
       <td>
         <div class="stepper-combo">
-          <button type="button" class="stepper-combo-botao" data-acao="diminuir-item-pedido" data-id="${item.produtoId}" ${item.quantidade <= 1 ? 'disabled' : ''}>−</button>
+          <button type="button" class="stepper-combo-botao" data-acao="diminuir-item-pedido${sufixo}" ${alvo} ${item.quantidade <= 1 ? 'disabled' : ''}>−</button>
           <span class="stepper-combo-valor">${item.quantidade}</span>
-          <button type="button" class="stepper-combo-botao" data-acao="aumentar-item-pedido" data-id="${item.produtoId}" ${item.quantidade >= Math.max(1, estoqueMaximo) ? 'disabled' : ''}>+</button>
+          <button type="button" class="stepper-combo-botao" data-acao="aumentar-item-pedido${sufixo}" ${alvo} ${item.quantidade >= Math.max(1, estoqueMaximo) ? 'disabled' : ''}>+</button>
         </div>
       </td>
       <td>${formatarMoedaCliente(subtotalItem, moeda)}</td>
-      <td><button class="btn-icone" data-acao="remover-pedido" data-id="${item.produtoId}" title="Remove">${ICONE_LIXEIRA_SVG}</button></td>
+      <td><button class="btn-icone" data-acao="remover-pedido${sufixo}" ${alvo} title="Remove">${ICONE_LIXEIRA_SVG}</button></td>
     </tr>`;
+}
+
+/** Nome mostrado no carrinho/revisão/confirmação: combo, produto, ou produto + adicional (bebida). */
+function nomeItemCarrinho(item) {
+  if (item.combo) return item.combo.nome;
+  const produto = obterProdutoPorId(item.produtoId);
+  const nome = produto ? produto.nome : '(product removed)';
+  if (!item.adicional) return nome;
+  return `${nome} + ${item.adicional.nome}${item.adicional.escolhaNome ? ` (${item.adicional.escolhaNome})` : ''}`;
+}
+
+/** Quantidade máxima de uma linha: estoque do produto e, com adicional, também o dos itens/bebida. */
+function maximoItemCarrinho(item) {
+  const produto = obterProdutoPorId(item.produtoId);
+  if (!produto) return item.quantidade;
+  if (!item.adicional) return produto.quantidadeEstoque;
+  const adicional = adicionaisDoProdutoNoCardapio(produto).find((a) => a.id === item.adicional.id);
+  if (!adicional) return item.quantidade; // adicional saiu do cardápio: o banco recusa no envio
+  return Math.min(produto.quantidadeEstoque, disponibilidadeAdicional(adicional, item.adicional.escolhaId));
 }
 
 /** Linha de carrinho para um combo personalizado — não usa qtd/subtotal em coluna, mostra a composição completa */
@@ -1157,9 +1186,29 @@ function linhaComboCarrinhoHtml(item, moeda) {
 }
 
 function ligarEventosLinhasPedido() {
+  // Linhas com adicional (itemId próprio): quantidade e remoção pela linha.
+  document.querySelectorAll('[data-acao="diminuir-item-pedido-adicional"], [data-acao="aumentar-item-pedido-adicional"]').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      const item = obterCarrinho().find((i) => i.itemId === botao.dataset.itemId);
+      if (!item) return;
+      const delta = botao.dataset.acao.startsWith('aumentar') ? 1 : -1;
+      atualizarQuantidadeItemDoCarrinho(item.itemId, Math.max(1, Math.min(maximoItemCarrinho(item), item.quantidade + delta)));
+      atualizarContadorCarrinho();
+      renderizarCarrinhoPedido();
+    });
+  });
+  document.querySelectorAll('[data-acao="remover-pedido-adicional"]').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      removerItemDoCarrinho(botao.dataset.itemId);
+      atualizarContadorCarrinho();
+      renderizarCarrinhoPedido();
+      mostrarToast('Item removed from your order.', 'info');
+    });
+  });
+
   document.querySelectorAll('[data-acao="diminuir-item-pedido"]').forEach((botao) => {
     botao.addEventListener('click', () => {
-      const item = obterCarrinho().find((i) => i.produtoId === botao.dataset.id && !i.combo);
+      const item = obterCarrinho().find((i) => i.produtoId === botao.dataset.id && !i.combo && !i.adicional);
       if (!item) return;
       atualizarQuantidadeCarrinho(item.produtoId, Math.max(1, item.quantidade - 1));
       atualizarContadorCarrinho();
@@ -1169,7 +1218,7 @@ function ligarEventosLinhasPedido() {
 
   document.querySelectorAll('[data-acao="aumentar-item-pedido"]').forEach((botao) => {
     botao.addEventListener('click', () => {
-      const item = obterCarrinho().find((i) => i.produtoId === botao.dataset.id && !i.combo);
+      const item = obterCarrinho().find((i) => i.produtoId === botao.dataset.id && !i.combo && !i.adicional);
       if (!item) return;
       const produto = obterProdutoPorId(item.produtoId);
       const maximo = produto ? produto.quantidadeEstoque : item.quantidade;
@@ -1513,6 +1562,186 @@ function confirmarComboNoCarrinho() {
   atualizarBarraCarrinhoFixa();
   renderizarCarrinhoPedido();
   fecharModalCombo();
+}
+
+// ---------------------------------------------------------------------------
+// Adicionais (ex.: sanduíche + "Batata + Refri") — cadastrados em Produtos (migration
+// 20261125150000). O cliente escolhe "só o produto" ou um adicional e, se houver, a bebida.
+// Preço e estoque aqui são só exibição: create_customer_order recalcula e recusa se faltar algo.
+// ---------------------------------------------------------------------------
+
+let adicionalProdutoAtual = null; // produto do cardápio sendo adicionado
+let adicionalQuantidadeAtual = 1;
+let adicionalEscolhidoId = ''; // '' = só o produto
+let adicionalBebidaEscolhidaId = null;
+
+/** Adicionais ativos que o produto oferece (já filtrados pelo products-service). */
+function adicionaisDoProdutoNoCardapio(produto) {
+  return (produto && produto.adicionais) || [];
+}
+
+/** Unidades disponíveis de uma bebida/item para o público (inativo ou indisponível = 0). */
+function estoqueParaAdicional(produtoId) {
+  const p = obterProdutoPorId(produtoId);
+  if (!p || p.status !== 'ativo' || p.disponivel === false) return 0;
+  return Math.max(0, p.quantidadeEstoque);
+}
+
+/** Quantos adicionais dá para montar: itens fixos e a bebida escolhida (ou a melhor bebida, se nenhuma). */
+function disponibilidadeAdicional(adicional, bebidaId) {
+  let maximo = Infinity;
+  adicional.itens.forEach((item) => {
+    maximo = Math.min(maximo, Math.floor(estoqueParaAdicional(item.produtoId) / item.quantidade));
+  });
+  if (adicional.escolhas.length > 0) {
+    const bebidas = bebidaId ? [bebidaId] : adicional.escolhas.map((e) => e.produtoId);
+    maximo = Math.min(maximo, Math.max(0, ...bebidas.map(estoqueParaAdicional)));
+  }
+  return maximo === Infinity ? 999 : Math.max(0, maximo);
+}
+
+function abrirModalAdicional(produto, quantidade) {
+  adicionalProdutoAtual = produto;
+  adicionalQuantidadeAtual = Math.max(1, quantidade || 1);
+  adicionalEscolhidoId = '';
+  adicionalBebidaEscolhidaId = null;
+  document.getElementById('adicional-modal-nome').textContent = produto.nome;
+  renderizarModalAdicional();
+  document.getElementById('modal-overlay-adicional').classList.add('modal-visivel');
+}
+
+function fecharModalAdicional() {
+  document.getElementById('modal-overlay-adicional').classList.remove('modal-visivel');
+  adicionalProdutoAtual = null;
+}
+
+function ligarEventosModalAdicional() {
+  document.getElementById('botao-fechar-modal-adicional').addEventListener('click', fecharModalAdicional);
+  document.getElementById('botao-cancelar-adicional').addEventListener('click', fecharModalAdicional);
+  document.getElementById('modal-overlay-adicional').addEventListener('click', (evento) => {
+    if (evento.target.id === 'modal-overlay-adicional') fecharModalAdicional();
+  });
+  document.getElementById('botao-confirmar-adicional').addEventListener('click', confirmarAdicionalNoCarrinho);
+  document.getElementById('adicional-lista-opcoes').addEventListener('click', (evento) => {
+    const botao = evento.target.closest('[data-acao="escolher-adicional"]');
+    if (!botao || botao.disabled) return;
+    adicionalEscolhidoId = botao.dataset.id;
+    adicionalBebidaEscolhidaId = null;
+    renderizarModalAdicional();
+  });
+  document.getElementById('adicional-lista-bebidas').addEventListener('click', (evento) => {
+    const botao = evento.target.closest('[data-acao="escolher-bebida"]');
+    if (!botao || botao.disabled) return;
+    adicionalBebidaEscolhidaId = botao.dataset.id;
+    renderizarModalAdicional();
+  });
+}
+
+function adicionalSelecionado() {
+  return adicionaisDoProdutoNoCardapio(adicionalProdutoAtual).find((a) => a.id === adicionalEscolhidoId) || null;
+}
+
+function renderizarModalAdicional() {
+  const produto = adicionalProdutoAtual;
+  if (!produto) return;
+  const moeda = obterConfiguracoes().moeda;
+  const qtd = adicionalQuantidadeAtual;
+
+  const opcoes = [{ id: '', nome: `Just the ${produto.nome}`, preco: 0, disponivel: produto.quantidadeEstoque >= qtd }].concat(
+    adicionaisDoProdutoNoCardapio(produto).map((a) => ({ id: a.id, nome: a.nome, preco: a.preco, disponivel: disponibilidadeAdicional(a) >= qtd }))
+  );
+  document.getElementById('adicional-lista-opcoes').innerHTML = opcoes
+    .map(
+      (o) => `
+        <button type="button" class="opcao-pagamento opcao-combo-item ${o.id === adicionalEscolhidoId ? 'selecionada' : ''}"
+          data-acao="escolher-adicional" data-id="${o.id}" ${o.disponivel ? '' : 'disabled'}>
+          <span>${escaparHtml(o.nome)}${o.disponivel ? '' : ' (sold out)'}</span>
+          ${o.preco > 0 ? `<span class="combo-item-acrescimo">+ ${formatarMoedaCliente(o.preco, moeda)}</span>` : ''}
+        </button>`
+    )
+    .join('');
+
+  const adicional = adicionalSelecionado();
+  const secaoBebida = document.getElementById('adicional-secao-bebida');
+  if (adicional && adicional.escolhas.length > 0) {
+    secaoBebida.style.display = '';
+    document.getElementById('adicional-lista-bebidas').innerHTML = adicional.escolhas
+      .map((e) => {
+        const bebida = obterProdutoPorId(e.produtoId);
+        if (!bebida) return ''; // inativa (fora do cardápio público)
+        const ok = estoqueParaAdicional(e.produtoId) >= qtd;
+        return `
+          <button type="button" class="opcao-pagamento opcao-combo-item ${e.produtoId === adicionalBebidaEscolhidaId ? 'selecionada' : ''}"
+            data-acao="escolher-bebida" data-id="${e.produtoId}" ${ok ? '' : 'disabled'}>
+            <span>${escaparHtml(bebida.nome)}${ok ? '' : ' (sold out)'}</span>
+            ${e.acrescimo > 0 ? `<span class="combo-item-acrescimo">+ ${formatarMoedaCliente(e.acrescimo, moeda)}</span>` : ''}
+          </button>`;
+      })
+      .join('');
+  } else {
+    secaoBebida.style.display = 'none';
+    document.getElementById('adicional-lista-bebidas').innerHTML = '';
+  }
+
+  const { precoUnitario, linhas } = calcularPrecoAdicional();
+  document.getElementById('adicional-rotulo-base').textContent = `${qtd}x ${produto.nome}`;
+  document.getElementById('adicional-valor-base').textContent = formatarMoedaCliente(produto.preco * qtd, moeda);
+  document.getElementById('adicional-linhas-extras').innerHTML = linhas
+    .map((l) => `<div class="linha-resumo"><span>${qtd}x ${escaparHtml(l.nome)}</span><span>+ ${formatarMoedaCliente(l.valor * qtd, moeda)}</span></div>`)
+    .join('');
+  document.getElementById('adicional-valor-total').textContent = formatarMoedaCliente(precoUnitario * qtd, moeda);
+
+  const completo = adicional ? adicional.escolhas.length === 0 || !!adicionalBebidaEscolhidaId : produto.quantidadeEstoque >= qtd;
+  document.getElementById('botao-confirmar-adicional').disabled = !completo;
+}
+
+/** Preço unitário (produto + adicional + acréscimo da bebida) e as linhas de extra para o resumo. */
+function calcularPrecoAdicional() {
+  const produto = adicionalProdutoAtual;
+  const adicional = adicionalSelecionado();
+  const linhas = [];
+  let precoUnitario = produto.preco;
+  if (adicional) {
+    precoUnitario += adicional.preco;
+    linhas.push({ nome: adicional.nome, valor: adicional.preco });
+    const escolha = adicional.escolhas.find((e) => e.produtoId === adicionalBebidaEscolhidaId);
+    if (escolha && escolha.acrescimo > 0) {
+      const bebida = obterProdutoPorId(escolha.produtoId);
+      precoUnitario += escolha.acrescimo;
+      linhas.push({ nome: bebida ? bebida.nome : 'Drink', valor: escolha.acrescimo });
+    }
+  }
+  return { precoUnitario, linhas };
+}
+
+function confirmarAdicionalNoCarrinho() {
+  const produto = adicionalProdutoAtual;
+  if (!produto) return;
+  const adicional = adicionalSelecionado();
+  const qtd = adicionalQuantidadeAtual;
+
+  if (!adicional) {
+    adicionarAoCarrinho(produto.id, qtd);
+    mostrarToast(`${qtd}x ${produto.nome} added to your order.`, 'sucesso');
+  } else {
+    const escolha = adicional.escolhas.find((e) => e.produtoId === adicionalBebidaEscolhidaId) || null;
+    const bebida = escolha ? obterProdutoPorId(escolha.produtoId) : null;
+    const { precoUnitario } = calcularPrecoAdicional();
+    adicionarProdutoComAdicionalAoCarrinho(produto.id, qtd, precoUnitario, {
+      id: adicional.id,
+      nome: adicional.nome,
+      preco: adicional.preco,
+      escolhaId: escolha ? escolha.produtoId : null,
+      escolhaNome: bebida ? bebida.nome : null,
+      acrescimo: escolha ? escolha.acrescimo : 0,
+    });
+    mostrarToast(`${qtd}x ${produto.nome} + ${adicional.nome} added to your order.`, 'sucesso');
+  }
+
+  atualizarContadorCarrinho();
+  atualizarBarraCarrinhoFixa();
+  renderizarCarrinhoPedido();
+  fecharModalAdicional();
 }
 
 // ---------------------------------------------------------------------------
@@ -2283,9 +2512,7 @@ async function renderizarRevisao() {
       if (item.combo) {
         return `<div class="linha-resumo"><span>${escaparHtml(item.combo.nome)}</span><span>${formatarMoedaCliente(item.precoUnitario * item.quantidade, moeda)}</span></div>`;
       }
-      const produto = obterProdutoPorId(item.produtoId);
-      const nome = produto ? produto.nome : '(product removed)';
-      return `<div class="linha-resumo"><span>${item.quantidade}x ${escaparHtml(nome)}</span><span>${formatarMoedaCliente(item.precoUnitario * item.quantidade, moeda)}</span></div>`;
+      return `<div class="linha-resumo"><span>${item.quantidade}x ${escaparHtml(nomeItemCarrinho(item))}</span><span>${formatarMoedaCliente(item.precoUnitario * item.quantidade, moeda)}</span></div>`;
     })
     .join('');
 
@@ -2418,13 +2645,13 @@ async function confirmarPedido() {
           combo: item.combo,
         };
       }
-      const produto = obterProdutoPorId(item.produtoId);
       return {
         produtoId: item.produtoId,
-        nome: produto ? produto.nome : '(product removed)',
+        nome: nomeItemCarrinho(item),
         quantidade: item.quantidade,
         valorUnitario: item.precoUnitario,
         valorTotal: item.precoUnitario * item.quantidade,
+        adicional: item.adicional || null, // orders-service envia addon_id / addon_choice_id
       };
     });
 

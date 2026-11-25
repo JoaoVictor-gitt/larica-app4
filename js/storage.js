@@ -392,7 +392,7 @@ function adicionarAoCarrinho(produtoId, quantidade) {
   if (!produto) throw new Error('Produto não encontrado: ' + produtoId);
 
   const carrinho = obterCarrinho();
-  const existente = carrinho.find((item) => item.produtoId === produtoId);
+  const existente = carrinho.find((item) => _linhaSimplesDoCarrinho(item, produtoId));
   const qtd = Number(quantidade) || 1;
 
   if (existente) {
@@ -409,15 +409,20 @@ function adicionarAoCarrinho(produtoId, quantidade) {
   return carrinho;
 }
 
+/** Linha "simples" do produto: sem combo e sem adicional (essas têm itemId próprio e não se fundem). */
+function _linhaSimplesDoCarrinho(item, produtoId) {
+  return item.produtoId === produtoId && !item.combo && !item.adicional;
+}
+
 function removerDoCarrinho(produtoId) {
-  const carrinho = obterCarrinho().filter((item) => item.produtoId !== produtoId);
+  const carrinho = obterCarrinho().filter((item) => !_linhaSimplesDoCarrinho(item, produtoId));
   _gravarChave(CHAVES.carrinho, carrinho);
   return carrinho;
 }
 
 function atualizarQuantidadeCarrinho(produtoId, quantidade) {
   const carrinho = obterCarrinho();
-  const item = carrinho.find((i) => i.produtoId === produtoId);
+  const item = carrinho.find((i) => _linhaSimplesDoCarrinho(i, produtoId));
   if (!item) return carrinho;
   item.quantidade = Math.max(1, Number(quantidade) || 1);
   _gravarChave(CHAVES.carrinho, carrinho);
@@ -455,6 +460,37 @@ function atualizarComboNoCarrinho(itemId, precoUnitario, composicaoCombo) {
   if (!item) return carrinho;
   item.precoUnitario = precoUnitario;
   item.combo = composicaoCombo;
+  _gravarChave(CHAVES.carrinho, carrinho);
+  return carrinho;
+}
+
+/**
+ * Produto com adicional (ex.: Sanduíche + Batata + Refri). adicional = { id, nome, preco, escolhaId,
+ * escolhaNome, acrescimo }. precoUnitario já soma produto + adicional + acréscimo da bebida (o banco
+ * recalcula). Funde só com a mesma combinação (mesmo produto, adicional e bebida); senão, linha nova.
+ */
+function adicionarProdutoComAdicionalAoCarrinho(produtoId, quantidade, precoUnitario, adicional) {
+  const carrinho = obterCarrinho();
+  const qtd = Number(quantidade) || 1;
+  const existente = carrinho.find(
+    (i) => i.produtoId === produtoId && i.adicional && i.adicional.id === adicional.id && (i.adicional.escolhaId || null) === (adicional.escolhaId || null)
+  );
+  if (existente) {
+    existente.quantidade += qtd;
+    existente.precoUnitario = precoUnitario;
+  } else {
+    carrinho.push({ itemId: gerarId(), produtoId, quantidade: qtd, precoUnitario, adicional: { ...adicional }, adicionadoEm: new Date().toISOString() });
+  }
+  _gravarChave(CHAVES.carrinho, carrinho);
+  return carrinho;
+}
+
+/** Quantidade de uma linha identificada por itemId (linhas com adicional). */
+function atualizarQuantidadeItemDoCarrinho(itemId, quantidade) {
+  const carrinho = obterCarrinho();
+  const item = carrinho.find((i) => i.itemId === itemId);
+  if (!item) return carrinho;
+  item.quantidade = Math.max(1, Number(quantidade) || 1);
   _gravarChave(CHAVES.carrinho, carrinho);
   return carrinho;
 }
