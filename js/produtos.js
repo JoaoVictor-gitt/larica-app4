@@ -756,7 +756,9 @@ function abrirFormularioAdicional(id) {
     a.nome.localeCompare(b.nome);
   const inativo = (p) => (p.status !== 'ativo' ? ' <em>(inativo)</em>' : '');
 
+  // Só a categoria Acompanhamentos (lista curta); um item já gravado de outra categoria continua, para não sumir ao salvar.
   document.getElementById('adicional-lista-itens').innerHTML = candidatosItemAdicional([...qtdItem.keys()])
+    .filter((p) => p.categoria === 'Acompanhamentos' || qtdItem.has(p.id))
     .sort(ordenar(qtdItem, 'Acompanhamentos'))
     .map(
       (p) => `
