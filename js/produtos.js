@@ -105,9 +105,11 @@ function preencherFiltroCategorias() {
     .map((c) => c.nome)
     .filter((nome) => !CATEGORIAS_PADRAO.includes(nome))
     .sort((a, b) => a.localeCompare(b));
+  // "Outro" deixou de ser oferecida: só entra no filtro se ainda houver produto nela.
+  const padrao = CATEGORIAS_PADRAO.filter((c) => c !== 'Outro' || obterProdutos().some((p) => p.categoria === 'Outro'));
   select.innerHTML =
     '<option value="">Todas</option>' +
-    CATEGORIAS_PADRAO.concat(personalizadas).map((c) => `<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+    padrao.concat(personalizadas).map((c) => `<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
   if (Array.from(select.options).some((o) => o.value === valorAtual)) select.value = valorAtual;
 }
 
@@ -149,6 +151,16 @@ function valorCategoriaDoProduto(produto) {
 function preencherOpcoesCategoriaFormulario(produtoAtual) {
   const select = document.getElementById('campo-categoria');
   select.querySelectorAll('[data-categoria-dinamica]').forEach((el) => el.remove());
+
+  // "Outro" não é mais oferecida para produto novo; editando um produto que ainda está nela, a opção
+  // volta só para ele (senão o select ficaria vazio e o produto não poderia ser salvo).
+  if (produtoAtual && !produtoAtual.categoriaPersonalizadaId && produtoAtual.categoria === 'Outro') {
+    const outro = document.createElement('option');
+    outro.value = 'Outro';
+    outro.textContent = 'Outro';
+    outro.setAttribute('data-categoria-dinamica', '');
+    select.appendChild(outro);
+  }
 
   const opcoes = obterCategoriasPersonalizadas()
     .filter((c) => c.ativa)
@@ -1168,5 +1180,6 @@ async function salvarFormularioProduto(evento) {
   const aviso = avisoComposicao || avisoCusto;
   mostrarToast(aviso || (id ? 'Produto atualizado.' : 'Produto cadastrado.'), aviso ? 'erro' : 'sucesso');
   fecharModal();
+  preencherFiltroCategorias(); // ex.: o último produto saiu de "Outro" -> some do filtro
   renderizarLista();
 }
