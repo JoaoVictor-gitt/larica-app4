@@ -246,6 +246,45 @@
   font-size: 0.9rem;
 }
 
+/* Itens inclusos do combo com quantidade: Item | Unid. | Gramas */
+.cabecalho-item-incluso,
+.linha-item-incluso-qtd {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px 80px;
+  align-items: center;
+  gap: var(--espaco-sm);
+}
+
+.cabecalho-item-incluso {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--cor-texto-secundario);
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+.cabecalho-item-incluso span:not(:first-child) {
+  text-align: right;
+}
+
+.linha-item-incluso-nome {
+  display: flex;
+  align-items: center;
+  gap: var(--espaco-sm);
+  min-width: 0;
+}
+
+.linha-item-incluso-qtd .campo-incluso-qtd {
+  width: 100%;
+  padding: 4px var(--espaco-xs) !important;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.linha-item-incluso-qtd .campo-incluso-qtd:disabled {
+  opacity: 0.45;
+}
+
 .linha-acrescimo-espeto {
   display: flex;
   align-items: center;

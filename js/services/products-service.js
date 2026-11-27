@@ -478,14 +478,31 @@ async function _salvarComboConfigNoSupabase(produtoId, comboConfig) {
     if (error) throw new Error(error.message);
   }
 
-  // Substitui os itens inclusos
+  // Substitui os itens inclusos — cada um com sua quantidade (unidades OU gramas; migration
+  // 20261127100000). Sem quantidade informada (config antiga) = 1 unidade, como sempre foi.
+  const quantidades = comboConfig.includedQuantities || {};
+  const linhasInclusos = (comboConfig.includedItems || []).map((idIncluso) => {
+    const q = quantidades[idIncluso] || {};
+    const gramas = Number(q.gramas) > 0 ? Math.round(Number(q.gramas) * 100) / 100 : null;
+    const unidades = Number.isInteger(Number(q.unidades)) && Number(q.unidades) > 0 ? Number(q.unidades) : 1;
+    const linha = { combo_id: produtoId, included_product_id: idIncluso, quantity: gramas ? 1 : unidades };
+    // A coluna só vai no insert quando há gramas — assim o cadastro em unidades segue funcionando
+    // mesmo antes da migration.
+    if (gramas) linha.quantity_grams = gramas;
+    return linha;
+  });
+
+  // Gramas sem a coluna no banco: recusa ANTES de apagar os inclusos atuais (delete + insert não é atômico).
+  if (linhasInclusos.some((l) => l.quantity_grams)) {
+    const { error: erroColuna } = await supabaseClient.from('combo_included_products').select('quantity_grams').limit(1);
+    if (erroColuna) {
+      throw new Error('Quantidade em gramas ainda não disponível no banco (falta aplicar a migration 20261127100000_combo_included_quantities). Use unidades por enquanto.');
+    }
+  }
+
   const { error: erroDeleteInclusos } = await supabaseClient.from('combo_included_products').delete().eq('combo_id', produtoId);
   if (erroDeleteInclusos) throw new Error(erroDeleteInclusos.message);
 
-  const linhasInclusos = (comboConfig.includedItems || []).map((idIncluso) => ({
-    combo_id: produtoId,
-    included_product_id: idIncluso,
-  }));
   if (linhasInclusos.length > 0) {
     const { error } = await supabaseClient.from('combo_included_products').insert(linhasInclusos);
     if (error) throw new Error(error.message);
@@ -549,13 +566,24 @@ async function buscarProdutosDoSupabase() {
         sideExtraPrices[o.option_product_id] = Number(o.extra_price) || 0;
       });
 
-    const includedItems = (respInclusos.data || []).filter((i) => i.combo_id === produto.id).map((i) => i.included_product_id);
+    const linhasInclusosCombo = (respInclusos.data || []).filter((i) => i.combo_id === produto.id);
+    const includedItems = linhasInclusosCombo.map((i) => i.included_product_id);
+    // { [produtoId]: { unidades, gramas } } — exatamente um dos dois preenchido. quantity_grams não
+    // existe antes da migration 20261127100000: aí tudo é unidade (quantity), como sempre foi.
+    const includedQuantities = {};
+    linhasInclusosCombo.forEach((i) => {
+      const gramas = i.quantity_grams != null && Number(i.quantity_grams) > 0 ? Number(i.quantity_grams) : null;
+      includedQuantities[i.included_product_id] = gramas
+        ? { unidades: null, gramas }
+        : { unidades: Number(i.quantity) > 0 ? Number(i.quantity) : 1, gramas: null };
+    });
 
     produto.comboConfig = {
       ordem: (linhaPorId.get(produto.id) || {}).display_order || 0,
       allowedSkewers: config ? Number(config.allowed_skewers) || 1 : 1,
       allowedSides: config ? Number(config.allowed_sides) || 0 : 0,
       includedItems,
+      includedQuantities,
       skewerExtraPrices,
       sideExtraPrices,
     };

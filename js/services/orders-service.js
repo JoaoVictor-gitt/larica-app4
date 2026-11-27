@@ -96,6 +96,20 @@ function _linhaSupabaseParaPedido(o) {
   };
 }
 
+/**
+ * Texto de um item incluso do combo com a quantidade (migration 20261127100000_combo_included_quantities):
+ * unidade 'g' -> "Arroz - 150g"; 'unit' -> "1x Farofa"; sem unidade (pedido antigo) -> só o nome.
+ * Hífen ASCII de propósito: o mesmo texto vai para a impressora Epson (sem página de código definida).
+ * Usado aqui (pedidos gravados) e em js/pedido.js (carrinho/via impressa logo após o pedido).
+ */
+function rotuloItemInclusoCombo(nome, unidade, quantidade, gramas) {
+  const g = Math.round(Number(gramas) * 100) / 100;
+  if (unidade === 'g' && g > 0) return `${nome} - ${String(g).replace('.', ',')}g`;
+  const q = Number(quantidade);
+  if (unidade === 'unit' && Number.isInteger(q) && q > 0) return `${q}x ${nome}`;
+  return nome;
+}
+
 function _itemSupabaseParaItemPedido(item) {
   const base = {
     produtoId: item.product_id,
@@ -128,7 +142,12 @@ function _itemSupabaseParaItemPedido(item) {
         // acrescimoUnitario = extra_price gravado no pedido (snapshot) — mesma leitura dos espetos.
         // Pedidos anteriores ao acréscimo por acompanhamento têm 0 gravado: nada muda neles.
         .map((s) => ({ id: s.selected_product_id, nome: s.selected_product_name, quantidade: s.quantity, acrescimoUnitario: Number(s.extra_price) || 0 })),
-      incluidos: selecoes.filter((s) => s.selection_type === 'included').map((s) => s.selected_product_name),
+      // Texto já com a quantidade do snapshot do pedido ("1x Farofa" / "Arroz - 150g") — assim a comanda,
+      // a via do cliente, Pedidos e o Histórico mostram o que foi vendido sem reler o cadastro do combo.
+      // Pedido anterior a 2026-11-27 (quantity_unit nulo) continua só com o nome, como sempre.
+      incluidos: selecoes
+        .filter((s) => s.selection_type === 'included')
+        .map((s) => rotuloItemInclusoCombo(s.selected_product_name, s.quantity_unit, s.quantity, s.quantity_grams)),
       extras: Number(item.extras_total) || 0,
       total: Number(item.total_price) || 0,
     },

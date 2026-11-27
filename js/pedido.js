@@ -1294,9 +1294,17 @@ function listaAcompanhamentosParaCombo(combo) {
  * mexe em Produtos). `temIndisponivel` indica se algum foi filtrado, pra
  * mostrar um aviso discreto em vez de simplesmente sumir sem explicação.
  */
-function itensInclusosDisponiveisCombo(includedItemsIds) {
+function itensInclusosDisponiveisCombo(includedItemsIds, includedQuantities) {
   const { disponiveis, indisponiveis } = separarItensInclusosCombo(includedItemsIds, obterProdutos());
-  return { nomes: disponiveis.map((p) => p.nome), temIndisponivel: indisponiveis.length > 0 };
+  // Com quantidades configuradas (Produtos → combo), o texto já sai como na comanda: "1x Farofa" /
+  // "Arroz - 150g" — mesmo formato que orders-service.js monta a partir do snapshot gravado no pedido.
+  const qtds = includedQuantities || null;
+  const rotulo = (p) => {
+    const q = qtds && qtds[p.id];
+    if (!q || typeof rotuloItemInclusoCombo !== 'function') return p.nome;
+    return q.gramas ? rotuloItemInclusoCombo(p.nome, 'g', 1, q.gramas) : rotuloItemInclusoCombo(p.nome, 'unit', q.unidades, null);
+  };
+  return { nomes: disponiveis.map(rotulo), temIndisponivel: indisponiveis.length > 0 };
 }
 
 function abrirModalCombo(produtoId, itemIdParaEditar) {
@@ -1328,7 +1336,7 @@ function abrirModalCombo(produtoId, itemIdParaEditar) {
 
   document.getElementById('combo-secao-acompanhamentos').style.display = combo.allowedSides > 0 ? '' : 'none';
 
-  const inclusos = itensInclusosDisponiveisCombo(combo.includedItems);
+  const inclusos = itensInclusosDisponiveisCombo(combo.includedItems, combo.includedQuantities);
   const secaoInclusos = document.getElementById('combo-secao-inclusos');
   if (inclusos.nomes.length > 0) {
     secaoInclusos.style.display = '';
@@ -1541,7 +1549,7 @@ function montarComposicaoCombo() {
     precoBase: comboAtual.preco,
     espetos: comboEspetosEscolhidos.map((e) => ({ produtoId: e.id, nome: e.nome, quantidade: e.quantidade, acrescimoUnitario: e.acrescimoUnitario })),
     acompanhamentos: comboAcompanhamentosEscolhidos.map((a) => ({ id: a.id, nome: a.nome, quantidade: a.quantidade, acrescimoUnitario: a.acrescimoUnitario || 0 })),
-    incluidos: itensInclusosDisponiveisCombo(comboAtual.includedItems).nomes,
+    incluidos: itensInclusosDisponiveisCombo(comboAtual.includedItems, comboAtual.includedQuantities).nomes,
     extras,
     total,
   };

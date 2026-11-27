@@ -539,6 +539,7 @@ function ligarEventosModal() {
   document.getElementById('botao-remover-foto').addEventListener('click', removerFotoSelecionada);
 
   document.getElementById('form-produto').addEventListener('submit', salvarFormularioProduto);
+  configurarListaItensInclusos();
   document.getElementById('campo-origem-estoque').addEventListener('change', atualizarDicaOrigemEstoque);
   document.getElementById('lista-composicao').addEventListener('input', atualizarCamposPorComposicao);
   ligarEventosAdicionais();
@@ -619,7 +620,9 @@ function abrirModalEdicao(id) {
   renderizarListaAdicionaisProduto(produto.adicionaisIds);
   atualizarVisibilidadeCamposPorCategoria();
   atualizarDicaOrigemEstoque();
-  renderizarListaItensInclusos(combo ? combo.includedItems : []);
+  // Sem includedQuantities (cadastro anterior às quantidades) cada item marcado aparece como 1 unidade.
+  const qtdsInclusos = combo ? { ...Object.fromEntries((combo.includedItems || []).map((idItem) => [idItem, { unidades: 1, gramas: null }])), ...(combo.includedQuantities || {}) } : {};
+  renderizarListaItensInclusos(combo ? combo.includedItems : [], qtdsInclusos);
   renderizarListasAcrescimosCombo(combo);
 
   abrirModal();
@@ -1037,28 +1040,49 @@ function formatarAvisoItensInclusos(indisponiveis) {
  * "indisponível") pra não sumir da configuração sem querer só por causa de
  * salvar o formulário de novo — ver separarItensInclusosCombo() em utils.js.
  */
-function renderizarListaItensInclusos(idsSelecionados) {
+function renderizarListaItensInclusos(idsSelecionados, quantidades) {
   const idAtual = document.getElementById('campo-id').value;
   const ativos = pesquisarProdutos({ status: 'ativo' }).filter((p) => p.categoria !== 'Combos' && p.id !== idAtual);
   const marcados = new Set(idsSelecionados || []);
+  const qtds = quantidades || {};
 
   const { indisponiveis } = separarItensInclusosCombo(idsSelecionados, obterProdutos());
   const indisponiveisComNome = indisponiveis.filter((i) => i.nome);
-  const candidatos = ativos.concat(indisponiveisComNome.map((i) => ({ id: i.id, nome: i.nome, indisponivel: true })));
+  const candidatos = ativos.concat(
+    indisponiveisComNome.map((i) => {
+      const p = obterProdutoPorId(i.id);
+      return { id: i.id, nome: i.nome, categoria: p ? p.categoria : '', indisponivel: true };
+    })
+  );
 
   const container = document.getElementById('lista-itens-inclusos');
   if (candidatos.length === 0) {
     container.innerHTML = '<p class="dica-campo">Nenhum produto ativo cadastrado ainda.</p>';
   } else {
-    container.innerHTML = candidatos
-      .map(
-        (p) => `
-        <label class="linha-item-incluso ${p.indisponivel ? 'linha-item-incluso-indisponivel' : ''}">
-          <input type="checkbox" class="campo-item-incluso" value="${p.id}" ${marcados.has(p.id) ? 'checked' : ''} />
-          <span>${escaparHtml(p.nome)}${p.indisponivel ? ' <em>(indisponível)</em>' : ''}</span>
-        </label>`
-      )
-      .join('');
+    container.innerHTML =
+      `<div class="cabecalho-item-incluso" aria-hidden="true"><span>Item</span><span>Unid.</span><span>Gramas</span></div>` +
+      candidatos
+        .map((p) => {
+          const q = qtds[p.id] || {};
+          const marcado = marcados.has(p.id);
+          // Gramas só para Acompanhamentos (únicos vendidos por porção); espetos e o resto, só unidades.
+          // Item já gravado em gramas continua editável em gramas, seja qual for a categoria hoje.
+          const aceitaGramas = p.categoria === 'Acompanhamentos' || Number(q.gramas) > 0;
+          const motivoSemGramas = p.categoria === 'Espetinhos' ? 'Espetos usam só unidades' : 'Este produto usa só unidades';
+          return `
+        <div class="linha-item-incluso linha-item-incluso-qtd ${p.indisponivel ? 'linha-item-incluso-indisponivel' : ''}" data-id="${p.id}" data-nome="${escaparHtml(p.nome)}" data-aceita-gramas="${aceitaGramas ? '1' : '0'}">
+          <label class="linha-item-incluso-nome">
+            <input type="checkbox" class="campo-item-incluso" value="${p.id}" ${marcado ? 'checked' : ''} />
+            <span>${escaparHtml(p.nome)}${p.indisponivel ? ' <em>(indisponível)</em>' : ''}</span>
+          </label>
+          <input type="number" class="input campo-incluso-qtd campo-incluso-unidades" min="1" max="99" step="1" inputmode="numeric"
+            aria-label="Unidades de ${escaparHtml(p.nome)}" placeholder="—" value="${marcado && q.unidades ? q.unidades : ''}" ${marcado ? '' : 'disabled'} />
+          <input type="number" class="input campo-incluso-qtd campo-incluso-gramas" min="0.01" max="100000" step="any" inputmode="decimal"
+            aria-label="Gramas de ${escaparHtml(p.nome)}" placeholder="—" value="${marcado && q.gramas ? q.gramas : ''}"
+            ${marcado && aceitaGramas ? '' : 'disabled'} ${aceitaGramas ? '' : `title="${motivoSemGramas}"`} />
+        </div>`;
+        })
+        .join('');
   }
 
   const aviso = document.getElementById('aviso-itens-inclusos');
@@ -1070,8 +1094,58 @@ function renderizarListaItensInclusos(idsSelecionados) {
   }
 }
 
-function lerItensInclusosMarcados() {
-  return Array.from(document.querySelectorAll('.campo-item-incluso:checked')).map((c) => c.value);
+/**
+ * Lê e valida os itens inclusos com quantidade: { ids, quantidades: { [id]: { unidades, gramas } } }
+ * ou { erro }. Cada item marcado precisa de UNIDADES (inteiro 1–99) OU GRAMAS (> 0, decimais ok) —
+ * nunca os dois; gramas só onde a linha aceita (Acompanhamentos). Desmarcado = ignorado.
+ */
+function lerItensInclusosDoFormulario() {
+  const ids = [];
+  const quantidades = {};
+  for (const linha of document.querySelectorAll('#lista-itens-inclusos .linha-item-incluso-qtd')) {
+    const marcado = linha.querySelector('.campo-item-incluso');
+    if (!marcado || !marcado.checked) continue;
+    const nome = linha.dataset.nome || 'item';
+    const textoUn = linha.querySelector('.campo-incluso-unidades').value.trim();
+    const textoG = linha.querySelector('.campo-incluso-gramas').value.trim();
+    if (!textoUn && !textoG) return { erro: `Informe a quantidade de "${nome}" (unidades ou gramas) — é obrigatória para item incluso.` };
+    if (textoUn && textoG) return { erro: `"${nome}": preencha só unidades OU só gramas.` };
+    if (textoG) {
+      if (linha.dataset.aceitaGramas !== '1') return { erro: `"${nome}" usa unidades, não gramas.` };
+      const g = Number(textoG.replace(',', '.'));
+      if (!Number.isFinite(g) || g <= 0 || g > 100000) return { erro: `Gramas de "${nome}": use um valor maior que zero (até 100000).` };
+      quantidades[marcado.value] = { unidades: null, gramas: Math.round(g * 100) / 100 };
+    } else {
+      const u = Number(textoUn);
+      if (!Number.isInteger(u) || u < 1 || u > 99) return { erro: `Unidades de "${nome}": use um número inteiro de 1 a 99.` };
+      quantidades[marcado.value] = { unidades: u, gramas: null };
+    }
+    ids.push(marcado.value);
+  }
+  return { ids, quantidades };
+}
+
+/** Marcar/desmarcar liga/desliga os campos da linha; digitar num campo limpa o outro (unidades OU gramas). */
+function configurarListaItensInclusos() {
+  const container = document.getElementById('lista-itens-inclusos');
+  if (!container || container.dataset.configurado) return;
+  container.dataset.configurado = '1';
+  container.addEventListener('change', (evento) => {
+    if (!evento.target.classList.contains('campo-item-incluso')) return;
+    const linha = evento.target.closest('.linha-item-incluso-qtd');
+    if (!linha) return;
+    const marcado = evento.target.checked;
+    linha.querySelector('.campo-incluso-unidades').disabled = !marcado;
+    linha.querySelector('.campo-incluso-gramas').disabled = !marcado || linha.dataset.aceitaGramas !== '1';
+    if (marcado) linha.querySelector('.campo-incluso-unidades').focus();
+  });
+  container.addEventListener('input', (evento) => {
+    const campo = evento.target;
+    if (!campo.classList.contains('campo-incluso-qtd') || campo.value === '') return;
+    const linha = campo.closest('.linha-item-incluso-qtd');
+    const outro = linha.querySelector(campo.classList.contains('campo-incluso-unidades') ? '.campo-incluso-gramas' : '.campo-incluso-unidades');
+    outro.value = '';
+  });
 }
 
 // Grupos de opção de combo com acréscimo por opção — mesma tela/leitura pra todos. A lista de
@@ -1266,6 +1340,13 @@ async function salvarFormularioProduto(evento) {
   }
   const composicaoAnterior = id ? ((obterProdutoPorId(id) || {}).composicao || []) : [];
   const ehComposto = composicao.length > 0;
+
+  // Itens inclusos do combo com quantidade (unidades OU gramas) — validados antes de qualquer gravação.
+  const inclusosCombo = ehCombo ? lerItensInclusosDoFormulario() : null;
+  if (inclusosCombo && inclusosCombo.erro) {
+    mostrarToast(inclusosCombo.erro, 'erro');
+    return;
+  }
   // Combos/adicionais oferecidos (ex.: + Batata + Refri): só produto montado (sanduíche). Sem
   // composição (ou combo), a lista vai vazia — e um produto que deixou de ser montado perde os combos.
   const usaAdicionais = adicionaisProdutosDisponivel();
@@ -1307,7 +1388,8 @@ async function salvarFormularioProduto(evento) {
           ordem: Math.max(0, Number(document.getElementById('campo-ordem').value) || 0),
           allowedSkewers: Math.max(1, Number(document.getElementById('campo-qtd-espetos').value) || 1),
           allowedSides: Math.max(0, Number(document.getElementById('campo-qtd-acompanhamentos').value) || 0),
-          includedItems: lerItensInclusosMarcados(),
+          includedItems: inclusosCombo.ids,
+          includedQuantities: inclusosCombo.quantidades,
           skewerExtraPrices: lerAcrescimosOpcoesPreenchidos('espetos'),
           sideExtraPrices: lerAcrescimosOpcoesPreenchidos('acompanhamentos'),
         }
